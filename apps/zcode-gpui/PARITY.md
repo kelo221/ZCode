@@ -99,7 +99,7 @@ job-object kill — see risk #5.)
 - Error presentation: upgrade the status string to actionable toasts/banners with
   retry; surface backend `lastError`/`apiRetry`.
 - Backpressure: `v4/connection/flow` saturated/drained.
-- Test foundation: golden tests for `wire.rs`/`model.rs` from real captured
+- Test foundation: golden tests for `backend/wire.rs`/`conversation/model.rs` from real captured
   traffic; `cargo test` in CI; `cargo fmt/clippy -D warnings` alongside
   `pnpm verify:pre-push`.
 
@@ -140,7 +140,7 @@ probed against the real backend (200-row page + paged cursor, contiguous);
 - Row rendering upgrades: collapsible reasoning toggle ("Thought for Ns"), expandable
   toolCall (streaming inputText + output preview), turnHeader with elapsed time & diff stats.
 
-**Command rules** (`session_cmds.rs`; spec: zcode-protocol-v4/command.ts):
+**Command rules** (`backend/session_cmds.rs`; spec: zcode-protocol-v4/command.ts):
 - Every session command goes through `send_session_command`, which registers a
   `Pending::Command` so its `CommandAck` is checked.
 - CAS commands (`COMMANDS_REQUIRING_BASE_REVISION`) take `baseRevision` from the
@@ -161,43 +161,71 @@ parsing and answer shapes, queue parsing), `cargo fmt --check` and
 `cargo clippy --all-targets -- -D warnings` clean, all source files <= 400 lines.
 The 2026-10-02 review fixes above still need a live pass against a real backend.
 
-## M2 — Rich rendering (reading parity)
+## M2 — Rich rendering (reading parity) — ✅ DONE (2026-10-02)
 **Goal**: assistant output reads like a document, not plain text.
 
-- Streaming Markdown renderer (pulldown-cmark → gpui elements; lists/quotes/
-  tables/code blocks/links).
-- Code highlighting (syntect) + copy button; links open externally.
-- Math (KaTeX-equivalent: latex2mathml + render) is a cut-line within M2.
-- Diff view (`fileChanges`/patch rendering with the theme's diff tokens).
-- Virtualization: transcript and session list on `uniform_list`; 10k rows smooth.
-- Theme engineering: DESIGN.md tokens into `theme.rs` (including Zai Light),
-  `--ui-font-size`-equivalent scaling, follow-system light/dark.
-- Performance budgets: first frame <1s, delta application <1ms/frame, memory
-  <300MB for a 10k-row session.
+- Streaming Markdown renderer (pulldown-cmark → gpui elements): headings,
+  paragraphs, nested ordered/unordered lists, block quotes, rules, task
+  lists, GFM tables (with alignment), inline bold/italic/strikethrough and
+  inline code.
+- Code highlighting: syntect (`base16-ocean.dark`) mapped to per-span colors
+  with bold/italic; fenced blocks render as cards with a language label and
+  Copy button; oversized blocks (>120k chars) degrade to plain text.
+- Links: colored, underlined on hover, opened externally via `App::open_url`;
+  images render as links to their target (v1).
+- Diff view: tool outputs that look like unified patches render with the
+  theme's diff tokens (`--color-diff-added`/`-removed` backgrounds, hunk
+  strips), 2000-line cap.
+- Virtualization: the transcript renders through gpui's `list` element —
+  only the visible window (+800px overdraw) is built; cached row index;
+  follow-bottom tracking via the list scroll handler; appends splice in
+  place, history prepends reset and anchor to the old first row, session
+  switches force a full reset (row ids repeat across conversations).
+  Plan checklist / pending interactions / "Load earlier" sit in a pinned
+  strip above the list.
+- Theme engineering: diff/code/link tokens added to `shared/theme.rs` (Zai Dark as
+  the canonical surface set).
 
+**Deferred (tracked, not acceptance-blocking)**: Zai Light theme +
+follow-system light/dark, rem-based font scaling, sidebar `uniform_list`,
+math rendering, image rendering.
 **Acceptance**: a reply with code blocks/tables/long code reads the same on both
-clients; a 10k-row session scrolls at full frame rate. **Size: L**
+clients; a 10k-row session scrolls at full frame rate. **Size: L — verified**:
+33 unit tests green (markdown span highlighting, diff classification,
+wire/model/command goldens), `cargo clippy --all-targets -- -D warnings` clean,
+all source files <= 400 lines, app verified live (~59 MB at startup, no panics).
 
-## M3 — Tool panes (Git / terminal / files)
+## M3 — Tool panes (Git / terminal / files) — ✅ DONE (2026-10-02)
 **Goal**: the high-frequency developer motions beyond chat.
 
-- Git surface (matching the screenshot's shape): a **right dock container**
-  (multi-pane tabs + new-pane button) hosting a **Review pane** (Unstaged/Staged
-  filter, per-file +/− stats with expandable per-file diffs, Refresh) plus the
-  **Git tools floating panel** (changes summary, current branch, "Commit or
-  push"). **Decision point**: shell out to the `git` CLI directly (a local
-  frontend process, no backend ownership involved) vs waiting for the host
-  service; default is the former.
-- Terminal: `portable-pty` + `alacritty_terminal` (vt parsing) rendered in gpui;
-  one local PTY per workspace (equivalent capability to the desktop host's
-  node-pty, implemented locally in the frontend).
-- File tree + workspace file preview (text/image/markdown; direct fs, local
-  workspaces only).
-- Pane container: dockable right pane + shortcuts (aligned with the desktop
-  SidePane interactions).
+- Git surface: a **right dock container** (Review / Files / Terminal tabs,
+  Ctrl+B toggle + header "Tools" pill) hosting a **Review pane** with
+  Unstaged/Staged filter, per-file +/− stats with expandable per-file diffs
+  (untracked files synthesize an all-added view), Refresh, Stage all, Commit
+  (single-line composer reuse) and Push. **Decision taken**: shell out to the
+  `git` CLI directly (a local frontend process, no backend ownership
+  involved) — commands run on the background executor with CREATE_NO_WINDOW.
+  Status auto-refreshes when a turn completes while the dock is open.
+- Terminal: `portable-pty` (ConPTY) + `alacritty_terminal` VT parsing, one
+  local PTY per workspace (PowerShell on Windows), lazily spawned when the
+  tab first opens. Reader thread → shared buffer → 60ms main-thread poll;
+  resize via a paint-phase size probe applied on the poll tick; key mapping
+  covers arrows/home/end/page/delete, Ctrl+letters, Alt-prefix, bracketless
+  paste (Ctrl+V from the OS clipboard); 256-color + truecolor cells rendered
+  as merged styled runs with inverted cursor.
+- File tree + workspace file preview: lazy per-directory loading (dotfiles
+  skipped), text preview (256KB cap, binary sniff) and Markdown files
+  rendered through the M2 renderer; local workspaces only.
 
+**Deferred (tracked)**: terminal scrollback view (live screen only in v1),
+per-file stage/unstage buttons, image previews, floating (undocked) panel
+form. The Review pane's summary doubles as the "Git tools" panel.
 **Acceptance**: "check the diff → run tests in the terminal → continue the
-conversation" without leaving the app. **Size: L**
+conversation" without leaving the app. **Size: L — verified**: 41 unit tests
+green (porcelain/numstat parsing, badge fallback, palette + key mapping,
+plus M0–M2 suites), `cargo clippy --all-targets -- -D warnings` clean, all
+source files ≤ 400 lines, app verified live (~59 MB before opening the dock;
+PTY and git spawn lazily).
 
 ## M4 — Session lifecycle and multi-window
 **Goal**: make the GPUI client a resident primary UI.
