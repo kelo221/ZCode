@@ -14,6 +14,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Reading width of the transcript and composer (desktop centers both).
+const CONTENT_WIDTH: f32 = 800.;
+
 pub struct RootView {
     pub(crate) state: Entity<AppState>,
     scroll: ScrollHandle,
@@ -83,8 +86,7 @@ impl Render for RootView {
             .map(|c| c.phase.clone())
             .unwrap_or_default();
         let title: SharedString = match (&active_sid, is_draft) {
-            (None, true) => "New chat".into(),
-            (None, false) => "ZCode".into(),
+            (None, _) => "New task".into(),
             (Some(sid), _) => {
                 let title = state
                     .workspaces
@@ -144,27 +146,38 @@ impl Render for RootView {
                 }),
             )
             .child(self.sidebar(cx))
-            // Main column
+            // Main column: a rounded panel inset from the window edge, as in
+            // the desktop workspace layout.
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
-                    .h_full()
+                    .my_1()
+                    .mr_1()
+                    .rounded_lg()
+                    .overflow_hidden()
+                    .bg(rgb(PANEL))
+                    .border_1()
+                    .border_color(rgb(BORDER))
                     .flex()
                     .flex_col()
                     .child(
                         div()
-                            .h(px(44.))
+                            .h(px(46.))
                             .relative()
                             .flex()
                             .flex_row()
                             .items_center()
                             .gap_2()
-                            .px_4()
-                            .bg(rgb(PANEL))
-                            .border_b_1()
-                            .border_color(rgb(BORDER))
-                            .child(div().text_size(px(13.5)).truncate().flex_1().child(title))
+                            .px_5()
+                            .child(
+                                div()
+                                    .text_size(px(14.))
+                                    .font_weight(gpui::FontWeight::MEDIUM)
+                                    .truncate()
+                                    .flex_1()
+                                    .child(title),
+                            )
                             .children(plan.as_ref().map(|p| {
                                 let c = p.completed_count();
                                 let t = p.items.len();
@@ -185,8 +198,7 @@ impl Render for RootView {
                                         cx.notify();
                                     }))
                             }))
-                            .children((!phase.is_empty()).then(|| phase_badge(&phase)))
-                            .child(self.header_selectors(cx)),
+                            .children(phase_badge(&phase)),
                     )
                     .child(
                         div()
@@ -204,11 +216,10 @@ impl Render for RootView {
                                     .min_h_0()
                                     .overflow_y_scroll()
                                     .track_scroll(&self.scroll)
-                                    .px_4()
+                                    .px_6()
                                     .py_4()
                                     .flex()
                                     .flex_col()
-                                    .gap_2()
                                     // History paging: rows older than the
                                     // 60-row tail window.
                                     .children(has_more.then(|| {
@@ -251,60 +262,64 @@ impl Render for RootView {
                                         .absolute()
                                         .size_full()
                                     })
-                                    .children(plan.as_ref().map(|p| {
-                                        crate::turn_meta::render_plan_checklist(
-                                            p,
-                                            self.plan_expanded,
-                                        )
-                                    }))
-                                    .children(self.interaction_cards(&pending_interactions, cx))
-                                    .children(
-                                        rows.iter()
-                                            .filter_map(|r| self.transcript_row(r, row_actions, cx))
-                                            .collect::<Vec<AnyElement>>(),
-                                    )
-                                    .when(rows.is_empty(), |el| {
-                                        el.child(
-                                            div()
-                                                .flex_1()
-                                                .flex()
-                                                .items_center()
-                                                .justify_center()
-                                                .text_color(rgb(MUTED))
-                                                .text_size(px(13.))
-                                                .child("Start a new conversation"),
-                                        )
-                                    }),
+                                    .child(
+                                        div()
+                                            .w_full()
+                                            .max_w(px(CONTENT_WIDTH))
+                                            .mx_auto()
+                                            .flex()
+                                            .flex_col()
+                                            .gap_2()
+                                            .when(rows.is_empty(), |el| el.flex_1())
+                                            .children(plan.as_ref().map(|p| {
+                                                crate::turn_meta::render_plan_checklist(
+                                                    p,
+                                                    self.plan_expanded,
+                                                )
+                                            }))
+                                            .children(
+                                                self.interaction_cards(&pending_interactions, cx),
+                                            )
+                                            .children(
+                                                rows.iter()
+                                                    .filter_map(|r| {
+                                                        self.transcript_row(r, row_actions, cx)
+                                                    })
+                                                    .collect::<Vec<AnyElement>>(),
+                                            )
+                                            .when(rows.is_empty(), |el| {
+                                                el.child(
+                                                    div()
+                                                        .flex_1()
+                                                        .flex()
+                                                        .items_center()
+                                                        .justify_center()
+                                                        .text_color(rgb(MUTED))
+                                                        .text_size(px(13.))
+                                                        .child("Start a new conversation"),
+                                                )
+                                            }),
+                                    ),
                             ),
                     )
                     .child(
                         div()
+                            .w_full()
+                            .max_w(px(CONTENT_WIDTH + 24.))
+                            .mx_auto()
                             .flex()
                             .flex_col()
                             .gap_1p5()
                             .px_3()
-                            .pt_2()
+                            .pt_1()
                             .pb_3()
-                            .border_t_1()
-                            .border_color(rgb(BORDER))
-                            .bg(rgb(PANEL))
                             .children(
                                 queue
                                     .as_ref()
                                     .and_then(|q| crate::queue::render_queue_panel(q, cx)),
                             )
                             .children(self.intent_banner(&intent, cx))
-                            .child(self.mode_bar(cx))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(composer)
-                                    .child(crate::ui_parts::send_button(&intent, cx))
-                                    .when(running, |el| el.child(crate::ui_parts::stop_button(cx))),
-                            ),
+                            .child(self.composer_card(composer, running, cx)),
                     ),
             )
             .when(
