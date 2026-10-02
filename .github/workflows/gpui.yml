@@ -1,0 +1,27 @@
+name: gpui-frontend
+
+on:
+  push:
+    paths: ["apps/zcode-gpui/**", ".github/workflows/gpui.yml"]
+  pull_request:
+    paths: ["apps/zcode-gpui/**", ".github/workflows/gpui.yml"]
+
+jobs:
+  check:
+    # Windows runner: gpui's DirectWrite backend needs no extra system deps,
+    # unlike Linux (X11/wayland dev packages).
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/zcode-gpui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/zcode-gpui
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
