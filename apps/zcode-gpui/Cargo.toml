@@ -18,6 +18,8 @@ base64 = "0.22"
 crc32fast = "1"
 pulldown-cmark = "0.13.4"
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
+portable-pty = "0.9.0"
+alacritty_terminal = "0.26.0"
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [

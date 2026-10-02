@@ -19,6 +19,8 @@ cargo run --release -- --workspace <absolute_path_to_default_project_directory>
 - **Turn Plan Progress Checklist**: Live header progress badge ("Progress 6/6") and collapsible checklist container mirroring the V4 `plan` and `goal` regions.
 - **Follow-up Queue Panel**: Displays queued turns with "Send now" buttons, delete buttons, and a Pause/Resume auto-drain toggle (`sendQueuedNow`, `deleteQueueItem`, `setAutoDrain`).
 - **Composer 2.0 with Draft Persistence**: Multi-line editing with Shift+Enter for newlines and Enter to send. Uncommitted drafts are saved atomically per session and workspace, and restored automatically when navigating between conversations.
+- **Rich Rendering**: Assistant replies render as Markdown — headings, lists, quotes, GFM tables, task lists, inline bold/italic/strikethrough/code — with syntect syntax-highlighted code blocks (language label + Copy button) and clickable external links. Tool outputs carrying unified patches render as color-coded diffs. The transcript is virtualized (only the visible window is built), so 10k-row sessions scroll at full frame rate.
+- **Tool Dock (Ctrl+B)**: right-side dock with three panes — **Review** (git status with unstaged/staged filters, per-file +/− stats, expandable diffs, Stage all / Commit / Push against the local `git` CLI; auto-refreshes when a turn completes), **Files** (lazy file tree with text/markdown preview), and **Terminal** (a real local shell per workspace via ConPTY + VT parsing, color-rendered in the UI). All three spawn lazily and cost nothing until opened.
 - **Local Session Search**: Filter sessions in the sidebar in real time by title.
 
 ## Architecture: Wire Protocol Alignment
@@ -36,11 +38,30 @@ cargo run --release -- --workspace <absolute_path_to_default_project_directory>
 - **Ownership Boundaries**: Agent process lifecycles, CommandInbox admission, task leases, and remote connection registries belong strictly to the backend/host; this frontend exclusively manages drafts, optimistic UI, selector state, and window rendering.
 - **Zero Backend Forks**: Upstream updates from `zai-org/ZCode` can be pulled directly via git without breaking frontend compatibility.
 
+## Source Layout (Vertical Slices)
+
+Each folder under `src/` owns one feature end to end — its state, effects and views:
+
+| Slice | Owns |
+| --- | --- |
+| `app/` | Root window view (`root.rs`), header/composer card (`parts.rs`), right dock (`dock.rs`), `AppState` (`store.rs`) |
+| `backend/` | Agent process launch, V4 wire codec, event routing, response correlation, outbound commands |
+| `conversation/` | Mirrored conversation model, rows, turn metadata/plan, queue, interactions, user actions |
+| `transcript/` | Virtualized chat list, row rendering, scroll behavior (follow-bottom, middle-click autoscroll) |
+| `composer/` | Message input, mode/model/thinking pickers, config catalog |
+| `sessions/` | Project + session sidebar |
+| `review/` | Git status, diffs, stage/commit/push |
+| `files/` | File tree + preview |
+| `terminal/` | PTY lifecycle, grid conversion, terminal drawer |
+| `shared/` | Theme tokens and markdown/diff renderers (depends on no feature slice) |
+
+Slices extend the two central types (`RootView`, `AppState`) with their own `impl` blocks, so every slice depends on `app/`. Tests live next to their module as `*_tests.rs`. Keep every file at or below 400 lines (`find src -name '*.rs' | xargs wc -l`).
+
 ## Backend Candidates (Auto-resolved in order)
 
 1. `ZCODE_GPUI_AGENT_PROGRAM` (+ optional `ZCODE_GPUI_AGENT_ARGS`, defaults to `app-server --stdio`) — explicit override.
-2. **bun + repository source code** (experimental: bun junction resolution for `@zcode/shared/*` falls back gracefully if unlinked).
-3. **Installed ZCode Desktop Runtime** (`ELECTRON_RUN_AS_NODE=1 ZCode.exe resources/glm/zcode.cjs app-server --stdio`) — default production path, updating in lockstep with the desktop app.
+2. **Installed ZCode Desktop Runtime** (`ELECTRON_RUN_AS_NODE=1 ZCode.exe resources/glm/zcode.cjs app-server --stdio`) — default production path, updating in lockstep with the desktop app.
+3. **bun + repository source code** (experimental fallback: bun 1.4.x mis-resolves `@zcode/shared/*` subpaths in this repo and dies before startup, in which case the launcher falls back automatically).
 
 ## Troubleshooting
 
