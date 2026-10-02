@@ -15,6 +15,8 @@
     "dev:web-remote-control": "node scripts/build-desktop-agent-cli.mjs && concurrently -k -n web,desktop -c green,magenta \"pnpm --filter @zcode/web exec vite dev --strictPort\" \"node scripts/dev-web-remote-control-desktop.mjs\"",
     "dev:web-share:test": "node scripts/dev-web-share-env.mjs test",
     "dev:web-share:mock": "node scripts/dev-web-share-env.mjs mock",
+    "dev:gpui": "cargo run --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace .",
+    "start:gpui": "cargo run --release --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace .",
     "dev:server": "pnpm --filter @zcode/server dev",
     "dev:official-mcp": "node scripts/dev-official-mcp-server.mjs",
     "prepare": "husky",

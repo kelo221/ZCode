@@ -290,16 +290,12 @@ impl Render for Composer {
             .key_context("Composer")
             .track_focus(&self.focus)
             .cursor(CursorStyle::IBeam)
-            .flex_1()
+            .w_full()
             .min_w_0()
-            .px_3()
-            .py_2()
-            .rounded_md()
-            .bg(rgb(0x232323))
-            .border_1()
-            .border_color(rgb(0x333333))
+            .min_h(px(44.))
+            .px_1()
             .text_size(px(14.))
-            .text_color(rgb(0xececec))
+            .text_color(rgb(crate::theme::TEXT))
             .on_click(cx.listener(|this, _: &ClickEvent, window, _cx| {
                 window.focus(&this.focus);
             }))
@@ -329,8 +325,8 @@ impl Render for Composer {
                     )
                     .children(empty.then(|| {
                         div()
-                            .text_color(rgb(0x777777))
-                            .child("Type a message, Enter to send…")
+                            .text_color(rgb(crate::theme::MUTED))
+                            .child("Ask for follow-up changes")
                     })),
             )
             .children((!empty).then(|| {

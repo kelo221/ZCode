@@ -181,9 +181,18 @@ impl EffectiveConfig {
 
     pub fn thought_display(&self) -> String {
         if self.thought.is_empty() {
-            "thinking: default".into()
+            "Default".into()
         } else {
-            format!("thinking: {}", self.thought)
+            title_case(&self.thought)
         }
+    }
+}
+
+/// "medium" -> "Medium" (thinking-level labels, as in the desktop picker).
+pub fn title_case(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
     }
 }

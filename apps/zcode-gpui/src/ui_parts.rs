@@ -1,10 +1,15 @@
 //! Smaller pieces of the root layout: error banners, the composer intent
-//! banner (editing a message / renaming a session) and the send/stop buttons.
+//! banner (editing a message / renaming a session) and the composer card.
 
+use crate::composer::Composer;
 use crate::msg_actions::ComposerIntent;
-use crate::theme::{ACCENT, AMBER, BORDER, CARD, DANGER, MUTED, TEXT};
+use crate::theme::{
+    AMBER, BORDER, CARD, CARD_HOVER, DANGER, I_ARROW_UP, I_STOP, MUTED, PRIMARY, TEXT, icon,
+};
 use crate::ui::RootView;
-use gpui::{AnyElement, ClickEvent, Context, CursorStyle, Div, Stateful, div, prelude::*, px, rgb};
+use gpui::{
+    AnyElement, ClickEvent, Context, CursorStyle, Div, Entity, Stateful, div, prelude::*, px, rgb,
+};
 
 fn banner() -> Div {
     div()
@@ -123,42 +128,60 @@ impl RootView {
     }
 }
 
-pub(crate) fn send_button(intent: &ComposerIntent, cx: &mut Context<RootView>) -> Stateful<Div> {
-    let label = match intent {
-        ComposerIntent::Send => "Send",
-        ComposerIntent::Edit { .. } => "Resend",
-        ComposerIntent::Rename { .. } => "Save",
-    };
+fn round_button(id: &'static str, glyph: char, bg: u32, fg: u32) -> Stateful<Div> {
     div()
-        .id("send-btn")
-        .px_3()
-        .py_2()
-        .rounded_md()
-        .bg(rgb(0x1f3d3a))
-        .text_size(px(12.5))
-        .text_color(rgb(ACCENT))
+        .id(id)
+        .size(px(28.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_full()
+        .bg(rgb(bg))
         .cursor(CursorStyle::PointingHand)
-        .hover(|s| s.bg(rgb(0x2a524d)))
-        .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-            this.submit(cx);
-        }))
-        .child(label)
+        .child(icon(glyph, 12., fg))
 }
 
-pub(crate) fn stop_button(cx: &mut Context<RootView>) -> Stateful<Div> {
-    div()
-        .id("stop-btn")
-        .px_3()
-        .py_2()
-        .rounded_md()
-        .bg(rgb(0x3d2323))
-        .text_size(px(12.5))
-        .text_color(rgb(DANGER))
-        .cursor(CursorStyle::PointingHand)
-        .hover(|s| s.bg(rgb(0x522c2c)))
-        .border_color(rgb(BORDER))
-        .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-            this.state.update(cx, |s, cx| s.stop(cx));
-        }))
-        .child("Stop")
+impl RootView {
+    /// Desktop-style composer: one rounded card with the input on top and
+    /// mode / model / thinking pickers plus the round send button below.
+    pub(crate) fn composer_card(
+        &mut self,
+        composer: Entity<Composer>,
+        running: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let send = round_button("send-btn", I_ARROW_UP, PRIMARY, 0x000000)
+            .hover(|s| s.opacity(0.85))
+            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| this.submit(cx)));
+        let stop = round_button("stop-btn", I_STOP, CARD_HOVER, TEXT)
+            .hover(|s| s.bg(rgb(BORDER)))
+            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                this.state.update(cx, |s, cx| s.stop(cx));
+            }));
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .px_3()
+            .pt_3()
+            .pb_2()
+            .rounded_xl()
+            .bg(rgb(CARD))
+            .border_1()
+            .border_color(rgb(BORDER))
+            .child(composer)
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1()
+                    .child(self.mode_menu(cx))
+                    .child(div().flex_1())
+                    .child(self.composer_selectors(cx))
+                    .when(running, |el| el.child(stop))
+                    .child(send),
+            )
+    }
 }
