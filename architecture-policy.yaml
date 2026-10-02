@@ -55,6 +55,11 @@ modules:
   - id: zcode-cli
     roots: [apps/zcode-cli]
     managed: false
+  - id: gpui-desktop
+    # 原生 Rust/GPUI 前端（实验性）：通过 stdio V4 协议驱动 zcode-cli 后端，
+    # 不依赖本仓库 TS 包，因此不参与 TS 分层检查；仅记录模块归属。
+    roots: [apps/zcode-gpui/src]
+    managed: false
 
 global:
   maxFileLines: 400
