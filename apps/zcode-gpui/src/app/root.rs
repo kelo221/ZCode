@@ -38,6 +38,7 @@ pub struct RootView {
     pub(crate) expanded_tools: HashSet<u64>,
     pub(crate) session_search: String,
     pub(crate) plan_expanded: bool,
+    pub(crate) agents_expanded: bool,
     /// Destructive action awaiting a second click ("del:<sid>", "undo:<rowId>").
     pub(crate) confirm: Option<String>,
     /// Question picks per interaction: interactionId → question index → labels.
@@ -96,6 +97,7 @@ impl RootView {
             expanded_tools: HashSet::new(),
             session_search: String::new(),
             plan_expanded: false,
+            agents_expanded: true,
             confirm: None,
             question_picks: HashMap::new(),
             commit_input,
@@ -122,6 +124,7 @@ impl RootView {
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let state = self.state.read(cx);
+        let is_read_only = state.is_read_only_view();
         let active_sid = state.active.clone();
         let is_draft = state.draft;
         let row_count = state.active_conversation().map_or(0, |c| c.rows.len());
@@ -133,9 +136,10 @@ impl Render for RootView {
             .active_conversation()
             .map(|c| c.phase.clone())
             .unwrap_or_default();
-        let title: SharedString = match (&active_sid, is_draft) {
-            (None, _) => "New task".into(),
-            (Some(sid), _) => {
+        let title: SharedString = match (&active_sid, is_draft, is_read_only) {
+            (_, _, true) => "Subagent (read-only)".into(),
+            (None, _, _) => "New task".into(),
+            (Some(sid), _, _) => {
                 let title = state
                     .workspaces
                     .iter()
@@ -327,8 +331,13 @@ impl Render for RootView {
                                     .flex()
                                     .flex_col()
                                     .gap_1()
+                                    .children(self.subagent_back_bar(cx))
                                     .children(self.load_earlier_btn(has_more, cx))
-                                    .children(self.interaction_cards(&pending_interactions, cx)),
+                                    .children(if is_read_only {
+                                        Vec::new()
+                                    } else {
+                                        self.interaction_cards(&pending_interactions, cx)
+                                    }),
                             )
                             .child(if rows_empty {
                                 div()
@@ -357,11 +366,16 @@ impl Render for RootView {
                             .px_3()
                             .pt_1()
                             .pb_3()
-                            .children(queue.as_ref().and_then(|q| {
-                                crate::conversation::queue::render_queue_panel(q, cx)
-                            }))
-                            .children(self.intent_banner(&intent, cx))
-                            .child(self.composer_card(composer, running, cx)),
+                            .when(!is_read_only, |el| {
+                                el.children(queue.as_ref().and_then(|q| {
+                                    crate::conversation::queue::render_queue_panel(q, cx)
+                                }))
+                                .children(self.intent_banner(&intent, cx))
+                                .child(self.composer_card(composer, running, cx))
+                            })
+                            .when(is_read_only, |el| {
+                                el.child(self.subagent_read_only_banner(cx))
+                            }),
                     )
                     .when(self.term_open, |el| el.child(self.term_drawer(window, cx))),
             )

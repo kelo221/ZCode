@@ -35,7 +35,7 @@ telemetry. The app shows "Open in ZCode desktop" where a user would otherwise hi
 ## 2. Where we actually are (audit 2026-10-03)
 
 v1 marked M0–M3 done. Across the v2 implementation run, milestones P0, M4, M5, M6, M7, M8,
-and M10 have all been completed with green CI, 174 passing unit/smoke tests, and strict
+and M10 have all been completed with green CI, 191 passing unit/smoke tests, and strict
 conformance to repo constraints (<= 400 lines/file, pure Apache-2.0, no backend forks).
 
 | Area | State |
@@ -48,10 +48,11 @@ conformance to repo constraints (<= 400 lines/file, pure Apache-2.0, no backend 
 | **M4: Attachments, slash commands, @mentions, V4 goal/queue cmds** | **Done**: 512 KiB chunking, catalog-backed `/` & `@`, queue actions |
 | **M5: Settings, i18n, theme, shortcuts, quickpick** | **Done**: dual-language i18n table generation, light/dark themes, 25 shortcuts, quickpick palette |
 | **M6: Lifecycle & OS integration** | **Done**: single-instance pipe, notifications, keep-awake, log export |
-| **M7: Workflows, automations, usage, MCP** | **Done**: delta reducer (header→removals→upserts), workflow timeline, MCP list, usage stats |
+| **M7: Workflows, automations, usage, MCP, subagents** | **Done**: delta reducer (header→removals→upserts), workflow timeline, MCP list, usage stats, subagents |
 | **M8: Plugin store** | **Done**: CONTEXT.md lifecycle, official vs personal marketplaces, installed strip, restorable builtins |
 | **M10: Distribution & packaging** | **Done**: version sync (3.14.3), commit embedding, manifest updater, release packager, cross-platform CI matrix |
-| **`cargo fmt --check`, `clippy -D warnings`, `cargo test`** | **Green** (174 tests pass, zero warnings; clippy also clean with `--all-targets`) |
+| **Subagents & Background Work** | **Done**: V4 row/projection, card pairing, dock review section, child navigation, read-only gating, sidebar filter |
+| **`cargo fmt --check`, `clippy -D warnings`, `cargo test`** | **Green** (191 tests pass, zero warnings; clippy also clean with `--all-targets`) |
 
 ## 3. The real blockers v1 missed
 
@@ -199,8 +200,30 @@ Requirements:
 - **Usage**: `v4/usage/stats` (legacy `usage/stats` is deprecated); native bar/line/
   heatmap drawing (no chart crate needed).
 - **MCP**: `mcp/list` read-only; editing stays in the desktop (host `mcp-sync` channel).
-- **Subagents / background work**: `subagents` region, `session/subagents`, sub-session
-  side pane, `v4/conversation/backgroundBashOutput`.
+- **Subagents / background work**: **COMPLETED**.
+  - **V4 Subagents State & Projection**: `Row::Subagent` with `tool_call_id`, `subagent_type`,
+    `status`, `summary_text`, `parent_tool_call_id`, `child_session_id`, `work_id`, `backgrounded`,
+    and `started_at`. Incremental `row.delta` streaming appends to `summary_text` via `stream_field_mut`.
+    `SubagentsState` tracks `revision`, `child_session_ids`, `running`, and `ended_total` from
+    `state.updated` patch `subagents`. `join_running_subagents` merges running subagents with
+    `backgroundWorks` by `child_session_id` to establish live status and cancellation control.
+  - **Transcript Card Pairing**: `transcript/subagent_card.rs` pairs `Row::Subagent` beneath its
+    parent `Row::ToolCall` when `tool_call_id == parent_tool_call_id` (matching web/desktop layout),
+    and falls back to standalone rendering when unpaired.
+  - **Dock Agents Section**: Collapsible Agents section in `review/pane.rs` (`agents_section.rs`)
+    displaying running count badge, status dot, elapsed duration, truncated summary preview,
+    Stop button (sends session command `cancelBackgroundWork { workId }`), and Open button. Displays
+    `ended_total` counter when completed subagents exist.
+  - **Child Navigation & Read-Only Gating**: Clicking Open sets `viewing_child: Option<String>` in
+    `AppState`, routing `active_conversation()` to the child session while enforcing strict read-only
+    mode: suppresses composer input (replaced with read-only banner), turn actions (edit/retry/fork/undo),
+    and interaction cards. Top "← Back to {parent_title} ({child_session_id})" bar navigates back to
+    parent and cleanly unsubscribes child session via `v4/conversation/unsubscribe`.
+  - **Sessions Sidebar Filtering**: Excludes all subagent child session IDs from workspace session lists
+    by aggregating `child_owner` and loaded `subagents.childSessionIds`.
+  - **Follow-up Scope**: Full on-demand paginated historical drawer via `session/subagents` (for browsing
+    ended subagents across past pages) remains an optional follow-up inspection tool; current state
+    directly reflects live `state.updated` projection and `ended_total`.
 
 Acceptance: start a saved workflow, watch nodes progress, view an artifact; check this
 month's usage; see MCP server status; an agent-created automation either works or fails

@@ -170,6 +170,7 @@ impl AppState {
 
     pub fn select_session(&mut self, ws_key: &str, sid: &str, cx: &mut Context<Self>) {
         self.save_current_draft(cx);
+        self.clear_subagent_view();
         self.active = Some(sid.to_string());
         self.active_workspace = Some(ws_key.to_string());
         self.draft = false;
@@ -202,6 +203,7 @@ impl AppState {
 
     pub fn set_active_workspace(&mut self, ws_key: &str, cx: &mut Context<Self>) {
         self.save_current_draft(cx);
+        self.clear_subagent_view();
         self.ensure_spawned(ws_key, cx);
         self.active_workspace = Some(ws_key.to_string());
         self.active = None;
@@ -214,6 +216,7 @@ impl AppState {
 
     pub fn new_chat(&mut self, cx: &mut Context<Self>) {
         self.save_current_draft(cx);
+        self.clear_subagent_view();
         if let Some(key) = self.active_ws_key() {
             self.ensure_spawned(&key, cx);
         }

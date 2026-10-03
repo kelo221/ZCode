@@ -48,6 +48,26 @@ fn nav_row(id: SharedString, selected: bool) -> gpui::Stateful<gpui::Div> {
         .when(!selected, |el| el.hover(|s| s.bg(rgb(HOVER))))
 }
 
+/// Filter session indices for workspace list, omitting child subagent sessions
+/// and applying search filtering.
+pub fn filter_session_indices(
+    sessions: &[crate::conversation::model::SessionEntry],
+    child_sids: &std::collections::HashSet<&str>,
+    search: &str,
+) -> Vec<usize> {
+    (0..sessions.len())
+        .filter(|&i| {
+            let s = &sessions[i];
+            if child_sids.contains(s.session_id.as_str()) {
+                return false;
+            }
+            search.is_empty()
+                || s.title.to_lowercase().contains(search)
+                || s.preview.to_lowercase().contains(search)
+        })
+        .collect()
+}
+
 impl crate::app::root::RootView {
     fn session_row(
         &self,
@@ -217,6 +237,21 @@ impl crate::app::root::RootView {
         let failed =
             status.starts_with("error") || status.contains("failed") || status == "no backend";
         let key_c = key.to_string();
+        let key_new = key.to_string();
+        // Desktop parity (workspace-grouped-tasks/group-item.tsx): every
+        // project header carries a "New task" button that starts a draft there.
+        let new_task = div()
+            .id(SharedString::from(format!("ws-new-{key}")))
+            .px_1()
+            .rounded_md()
+            .cursor_pointer()
+            .hover(|s| s.bg(rgb(HOVER)))
+            .child(icon(I_ADD, 12., MUTED))
+            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                cx.stop_propagation();
+                this.state
+                    .update(cx, |s, cx| s.set_active_workspace(&key_new, cx));
+            }));
         nav_row(SharedString::from(format!("ws-{key}")), false)
             .mt_1()
             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
@@ -240,27 +275,21 @@ impl crate::app::root::RootView {
                         .child(status.to_string()),
                 )
             })
+            .child(new_task)
             .into_any_element()
     }
 
     /// Snapshot of all workspaces + their session rows, grouped per project.
     pub(crate) fn sidebar(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let active_workspace = self.state.read(cx).active_ws_key();
+        let state = self.state.read(cx);
+        let active_workspace = state.active_ws_key();
         let search = self.session_search.to_lowercase();
-        let projects: Vec<(String, String, String, Vec<usize>)> = self
-            .state
-            .read(cx)
+        let child_sids = state.all_child_session_ids();
+        let projects: Vec<(String, String, String, Vec<usize>)> = state
             .workspaces
             .iter()
             .map(|w| {
-                let indices = (0..w.sessions.len())
-                    .filter(|&i| {
-                        let s = &w.sessions[i];
-                        search.is_empty()
-                            || s.title.to_lowercase().contains(&search)
-                            || s.preview.to_lowercase().contains(&search)
-                    })
-                    .collect();
+                let indices = filter_session_indices(&w.sessions, &child_sids, &search);
                 (w.key.clone(), w.display.clone(), w.status.clone(), indices)
             })
             .collect();
@@ -327,3 +356,7 @@ impl crate::app::root::RootView {
             .into_any_element()
     }
 }
+
+#[cfg(test)]
+#[path = "sidebar_tests.rs"]
+mod tests;

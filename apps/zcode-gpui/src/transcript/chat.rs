@@ -343,7 +343,41 @@ impl crate::app::root::RootView {
                 status,
                 input_text,
                 output_text,
-            } => Some(self.render_tool_row(*row_id, label, status, input_text, output_text, cx)),
+                tool_call_id,
+            } => {
+                let maybe_subagent = tool_call_id
+                    .as_deref()
+                    .and_then(|tcid| self.find_subagent_for_tool_call(tcid, cx));
+                let tool_el =
+                    self.render_tool_row(*row_id, label, status, input_text, output_text, cx);
+                if let Some(subagent_row) = maybe_subagent {
+                    let subagent_el = self.render_subagent_card(&subagent_row, true, cx);
+                    Some(
+                        div()
+                            .w_full()
+                            .flex()
+                            .flex_col()
+                            .child(tool_el)
+                            .child(subagent_el)
+                            .into_any_element(),
+                    )
+                } else {
+                    Some(tool_el)
+                }
+            }
+            Row::Subagent {
+                parent_tool_call_id,
+                ..
+            } => {
+                let is_paired = parent_tool_call_id
+                    .as_deref()
+                    .is_some_and(|ptid| self.has_tool_call_with_id(ptid, cx));
+                if is_paired {
+                    None
+                } else {
+                    Some(self.render_subagent_card(row, false, cx))
+                }
+            }
             Row::Other => None,
         }
     }

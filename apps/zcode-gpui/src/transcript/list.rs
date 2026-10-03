@@ -208,9 +208,10 @@ impl RootView {
         else {
             return div().into_any_element();
         };
-        let row_actions = state
-            .active_conversation()
-            .is_some_and(|c| c.log_epoch.is_some() && c.subscribed);
+        let row_actions = !state.is_read_only_view()
+            && state
+                .active_conversation()
+                .is_some_and(|c| c.log_epoch.is_some() && c.subscribed);
         let content = self
             .transcript_row(&row, row_actions, cx)
             .unwrap_or_else(|| div().into_any_element());
