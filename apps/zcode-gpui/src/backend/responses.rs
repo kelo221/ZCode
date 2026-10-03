@@ -16,6 +16,15 @@ impl AppState {
         cx: &mut Context<Self>,
     ) {
         if let Some(err) = error {
+            // Background freshness probes fail silently: the next tick retries,
+            // and a transient store hiccup must not banner the user.
+            if let Some(ws) = self.ws_mut(ws_key)
+                && matches!(ws.pending.get(&id), Some(Pending::PollRows(_)))
+            {
+                ws.pending.remove(&id);
+                cx.notify();
+                return;
+            }
             let msg = err
                 .get("message")
                 .and_then(Value::as_str)
@@ -79,9 +88,9 @@ impl AppState {
             Pending::SubscribeConversation(sid) => {
                 let topic = format!("conversation/{sid}");
                 self.capture_subscription(ws_key, &topic, &result);
-                if let Some(c) = self.conversations.get_mut(&sid) {
-                    c.subscribed = true;
-                }
+                let c = self.conversations.entry(sid.clone()).or_default();
+                c.subscribed = true;
+                self.push_log(format!("subscribed conversation {sid}"));
             }
             Pending::CreateSession => {
                 // RPC result = CommandAck { status, result: { type:
@@ -135,6 +144,43 @@ impl AppState {
                     // older than the live mirror, so it never overwrites it.
                 }
                 self.push_log(format!("history page: +{count} rows"));
+            }
+            Pending::PollRows(sid) => {
+                // Change probe, never applied. The poll makes the backend
+                // refresh its cold projection when the store was appended by
+                // another process; movement here triggers the standard resync
+                // whose snapshot repaints everything (rows, statuses, plan,
+                // queue) through the §6 pipeline.
+                let Some(r) = &result else { return };
+                let at_seq = r.get("atSeq").and_then(Value::as_u64).unwrap_or(0);
+                let at_epoch = r
+                    .get("atLogEpoch")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let max_row_id = r.get("rows").and_then(Value::as_array).and_then(|rows| {
+                    rows.iter()
+                        .filter_map(|v| v.get("rowId").and_then(Value::as_u64))
+                        .max()
+                });
+                let Some(c) = self.conversations.get_mut(&sid) else {
+                    return;
+                };
+                // If the mirror's seq advanced since the previous poll, our own
+                // deltas are flowing (we host the turn) — the atSeq comparison
+                // would false-positive on every in-flight frame and is skipped.
+                let deltas_flowing = c.seq != c.prev_poll_seq;
+                c.prev_poll_seq = c.seq;
+                let newer_row = max_row_id
+                    .is_some_and(|id| c.rows.last_key_value().is_none_or(|(k, _)| id > *k));
+                let epoch_moved = at_epoch.is_some_and(|e| c.log_epoch.as_ref() != Some(&e));
+                let seq_moved = !deltas_flowing && at_seq != 0 && at_seq != c.seq;
+                if newer_row || epoch_moved || seq_moved {
+                    self.push_log(format!(
+                        "poll detected movement (newer_row={newer_row}, epoch={epoch_moved}, seq={seq_moved}) -> resync"
+                    ));
+                    let topic = format!("conversation/{sid}");
+                    self.resync_topic(ws_key, &topic);
+                }
             }
             Pending::FetchUsageStats(range) => {
                 if let Some(res) = &result {

@@ -1429,6 +1429,12 @@ export function createConversationV4Gateway(
   return new ConversationV4Gateway({
     cliVersion: context.deps.version,
     sessionExists: (sessionId) => context.sessions.has(sessionId),
+    isSessionDrivingTurn: (sessionId) => {
+      const record = context.sessions.get(sessionId);
+      if (!record) return false;
+      const coreForegroundBusy = record.app.runtime.getActiveForegroundExecutionId() !== undefined;
+      return Boolean(record.activeAbortController) || coreForegroundBusy;
+    },
     onDebug: (message) => log?.debug(message),
     onTargetCompleted: (sessionId) => {
       const record = context.sessions.get(sessionId);

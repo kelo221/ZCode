@@ -75,6 +75,11 @@ pub struct ConversationState {
     /// exists and `v4/conversation/rowsRange` can page it in.
     pub first_row_id: u64,
     pub total_count: u64,
+    /// Mirror seq seen by the previous freshness probe (`Pending::PollRows`).
+    /// Movement between probes means our own deltas are flowing, which
+    /// suppresses the probe's seq comparison (in-flight frames would
+    /// false-positive while we stream our own turn).
+    pub prev_poll_seq: u64,
     /// Backend-reported failure for the current turn (control.lastError).
     pub last_error: Option<(String, String)>,
     /// Backend automatic retry state (control.apiRetry), shown verbatim.

@@ -12,8 +12,8 @@ use gpui::{
 use pulldown_cmark::{Event, Tag, TagEnd};
 use std::ops::Range;
 
-const BODY_FONT: &str = "Segoe UI";
-const CODE_FONT: &str = "Consolas";
+const BODY_FONT: &str = crate::shared::theme::UI_FONT;
+const CODE_FONT: &str = crate::shared::theme::MONO_FONT;
 
 fn c(hex: u32) -> Hsla {
     rgb(hex).into()

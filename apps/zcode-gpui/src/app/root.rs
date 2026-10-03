@@ -4,7 +4,6 @@
 use crate::app::dock::{DockTab, ToggleDock};
 use crate::app::store::AppState;
 use crate::composer::input::{Composer, ComposerEvent};
-use crate::composer::menus::MenuKind;
 use crate::conversation::model::format_preview;
 use crate::files::pane::FilesState;
 use crate::review::git::GitState;
@@ -33,7 +32,6 @@ pub struct RootView {
     pub(crate) follow_bottom: Arc<AtomicBool>,
     pub(crate) last_row_count: usize,
     pub(crate) last_first_row_id: u64,
-    pub(crate) open_menu: Option<MenuKind>,
     pub(crate) expanded_reasonings: HashSet<u64>,
     pub(crate) expanded_tools: HashSet<u64>,
     pub(crate) session_search: String,
@@ -92,7 +90,6 @@ impl RootView {
             follow_bottom,
             last_row_count: 0,
             last_first_row_id: 0,
-            open_menu: None,
             expanded_reasonings: HashSet::new(),
             expanded_tools: HashSet::new(),
             session_search: String::new(),
@@ -222,7 +219,7 @@ impl Render for RootView {
             .size_full()
             .flex()
             .flex_row()
-            .font_family("Segoe UI")
+            .font_family(crate::shared::theme::UI_FONT)
             .bg(rgb(BG))
             .text_color(rgb(TEXT))
             .key_context("Root")
@@ -237,7 +234,7 @@ impl Render for RootView {
                 this.term_open = !this.term_open;
                 if this.term_open {
                     this.ensure_term(cx);
-                    window.focus(&this.term.focus);
+                    window.focus(&this.term.focus, cx);
                 }
                 cx.notify();
             }))
@@ -267,16 +264,6 @@ impl Render for RootView {
                     cx.stop_propagation();
                 }
             }))
-            // Any click that reaches the root (i.e. outside menus) closes them;
-            // menu entries stop propagation before it gets here.
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    if this.open_menu.take().is_some() {
-                        cx.notify();
-                    }
-                }),
-            )
             // Autoscroll gestures are window-wide: any other button cancels
             // (capture phase, so buttons that stop propagation still cancel),
             // and move/release keep tracking outside the transcript.

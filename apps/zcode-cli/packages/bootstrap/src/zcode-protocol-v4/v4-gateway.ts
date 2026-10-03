@@ -181,6 +181,12 @@ interface PersistedEventsLoadResult {
   usageSeed?: SessionUsageSeed | null;
 }
 
+/** 冷投影保鲜指纹：事件条数 + 末事件 id（合成 id `hydrate-N` 是位置确定的，追加必变）。 */
+function coldFingerprint(events: readonly SessionEvent[]): { count: number; lastId: string } {
+  const last = events.at(-1);
+  return { count: events.length, lastId: String(last?.id ?? "") };
+}
+
 type V4GatewayErrorContext = Record<string, unknown>;
 
 /**
@@ -209,6 +215,13 @@ export interface V4GatewayHost {
   cliVersion?: string;
   /** 会话是否在宿主注册表中活跃（inbox 的 sessionNotFound 裁决依据）。 */
   sessionExists(sessionId: string): boolean;
+  /**
+   * 当前进程是否正在驱动该会话的活动轮次（active turn / prompt in flight）。
+   * 只有正在产生 live 事件的会话才跳过冷投影保鲜；只读 resume 挂在 context.sessions
+   * 但没有运行中 turn 的会话，当外部进程（如桌面 Electron）向 store 追加事件时，
+   * 必须通过 refreshColdProjection 重新保鲜。
+   */
+  isSessionDrivingTurn?(sessionId: string): boolean;
   /**
    * V4 冷恢复钩子。gateway 用同一个 READY promise 包住 runtime activation 与 projection
    * hydration；宿主只负责恢复 record。
@@ -564,6 +577,8 @@ export class ConversationV4Gateway {
   private readonly configPublishers = new Map<string, WorkspaceConfigPublisher>();
   /** 已完成首次 hydration 的 session（避免重复重建 / 双计，见 hydratePublisher）。 */
   private readonly hydratedSessions = new Set<string>();
+  /** 冷投影保鲜指纹（见 refreshColdProjection）：hydration 时 store 事件流的规模 + 末事件 id。 */
+  private readonly coldFingerprints = new Map<string, { count: number; lastId: string }>();
   /** 首次 hydration 按 session 单飞；并发 pane 共享同一份重建结果。 */
   private readonly hydrationInFlight = new Map<string, Promise<ConversationTopicPublisher>>();
   /** cold activation 到 hydration 的 READY 水位；只阻塞本次恢复期间的 command/query。 */
@@ -1386,6 +1401,10 @@ export class ConversationV4Gateway {
     this.host.onDebug?.(
       `subscribe conversation session=${sessionId} coldResume=${String(!isLiveConversation)}`,
     );
+    if (!isLiveConversation || !this.host.isSessionDrivingTurn?.(sessionId)) {
+      // 重订阅一个已 hydration 的冷会话前先保鲜：store 可能被他进程追加过。
+      await this.refreshColdProjection(sessionId);
+    }
     // Hydration：首次订阅时从权威来源重建投影。
     // - 无 publisher（cold）→ 建 + 重放。
     // - 有 publisher 但事件日志覆盖不了 transcript（fork child：resume 的 ingest 抢先
@@ -1569,6 +1588,11 @@ export class ConversationV4Gateway {
    */
   async rowsRange(rawParams: unknown): Promise<V4ConversationRowsRangeResult> {
     const params = v4ConversationRowsRangeParamsSchema.parse(rawParams);
+    if (!this.host.isSessionDrivingTurn?.(params.sessionId)) {
+      // 只读查询兼作冷投影保鲜触发点：客户端尾部轮询打到这，store 被他进程
+      // 追加过则先重物化再取行（见 refreshColdProjection）。
+      await this.refreshColdProjection(params.sessionId);
+    }
     const existingReady = this.readyFlights.get(params.sessionId);
     const publisher = existingReady
       ? await existingReady
@@ -2922,6 +2946,48 @@ export class ConversationV4Gateway {
   }
 
   /**
+   * 冷投影保鲜：会话的权威运行时在**别的进程**（桌面 / GPUI 双开同一 workspace）时，
+   * 本进程 publisher 没有任何 live 事件源，store 被追加后活跃订阅会永远停在订阅时的
+   * 快照。这里读一次持久事件做指纹比对；store 增长即 forceRebuild 重物化——rehydrate
+   * 保留 connection-owned subscriptions 并建立 snapshot recovery boundary，活跃订阅经
+   * 既有 resync 语义拿到新快照，无需新协议面。合成事件 id（hydrate-N）是位置确定的，
+   * store 追加必然改变指纹；指纹未变时零重建。只读查询（rowsRange）与 subscribe 冷路径
+   * 调用；live 会话有自己的事件源，永远跳过。
+   */
+  private async refreshColdProjection(sessionId: string): Promise<void> {
+    if (this.host.isSessionDrivingTurn?.(sessionId)) return;
+    if (this.detachedLiveSessions.has(sessionId)) return;
+    if (!this.hydratedSessions.has(sessionId)) return;
+    if (this.hydrationInFlight.has(sessionId)) return;
+    if (!this.host.loadPersistedEvents) return;
+    const loaded = await this.host.loadPersistedEvents(sessionId).catch((error) => {
+      this.host.onError?.("v4.coldRefresh", error, {
+        phase: "loadPersistedEvents",
+        sessionId,
+      });
+      return undefined;
+    });
+    if (!loaded || this.disposed) return;
+    const fingerprint = coldFingerprint(loaded.events);
+    const previous = this.coldFingerprints.get(sessionId);
+    if (!previous) {
+      // 基线缺失（旧指纹通道未覆盖的 hydration）：只记录，下一轮才有可比基线。
+      this.coldFingerprints.set(sessionId, fingerprint);
+      return;
+    }
+    if (previous.count === fingerprint.count && previous.lastId === fingerprint.lastId) {
+      return;
+    }
+    this.host.onDebug?.(
+      `v4 cold projection refresh session=${sessionId} ` +
+        `events ${previous.count}->${fingerprint.count}; scheduling re-hydration`,
+    );
+    // 指纹在重物化成功后由 performHydration 自行更新；失败则保留旧值，下一轮重试。
+    this.hydratedSessions.delete(sessionId);
+    await this.hydratePublisher(sessionId, undefined, true);
+  }
+
+  /**
    * 首次订阅时的投影重建（hydration）。语义见 subscribe 注释；
    * synthesized 事件按 sequenceNumber 去重（publisher 已 ingest 过的 live 事件不重放）。
    */
@@ -2992,6 +3058,8 @@ export class ConversationV4Gateway {
         `synthesized=${String(loaded.synthesized)} sourceEventSeq=${String(loaded.sourceEventSeq ?? 0)} ` +
         `durationMs=${String(Math.max(0, Math.round(performance.now() - hydrationStartedAt)))}`,
     );
+    // 记录冷投影保鲜指纹（hydrate-N 合成 id 是位置确定的，store 追加必然改变指纹）。
+    this.coldFingerprints.set(sessionId, coldFingerprint(loaded.events));
 
     if (this.disposed || buffer.cancelled) {
       throw new Error(`v4 hydration cancelled for session ${sessionId}`);

@@ -126,7 +126,7 @@ pub fn highlight(code: &str, lang: &str) -> Vec<CodeLine> {
     out
 }
 
-const CODE_FONT: &str = "Consolas";
+const CODE_FONT: &str = crate::shared::theme::MONO_FONT;
 
 /// Render one highlighted line as a single flowing text element (spans as
 /// runs — separate divs would stack each colored chunk vertically).

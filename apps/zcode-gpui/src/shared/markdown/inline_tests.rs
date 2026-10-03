@@ -46,7 +46,10 @@ fn paragraph_consumes_through_nested_ends() {
     // Runs split per formatting change: plain / bold / plain / code / plain.
     assert_eq!(inline.runs.len(), 5, "{:?}", inline.runs);
     assert!(inline.runs[1].font.weight == gpui::FontWeight::BOLD);
-    assert_eq!(inline.runs[3].font.family.as_ref(), "Consolas");
+    assert_eq!(
+        inline.runs[3].font.family.as_ref(),
+        crate::shared::theme::MONO_FONT
+    );
 }
 
 #[test]
@@ -85,7 +88,10 @@ fn inline_code_gets_mono_font_and_background() {
         .iter()
         .find(|r| r.background_color.is_some())
         .unwrap();
-    assert_eq!(code_run.font.family.as_ref(), "Consolas");
+    assert_eq!(
+        code_run.font.family.as_ref(),
+        crate::shared::theme::MONO_FONT
+    );
     assert_runs_cover(&inline);
 }
 

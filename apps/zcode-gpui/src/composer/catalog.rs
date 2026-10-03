@@ -123,6 +123,41 @@ impl ModelOption {
 
 use crate::composer::slash::SlashCommand;
 
+/// One provider section of the model menu (desktop parity: ModelConfigSelect
+/// renders a muted header per provider group, packages/ui/src/ModelConfigSelect.tsx).
+#[derive(Clone, Debug)]
+pub struct ModelGroup {
+    /// Display name: `modelProviderName`, falling back to the provider id.
+    pub label: String,
+    pub items: Vec<ModelOption>,
+}
+
+/// Group flat catalog options by provider id (the `value` prefix). The label is
+/// the friendly `modelProviderName` when present; grouping stays keyed by id so
+/// two same-named providers never merge. Group and item order follow the
+/// catalog's first appearance, matching the desktop registry view order.
+pub fn group_models(models: &[ModelOption]) -> Vec<ModelGroup> {
+    let mut groups: Vec<ModelGroup> = Vec::new();
+    for opt in models {
+        match groups.iter_mut().find(|g| {
+            g.items
+                .first()
+                .is_some_and(|first| first.provider == opt.provider)
+        }) {
+            Some(group) => group.items.push(opt.clone()),
+            None => groups.push(ModelGroup {
+                label: if opt.provider_name.is_empty() {
+                    opt.provider.clone()
+                } else {
+                    opt.provider_name.clone()
+                },
+                items: vec![opt.clone()],
+            }),
+        }
+    }
+    groups
+}
+
 /// workspace-config topic state (workspaceConfigStateSchema): whole-replacement.
 #[derive(Clone, Debug, Default)]
 pub struct WorkspaceConfig {
@@ -231,3 +266,7 @@ impl WorkspaceConfig {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "catalog_tests.rs"]
+mod tests;

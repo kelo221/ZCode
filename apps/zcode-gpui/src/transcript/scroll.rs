@@ -173,7 +173,7 @@ impl RootView {
     /// to avoid overshooting past the content and triggering layout spring-back.
     pub(crate) fn scroll_transcript_clamped(&mut self, distance: Pixels) {
         let current = -self.list_state.scroll_px_offset_for_scrollbar().y;
-        let max = self.list_state.max_offset_for_scrollbar().height;
+        let max = self.list_state.max_offset_for_scrollbar().y;
         let allowed = clamp_scroll_distance(current, max, distance);
         if allowed != px(0.) {
             self.list_state.scroll_by(allowed);
@@ -195,7 +195,7 @@ impl RootView {
             false
         } else if delta_y < px(0.) {
             let current = -self.list_state.scroll_px_offset_for_scrollbar().y;
-            let max = self.list_state.max_offset_for_scrollbar().height;
+            let max = self.list_state.max_offset_for_scrollbar().y;
             current >= max - px(BOTTOM_SLACK)
         } else {
             return;

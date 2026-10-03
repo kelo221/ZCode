@@ -1,37 +1,44 @@
-//! Color tokens and typography ladder mirroring Zai design system
-//! (packages/ui/src/styles.css and DESIGN.md).
+//! Color tokens and typography ladder. Neutrals + semantic colors follow the
+//! ely-gpui-component palette (the design system this app now renders with),
+//! so hand-rolled surfaces and ely components read as one; brand accents
+//! (teal accent, violet reasoning) keep the Zai identity (DESIGN.md).
 
 #![allow(dead_code)]
 
 use gpui::{AnyElement, Div, IntoElement, div, prelude::*, px, rgb};
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
-// Default static tokens (Zai Dark fallback)
-pub const BG: u32 = 0x161616;
-pub const PANEL: u32 = 0x202020;
-pub const CARD: u32 = 0x2b2b2b;
-pub const CARD_HOVER: u32 = 0x363636;
-pub const BORDER: u32 = 0x343434;
-pub const HOVER: u32 = 0x232323;
-pub const SELECTED: u32 = 0x2d2d2d;
-pub const TEXT: u32 = 0xe5e5e5;
-pub const MUTED: u32 = 0x8f8f8f;
+/// Families registered by `ely_gpui_component::init` — use these, not system
+/// fonts, so every surface matches the ely components.
+pub const UI_FONT: &str = "Inter";
+pub const MONO_FONT: &str = "JetBrains Mono";
+
+// Default static tokens (ely warm dark fallback)
+pub const BG: u32 = 0x131110;
+pub const PANEL: u32 = 0x1b1917;
+pub const CARD: u32 = 0x201f1d;
+pub const CARD_HOVER: u32 = 0x2a2927;
+pub const BORDER: u32 = 0x2c2b29;
+pub const HOVER: u32 = 0x1f1e1c;
+pub const SELECTED: u32 = 0x262524;
+pub const TEXT: u32 = 0xf3f1f0;
+pub const MUTED: u32 = 0x94928f;
 pub const ACCENT: u32 = 0x2dd4bf;
-pub const USER_BLUE: u32 = 0x60a5fa;
+pub const USER_BLUE: u32 = 0x77abec;
 pub const REASONING: u32 = 0xa78bfa;
-pub const TOOL: u32 = 0xf59e0b;
-pub const AMBER: u32 = 0xf59e0b;
-pub const WARNING: u32 = 0xeab308;
-pub const DANGER: u32 = 0xff5c5c;
-pub const SUCCESS: u32 = 0x22c55e;
-pub const PRIMARY: u32 = 0xffffff;
-pub const CODE_BG: u32 = 0x21252b;
-pub const CODE_BORDER: u32 = 0x181a1f;
-pub const CODE_HEADER: u32 = 0x2a2f38;
-pub const LINK: u32 = 0x58a6ff;
-pub const DIFF_ADD_BG: u32 = 0x1d3327;
-pub const DIFF_DEL_BG: u32 = 0x3d2323;
-pub const DIFF_HUNK_BG: u32 = 0x223140;
+pub const TOOL: u32 = 0xe8b45e;
+pub const AMBER: u32 = 0xe8b45e;
+pub const WARNING: u32 = 0xe8b45e;
+pub const DANGER: u32 = 0xe5756e;
+pub const SUCCESS: u32 = 0x6bbc89;
+pub const PRIMARY: u32 = 0xf3f1f0;
+pub const CODE_BG: u32 = 0x1a1816;
+pub const CODE_BORDER: u32 = 0x262423;
+pub const CODE_HEADER: u32 = 0x232120;
+pub const LINK: u32 = 0x77abec;
+pub const DIFF_ADD_BG: u32 = 0x182c1f;
+pub const DIFF_DEL_BG: u32 = 0x3a1d1b;
+pub const DIFF_HUNK_BG: u32 = 0x19273a;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThemeMode {
@@ -119,30 +126,30 @@ impl ThemePalette {
 
     pub const fn zai_light() -> Self {
         Self {
-            bg: 0xf8f8f8,
+            bg: 0xfcfaf7,
             panel: 0xffffff,
             card: 0xffffff,
-            card_hover: 0xf0f0f0,
-            border: 0xe5e5e5,
-            hover: 0xf2f2f2,
-            selected: 0xebebeb,
-            text: 0x262626,
-            muted: 0x737373,
+            card_hover: 0xf3f0ec,
+            border: 0xe1dfdd,
+            hover: 0xf5f2ee,
+            selected: 0xece9e4,
+            text: 0x181613,
+            muted: 0x605d5a,
             accent: 0x0f766e,
-            user_blue: 0x2563eb,
+            user_blue: 0x2e69b2,
             reasoning: 0x7c3aed,
-            tool: 0xd97706,
-            warning: 0xe07b00,
-            danger: 0xe03131,
-            success: 0x1e8a3e,
-            primary: 0x000000,
-            code_bg: 0xf5f5f5,
-            code_border: 0xe0e0e0,
-            code_header: 0xeaeaea,
-            link: 0x0b7fff,
-            diff_add_bg: 0xd4edda,
-            diff_del_bg: 0xf8d7da,
-            diff_hunk_bg: 0xe8f0fe,
+            tool: 0xa25f12,
+            warning: 0xa25f12,
+            danger: 0xba3e38,
+            success: 0x267b4c,
+            primary: 0x181613,
+            code_bg: 0xf6f4f0,
+            code_border: 0xe4e1dd,
+            code_header: 0xeeeae5,
+            link: 0x2e69b2,
+            diff_add_bg: 0xe7f9ec,
+            diff_del_bg: 0xffefec,
+            diff_hunk_bg: 0xebf4ff,
         }
     }
 }

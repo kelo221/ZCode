@@ -342,7 +342,7 @@ impl RootView {
                         cx.notify();
                     }))
                     .child("Tools")
-                    .child(icon('◂', 8., MUTED)),
+                    .child(icon(crate::shared::theme::I_CHEVRON_DOWN, 8., MUTED)),
             )
             .child(
                 div()
@@ -364,12 +364,12 @@ impl RootView {
                         this.term_open = !this.term_open;
                         if this.term_open {
                             this.ensure_term(cx);
-                            window.focus(&this.term.focus);
+                            window.focus(&this.term.focus, cx);
                         }
                         cx.notify();
                     }))
                     .child("Terminal")
-                    .child(icon('▤', 8., MUTED)),
+                    .child(icon(crate::shared::theme::I_CHEVRON_DOWN, 8., MUTED)),
             )
     }
 }

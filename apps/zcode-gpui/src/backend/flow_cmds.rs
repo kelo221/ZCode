@@ -2,7 +2,7 @@
 
 use crate::app::store::AppState;
 use crate::backend::workspace::Pending;
-use gpui::Context;
+use gpui::{AppContext, Context};
 use serde_json::{Value, json};
 
 impl AppState {
@@ -35,6 +35,51 @@ impl AppState {
                 "forceSnapshot": true,
             }),
             id,
+        );
+    }
+
+    /// Background freshness probe for the open conversation (cursorless
+    /// `v4/conversation/rowsRange`). The response is never applied: it is only
+    /// compared for movement, and movement triggers the standard resync whose
+    /// snapshot repaints the view. This is what keeps sessions hosted by
+    /// ANOTHER process (deltas never reach our backend) up to date.
+    pub fn poll_conversation_tail(&mut self, _cx: &mut Context<Self>) {
+        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
+            return;
+        };
+        let subscribed = match self.conversations.get(&sid) {
+            Some(c) => c.subscribed,
+            None => return,
+        };
+        if !subscribed {
+            return;
+        }
+        let Some(ws) = self.ws_mut(&ws_key) else {
+            return;
+        };
+        if !ws.started {
+            return;
+        }
+        // One probe in flight at a time.
+        if ws
+            .pending
+            .values()
+            .any(|p| matches!(p, Pending::PollRows(_)))
+        {
+            return;
+        }
+        let id = ws.next_id();
+        ws.pending.insert(id, Pending::PollRows(sid.clone()));
+        ws.send_line(
+            json!({
+                "id": id,
+                "method": "v4/conversation/rowsRange",
+                "params": {
+                    "sessionId": sid,
+                    "limit": 30,
+                }
+            })
+            .to_string(),
         );
     }
 
@@ -102,4 +147,36 @@ impl AppState {
             .to_string(),
         );
     }
+}
+
+/// Periodically probe the open conversation for movement (default 3s,
+/// `ZCODE_GPUI_POLL_SECS` to tune). Sessions hosted by ANOTHER process —
+/// e.g. the desktop app driving the same workspace — never push deltas to
+/// our backend; the probe makes its cold projection refresh from the shared
+/// store and repaints the view through the standard resync snapshot.
+pub(crate) fn start_tail_poll(cx: &mut Context<AppState>) {
+    let secs = std::env::var("ZCODE_GPUI_POLL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(3)
+        .max(1);
+    cx.spawn(async move |this, cx| {
+        loop {
+            cx.background_spawn(async move {
+                std::thread::sleep(std::time::Duration::from_secs(secs));
+            })
+            .await;
+            let alive = this
+                .update(cx, |state, cx| {
+                    state.poll_conversation_tail(cx);
+                    cx.notify();
+                    true
+                })
+                .unwrap_or(false);
+            if !alive {
+                break;
+            }
+        }
+    })
+    .detach();
 }

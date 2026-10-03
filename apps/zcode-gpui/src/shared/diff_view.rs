@@ -71,7 +71,7 @@ fn diff_line(line: &str, kind: LineKind) -> gpui::Div {
     };
     let mut row = div()
         .w_full()
-        .font_family("Consolas")
+        .font_family(crate::shared::theme::MONO_FONT)
         .text_size(px(11.5))
         .text_color(rgb(fg));
     if let Some(bg) = bg {

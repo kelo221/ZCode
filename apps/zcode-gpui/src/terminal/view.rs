@@ -45,7 +45,7 @@ impl RootView {
             .min_h_0()
             .p_1p5()
             .bg(rgb(CODE_BG))
-            .font_family("Consolas")
+            .font_family(crate::shared::theme::MONO_FONT)
             .text_size(px(FONT_SIZE))
             .text_color(rgb(TERM_FG))
             .key_context("Terminal")
@@ -55,8 +55,8 @@ impl RootView {
             } else {
                 CursorStyle::IBeam
             })
-            .on_click(cx.listener(|this, _, window, _cx| {
-                window.focus(&this.term.focus);
+            .on_click(cx.listener(|this, _, window, cx| {
+                window.focus(&this.term.focus, cx);
             }))
             .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, _window, cx| {
                 this.term_key(&ev.keystroke, cx);
