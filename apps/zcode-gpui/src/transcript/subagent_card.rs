@@ -189,7 +189,7 @@ impl RootView {
                         .child(div().w(px(7.)).h(px(7.)).rounded_full().bg(rgb(dot_color)))
                         .child(
                             div()
-                                .font_family("Consolas")
+                                .font_family(crate::shared::theme::MONO_FONT)
                                 .text_size(px(12.))
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .text_color(rgb(TEXT))

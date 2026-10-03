@@ -44,7 +44,7 @@ pub fn preview_element(path: &Path, preview: &Preview) -> AnyElement {
         Preview::TooLarge(size) => pane_note(&format!("File too large ({size} bytes)")),
         Preview::Text(text) => div()
             .p_2()
-            .font_family("Consolas")
+            .font_family(crate::shared::theme::MONO_FONT)
             .text_size(px(11.5))
             .child(text.clone())
             .into_any_element(),

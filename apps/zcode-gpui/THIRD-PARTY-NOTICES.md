@@ -4,14 +4,17 @@ This file covers the Rust dependencies of the native GPUI frontend
 (`apps/zcode-gpui`). It complements the repository-wide
 `THIRD-PARTY-NOTICES.md`, which covers the Node/Electron side.
 
-All dependencies below are used as published crates from crates.io through
-their public APIs; no source code is copied from the Zed application
-repository (which is GPL-3.0 — its app sources are intentionally **not** a
-dependency or a code source for this frontend).
+Dependencies are used through their public APIs; no source code is copied
+from the Zed application repository (which is GPL-3.0 — its app sources are
+intentionally **not** a dependency or a code source for this frontend). `gpui`
+is consumed as the Apache-2.0-published crate from the Zed repository, pinned
+to the revision that `ely-gpui-component` targets so both build one shared
+gpui; the `gpui` **crate** is Apache-2.0, unlike the GPL-3.0 Zed app sources.
 
 | Crate | Version | License | Upstream |
 | --- | --- | --- | --- |
-| gpui | 0.2.2 | Apache-2.0 | https://github.com/zed-industries/zed (published crate) |
+| gpui / gpui_platform | git rev `1a28cff` (zed, 2026-09-27) | Apache-2.0 | https://github.com/zed-industries/zed |
+| ely-gpui-component | git rev `2f8b2f6` | MIT OR Apache-2.0 | https://github.com/ZacharyZhang-NY/Ely-GPUI-Components |
 | syntect | 5.3.0 | MIT | https://github.com/trishume/syntect |
 | pulldown-cmark | 0.13.4 | MIT | https://github.com/pulldown-cmark/pulldown-cmark |
 | portable-pty | 0.9.0 | MIT | https://github.com/wezterm/wezterm |
@@ -23,8 +26,15 @@ dependency or a code source for this frontend).
 | base64 | 0.22 | MIT OR Apache-2.0 | https://github.com/marshallpierce/rust-base64 |
 | crc32fast | 1.x | MIT OR Apache-2.0 | https://github.com/srijs/rust-crc32fast |
 
-## Apache-2.0 notice (gpui, alacritty_terminal)
+## ely-gpui-component (MIT OR Apache-2.0)
 
+Used as a git dependency through its public API; the component library embeds
+assets that are redistributed with the binary via `ely_gpui_component::Assets`:
+font families Inter, JetBrains Mono, IBM Plex Sans and Noto Sans Hebrew
+(licensed under the SIL Open Font License 1.1) and Lucide icons (ISC). Their
+license texts ship inside the ely-gpui-component source checkout.
+
+## Apache-2.0 notice (gpui, alacritty_terminal)
 Licensed under the Apache License, Version 2.0 (the "License"); you may not
 use these files except in compliance with the License. You may obtain a copy
 of the License at http://www.apache.org/licenses/LICENSE-2.0. The full text

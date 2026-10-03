@@ -25,7 +25,8 @@ use app::root::RootView;
 use app::store::AppState;
 use backend::launcher::resolve_candidates;
 use backend::workspace::discover_workspaces;
-use gpui::{App, AppContext, Application, KeyBinding, TitlebarOptions, WindowOptions};
+use ely_gpui_component::theme::{Mode, Theme};
+use gpui::{App, AppContext, KeyBinding, TitlebarOptions, WindowOptions};
 use std::path::PathBuf;
 use terminal::pane::ToggleTerminal;
 
@@ -95,13 +96,16 @@ fn main() {
         shared::theme::set_ui_font_size(font_size);
     }
 
-    // M6: Single-instance guard and forward-to-first launch request
+    // M6: Single-instance guard and forward-to-first launch request. The mutex
+    // name is overridable so a preview build can run beside the primary app.
     let instance_msg = shared::os::single_instance::InstanceMessage {
         action: "activate".into(),
         workspace: Some(workspace.to_string_lossy().into_owned()),
     };
+    let mutex_key = std::env::var("ZCODE_GPUI_INSTANCE_MUTEX")
+        .unwrap_or_else(|_| "Local\\ZCodeGPUI_SingleInstance_Mutex".into());
     let _instance_guard = match shared::os::single_instance::try_acquire_single_instance(
-        "Local\\ZCodeGPUI_SingleInstance_Mutex",
+        &mutex_key,
         instance_msg,
         |_msg| {
             // Primary instance received launch message from secondary instance
@@ -114,36 +118,49 @@ fn main() {
         shared::os::single_instance::InstanceRole::Primary(guard) => guard,
     };
 
-    Application::new().run(move |cx: &mut App| {
-        cx.bind_keys([
-            KeyBinding::new("ctrl-b", ToggleDock, None),
-            KeyBinding::new("ctrl-`", ToggleTerminal, None),
-            KeyBinding::new("ctrl-j", ToggleTerminal, None),
-            KeyBinding::new("ctrl-k", app::quickpick::ToggleQuickPick, None),
-            KeyBinding::new("ctrl-shift-p", app::quickpick::ToggleQuickPick, None),
-            KeyBinding::new("ctrl-shift-l", app::quickpick::SwitchThemeAction, None),
-        ]);
-        // One agent per known workspace (desktop parity: processes are keyed by
-        // workspace key; the project list comes from ~/.zcode/v2/setting.json).
-        let workspaces = discover_workspaces(&workspace, 8);
-        let candidates = resolve_candidates(&workspace);
-        let window_state = shared::window_state::load_window_state();
-        let initial_bounds = window_state.to_window_bounds(cx);
-        cx.open_window(
-            WindowOptions {
-                window_bounds: Some(initial_bounds),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("ZCode (GPUI)".into()),
+    // gpui_platform::application() replaces the removed gpui::Application::new
+    // (zed #restructure); ely's Assets serves its embedded fonts + icons, and
+    // init() registers fonts, the theme and Tab focus bindings. Call it first.
+    gpui_platform::application()
+        .with_assets(ely_gpui_component::Assets)
+        .run(move |cx: &mut App| {
+            ely_gpui_component::init(cx);
+            Theme::set_mode_now(
+                match shared::theme::theme_mode() {
+                    shared::theme::ThemeMode::ZaiLight => Mode::Light,
+                    _ => Mode::Dark,
+                },
+                cx,
+            );
+            cx.bind_keys([
+                KeyBinding::new("ctrl-b", ToggleDock, None),
+                KeyBinding::new("ctrl-`", ToggleTerminal, None),
+                KeyBinding::new("ctrl-j", ToggleTerminal, None),
+                KeyBinding::new("ctrl-k", app::quickpick::ToggleQuickPick, None),
+                KeyBinding::new("ctrl-shift-p", app::quickpick::ToggleQuickPick, None),
+                KeyBinding::new("ctrl-shift-l", app::quickpick::SwitchThemeAction, None),
+            ]);
+            // One agent per known workspace (desktop parity: processes are keyed by
+            // workspace key; the project list comes from ~/.zcode/v2/setting.json).
+            let workspaces = discover_workspaces(&workspace, 8);
+            let candidates = resolve_candidates(&workspace);
+            let window_state = shared::window_state::load_window_state();
+            let initial_bounds = window_state.to_window_bounds(cx);
+            cx.open_window(
+                WindowOptions {
+                    window_bounds: Some(initial_bounds),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("ZCode (GPUI)".into()),
+                        ..Default::default()
+                    }),
                     ..Default::default()
-                }),
-                ..Default::default()
-            },
-            move |_window, cx| {
-                let state = cx.new(|cx| AppState::new(workspaces, candidates, cx));
-                cx.new(|cx| RootView::new(state, cx))
-            },
-        )
-        .expect("failed to open window");
-        cx.activate(true);
-    });
+                },
+                move |_window, cx| {
+                    let state = cx.new(|cx| AppState::new(workspaces, candidates, cx));
+                    cx.new(|cx| RootView::new(state, cx))
+                },
+            )
+            .expect("failed to open window");
+            cx.activate(true);
+        });
 }

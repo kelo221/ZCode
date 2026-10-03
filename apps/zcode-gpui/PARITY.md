@@ -7,6 +7,13 @@ from screenshots.
 
 ## 1. Goal, scope, guardrails
 
+**Stack note (2026-10-03):** `gpui` is now pinned to the exact zed revision that
+`ely-gpui-component` targets (git rev `1a28cff`, 2026-09-27) so both build one shared
+gpui; `gpui_platform::application()` replaces the removed `Application::new`. ely is
+initialized in `main.rs` (its `Assets` asset source + `Theme::set_mode_now` bridged from
+our `theme_mode()`), and new surfaces adopt ely components directly; the legacy
+`shared/theme.rs` constants keep rendering hand-rolled surfaces until each migrates.
+
 **Goal**: the GPUI client is a daily driver that a ZCode user can run *instead of* the
 Electron app for coding work, at a fraction of the memory, without forking the backend.
 
@@ -35,7 +42,7 @@ telemetry. The app shows "Open in ZCode desktop" where a user would otherwise hi
 ## 2. Where we actually are (audit 2026-10-03)
 
 v1 marked M0–M3 done. Across the v2 implementation run, milestones P0, M4, M5, M6, M7, M8,
-and M10 have all been completed with green CI, 191 passing unit/smoke tests, and strict
+and M10 have all been completed with green CI, 198 passing unit/smoke tests, and strict
 conformance to repo constraints (<= 400 lines/file, pure Apache-2.0, no backend forks).
 
 | Area | State |
@@ -52,7 +59,9 @@ conformance to repo constraints (<= 400 lines/file, pure Apache-2.0, no backend 
 | **M8: Plugin store** | **Done**: CONTEXT.md lifecycle, official vs personal marketplaces, installed strip, restorable builtins |
 | **M10: Distribution & packaging** | **Done**: version sync (3.14.3), commit embedding, manifest updater, release packager, cross-platform CI matrix |
 | **Subagents & Background Work** | **Done**: V4 row/projection, card pairing, dock review section, child navigation, read-only gating, sidebar filter |
-| **`cargo fmt --check`, `clippy -D warnings`, `cargo test`** | **Green** (191 tests pass, zero warnings; clippy also clean with `--all-targets`) |
+| **Ely Framework & Visual Polish** | **Done**: Zed git rev `1a28cff` pin, `ely-gpui-component` integration, Inter & JetBrains Mono font assets, synthesized tool diff cards, provider model grouping |
+| **Cross-Process Live Synchronization** | **Done**: Client tail-polling (`rowsRange` 3s probe), cold store-fingerprint detection, gateway rehydration on external updates |
+| **`cargo fmt --check`, `clippy -D warnings`, `cargo test`** | **Green** (198 tests pass, zero warnings; clippy also clean with `--all-targets`) |
 
 ## 3. The real blockers v1 missed
 
@@ -119,6 +128,15 @@ Requirements (all wire-backed):
   `editQueueItem`, `reorderQueueItem`, `setAssistantFeedback`, `compact`,
   `sendGoalCommand` / `pauseGoal` / `resumeGoal`, `stop{expectedForegroundExecutionId}`,
   `cancelBackgroundWork`.
+
+- **Model/thought selectors** (`composer/menus.rs`): ely `DropdownMenu`/`Menu`
+  components render the model menu grouped under provider headings
+  (`Menu::group`; grouping in `composer/catalog.rs::group_models` mirrors
+  `packages/ui/src/lib/modelSelectionGroups.ts`). Ely floats the panel under the
+  trigger and flips it above at the window's bottom edge. The trigger shows
+  `Provider/Model` only when the catalog has more than one provider group, else
+  the bare model name (desktop `resolveV4ModelTriggerDisplay`). No "manage
+  models" footer: gpui has no provider-settings surface to open.
 
 Acceptance: drag a screenshot in, mention a file, run `/compact`, fork from a reply, and
 reorder the queue, all matching desktop results on the same session.

@@ -63,7 +63,7 @@ impl RootView {
             .flex()
             .items_center()
             .gap_1p5()
-            .px_2()
+            .px_3()
             .cursor_pointer()
             .hover(|s| s.bg(rgb(HOVER)))
             .rounded_sm()
@@ -235,7 +235,7 @@ impl RootView {
                                     )
                                     .child(
                                         div()
-                                            .font_family("Consolas")
+                                            .font_family(crate::shared::theme::MONO_FONT)
                                             .text_size(px(11.5))
                                             .font_weight(gpui::FontWeight::SEMIBOLD)
                                             .text_color(rgb(TEXT))

@@ -99,6 +99,7 @@ impl AppState {
             }
         }
         state.start_maintenance(cx);
+        crate::backend::flow_cmds::start_tail_poll(cx);
         // gpui does not guarantee entity drops at process exit, so `Drop`
         // alone can leave agents running where no kill-on-close job object
         // exists (non-Windows, or a failed job assignment).

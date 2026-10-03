@@ -182,6 +182,27 @@ impl EffectiveConfig {
         }
     }
 
+    /// Trigger label with the catalog's display name (desktop parity:
+    /// `resolveV4ModelTriggerDisplay` — builtin/family providers show the bare
+    /// model name; custom providers get a `Provider/Model` prefix, only meaningful
+    /// when the catalog actually has more than one provider). Falls back to
+    /// `model_display` when the current model is not in the catalog
+    /// (`<synthetic>`, retired ids, …).
+    pub fn trigger_display(&self, models: &[crate::composer::catalog::ModelOption]) -> String {
+        let matched = models
+            .iter()
+            .find(|o| o.provider == self.provider && o.model == self.model);
+        let Some(opt) = matched else {
+            return self.model_display();
+        };
+        let multi_provider = models.iter().any(|o| o.provider != self.provider);
+        if multi_provider && !opt.provider_name.is_empty() {
+            format!("{}/{}", opt.provider_name, opt.name)
+        } else {
+            opt.name.clone()
+        }
+    }
+
     pub fn thought_display(&self) -> String {
         if self.thought.is_empty() {
             "Default".into()

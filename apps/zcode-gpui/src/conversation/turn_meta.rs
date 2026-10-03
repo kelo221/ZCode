@@ -219,7 +219,7 @@ pub fn render_plan_checklist(
                 .flex()
                 .items_center()
                 .gap_1p5()
-                .px_2()
+                .px_3()
                 .cursor_pointer()
                 .hover(|s| s.bg(rgb(crate::shared::theme::HOVER)))
                 .rounded_sm()
@@ -258,7 +258,7 @@ pub fn render_plan_checklist(
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .px_2()
+                    .px_3()
                     .pb_1p5()
                     .children(plan.items.iter().map(|item| {
                         let (icon, color) = match item.status.as_str() {

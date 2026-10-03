@@ -280,8 +280,8 @@ impl Render for Composer {
             .px_1()
             .text_size(px(14.))
             .text_color(rgb(crate::shared::theme::TEXT))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, _cx| {
-                window.focus(&this.focus);
+            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                window.focus(&this.focus, cx);
             }))
             .on_key_down(cx.listener(Self::on_key_down))
             .child(

@@ -83,10 +83,10 @@ impl RootView {
                         let selected = tab == active;
                         div()
                             .id(SharedString::from(format!("dock-tab-{}", tab.label())))
-                            .px_2()
+                            .px_1p5()
                             .py_0p5()
                             .rounded_sm()
-                            .text_size(px(11.5))
+                            .text_size(px(11.))
                             .cursor(CursorStyle::PointingHand)
                             .when(selected, |el| el.bg(rgb(CARD)).text_color(rgb(TEXT)))
                             .when(!selected, |el| {

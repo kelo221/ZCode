@@ -28,6 +28,11 @@ pub(crate) enum Pending {
     Resync,
     /// `v4/conversation/rowsRange` history page for a session.
     FetchRows(String),
+    /// Background freshness probe for the open conversation: a cursorless
+    /// rowsRange whose response is only compared for movement (never applied).
+    /// Makes sessions hosted by ANOTHER process (deltas never reach our
+    /// backend) refresh through the standard resync snapshot.
+    PollRows(String),
     /// `v4/usage/stats` query for token metrics and timeline.
     FetchUsageStats(String),
     /// `mcp/list` inspection of connected MCP servers.

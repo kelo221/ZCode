@@ -316,6 +316,7 @@ impl AppState {
                 self.conversations.entry(sid.to_string()).or_default();
             match kind.as_str() {
                 "snapshot" => {
+                    state.subscribed = true;
                     if let Some(snap) = frame.payload.get("snapshot") {
                         state.apply_snapshot(snap);
                     }
@@ -332,37 +333,41 @@ impl AppState {
     }
 
     fn apply_sessions_index(&mut self, ws_key: &str, kind: &str, payload: &Value) {
-        let Some(ws) = self.ws_mut(ws_key) else {
-            return;
-        };
-        match kind {
+        let first_sid = match kind {
             "snapshot" => {
-                let mut sessions: Vec<SessionEntry> = payload
+                let Some(ws) = self.ws_mut(ws_key) else {
+                    return;
+                };
+                let mut list: Vec<SessionEntry> = payload
                     .get("snapshot")
                     .and_then(|s| s.get("sessions"))
                     .and_then(Value::as_array)
-                    .map(|arr| arr.iter().filter_map(SessionEntry::from_value).collect())
+                    .map(|a| a.iter().filter_map(SessionEntry::from_value).collect())
                     .unwrap_or_default();
-                sessions.sort_by_key(|s| std::cmp::Reverse(s.last_activity_at));
-                ws.sessions = sessions;
+                list.sort_by_key(|s| std::cmp::Reverse(s.last_activity_at));
+                let first = list.first().map(|s| s.session_id.clone());
+                ws.sessions = list;
+                first
             }
             "deltas" => {
+                let Some(ws) = self.ws_mut(ws_key) else {
+                    return;
+                };
                 let Some(deltas) = payload.get("deltas").and_then(Value::as_array) else {
                     return;
                 };
                 for d in deltas {
                     match d.get("op").and_then(Value::as_str).unwrap_or("") {
                         "session.upserted" => {
-                            if let Some(entry) = d.get("session").and_then(SessionEntry::from_value)
-                            {
-                                if let Some(existing) = ws
+                            if let Some(e) = d.get("session").and_then(SessionEntry::from_value) {
+                                if let Some(s) = ws
                                     .sessions
                                     .iter_mut()
-                                    .find(|s| s.session_id == entry.session_id)
+                                    .find(|s| s.session_id == e.session_id)
                                 {
-                                    *existing = entry;
+                                    *s = e;
                                 } else {
-                                    ws.sessions.push(entry);
+                                    ws.sessions.push(e);
                                 }
                             }
                         }
@@ -375,8 +380,16 @@ impl AppState {
                     }
                 }
                 ws.sort_sessions();
+                None
             }
-            _ => {}
+            _ => None,
+        };
+        if self.active.is_none()
+            && !self.draft
+            && let Some(sid) = first_sid
+        {
+            self.active = Some(sid.clone());
+            self.subscribe_conversation(ws_key, &sid);
         }
     }
 }
