@@ -9,20 +9,15 @@
 //! the next candidate if a process dies before storage startup completes):
 //!   1. `ZCODE_GPUI_AGENT_PROGRAM` + optional `ZCODE_GPUI_AGENT_ARGS` env
 //!      override (debug/testing escape hatch).
-//!   2. The installed ZCode desktop app's bundled runtime
-//!      (`zcode.cjs` under ELECTRON_RUN_AS_NODE=1), which is the same launch
-//!      contract packages/services/src/zcode-agent/zcodeAgentProcessManager.ts
-//!      uses for packaged builds. This backend updates with the desktop app.
-//!   3. bun + monorepo dev sources (apps/zcode-cli/packages/cli/src/main.ts),
-//!      per the user's "no Node runtime" requirement; needs the CLI workspace
-//!      deps installed (bun install) and packages built (turbo run build).
-//!      Last because bun 1.4.x currently mis-resolves `@zcode/shared/*`
-//!      subpaths in this repo and dies before startup.
-
-use std::io::{BufRead, BufReader, Write};
+//!   2. bun + this branch's sources (apps/zcode-cli/packages/cli/src/main.ts),
+//!      the preferred runtime on this branch. Only offered when the workspace
+//!      is installed (`bun install`) and the CLI packages are built, because
+//!      the CLI packages export `dist/`; otherwise it would die at startup.
+//!   3. The installed ZCode desktop app's bundled runtime
+//!      (`zcode.cjs` under ELECTRON_RUN_AS_NODE=1), the same launch contract
+//!      packages/services/src/zcode-agent/zcodeAgentProcessManager.ts uses for
+//!      packaged builds. Fallback; it updates with the desktop app.
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc::Sender;
 
 #[derive(Clone)]
 pub struct BackendLaunch {
@@ -35,50 +30,34 @@ pub struct BackendLaunch {
 pub fn resolve_candidates(workspace: &Path) -> Vec<BackendLaunch> {
     let mut out = Vec::new();
 
-    if let Ok(program) = std::env::var("ZCODE_GPUI_AGENT_PROGRAM")
-        .or_else(|_| std::env::var("ZCODE_AGENT_SERVER_COMMAND"))
-        .or_else(|_| std::env::var("GLM_BINARY_PATH"))
-    {
+    // Only the GPUI-specific variable overrides: the desktop app exports
+    // `GLM_BINARY_PATH` / `ZCODE_AGENT_SERVER_COMMAND` to every child process,
+    // so honouring them would silently bypass bun when launched from a ZCode
+    // terminal.
+    if let Ok(program) = std::env::var("ZCODE_GPUI_AGENT_PROGRAM") {
         let args = std::env::var("ZCODE_GPUI_AGENT_ARGS")
             .map(|a| a.split_whitespace().map(str::to_string).collect::<Vec<_>>())
-            .unwrap_or_else(|_| vec!["app-server".into(), "--stdio".into()]);
+            .unwrap_or_else(|_| {
+                vec![
+                    "app-server".into(),
+                    "--stdio".into(),
+                    "--surface".into(),
+                    "desktop".into(),
+                ]
+            });
         out.push(BackendLaunch {
             program,
             args,
-            envs: vec![],
+            envs: common_backend_envs(),
             describe: "env override".into(),
         });
     }
 
-    // The installed-app runtime is the reliable default (its bundled bundle
-    // resolves all workspace modules); the bun + repo-source candidate is
-    // last because bun 1.4.x mis-resolves `@zcode/shared/*` subpaths on this
-    // repo and dies before startup, costing a fallback round-trip.
-    if let Some(launch) = installed_app_launch() {
+    if let Some(launch) = bun_source_launch(workspace) {
         out.push(launch);
     }
-
-    for root in repo_root_candidates(workspace) {
-        let main = root
-            .join("apps")
-            .join("zcode-cli")
-            .join("packages")
-            .join("cli")
-            .join("src")
-            .join("main.ts");
-        if main.exists() {
-            out.push(BackendLaunch {
-                program: "bun".into(),
-                args: vec![
-                    main.to_string_lossy().into_owned(),
-                    "app-server".into(),
-                    "--stdio".into(),
-                ],
-                envs: vec![],
-                describe: "bun + repo source".into(),
-            });
-            break;
-        }
+    if let Some(launch) = installed_app_launch() {
+        out.push(launch);
     }
 
     out
@@ -100,13 +79,103 @@ fn repo_root_candidates(workspace: &Path) -> Vec<PathBuf> {
     roots
 }
 
+/// Files that must exist before bun can run the CLI from source: the
+/// workspace install (root `node_modules` with the `@zcode/*` links) and the
+/// built `dist/` of the packages the CLI entry imports.
+pub(crate) fn bun_source_ready(root: &Path) -> bool {
+    let cli = root.join("apps").join("zcode-cli").join("packages");
+    [
+        root.join("node_modules")
+            .join("@zcode")
+            .join("shared")
+            .join("package.json"),
+        cli.join("cli").join("src").join("main.ts"),
+        cli.join("core").join("dist").join("index.js"),
+        cli.join("bootstrap").join("dist").join("index.js"),
+        cli.join("adapters").join("dist").join("index.js"),
+    ]
+    .iter()
+    .all(|p| p.exists())
+}
+
+/// Absolute bun executable: `BUN_INSTALL`, then `PATH`, then `~/.bun/bin`.
+/// Resolved up front so a GUI launch without the shell's PATH still works.
+fn find_bun() -> Option<PathBuf> {
+    let exe = if cfg!(windows) { "bun.exe" } else { "bun" };
+    let from_install = std::env::var_os("BUN_INSTALL").map(|d| PathBuf::from(d).join("bin"));
+    let from_path = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let from_home = ["USERPROFILE", "HOME"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(|h| PathBuf::from(h).join(".bun").join("bin"));
+    from_install
+        .into_iter()
+        .chain(from_path)
+        .chain(from_home)
+        .map(|d| d.join(exe))
+        .find(|p| p.is_file())
+}
+
+fn bun_source_launch(workspace: &Path) -> Option<BackendLaunch> {
+    let root = repo_root_candidates(workspace)
+        .into_iter()
+        .find(|r| bun_source_ready(r))?;
+    let bun = find_bun()?;
+    let main = root
+        .join("apps")
+        .join("zcode-cli")
+        .join("packages")
+        .join("cli")
+        .join("src")
+        .join("main.ts");
+    let mut envs = common_backend_envs();
+    // Reuse the desktop install's ripgrep when present; the provider config
+    // is resolved by the CLI itself so it matches this branch's version.
+    if let Some((_, cjs)) = find_installed_bundle()
+        && std::env::var("ZCODE_RG_BINARY").is_err()
+    {
+        let rg_name = if cfg!(windows) { "rg.exe" } else { "rg" };
+        let rg = cjs
+            .parent()
+            .and_then(Path::parent)
+            .map(|res| res.join("tools").join("ripgrep").join(rg_name))
+            .filter(|p| p.exists());
+        if let Some(rg) = rg {
+            envs.push(("ZCODE_RG_BINARY".into(), rg.to_string_lossy().into_owned()));
+        }
+    }
+    Some(BackendLaunch {
+        program: bun.to_string_lossy().into_owned(),
+        args: vec![
+            main.to_string_lossy().into_owned(),
+            "app-server".into(),
+            "--stdio".into(),
+            "--surface".into(),
+            "desktop".into(),
+        ],
+        envs,
+        describe: "bun + branch source".into(),
+    })
+}
+
 fn find_installed_bundle() -> Option<(PathBuf, PathBuf)> {
     #[cfg(target_os = "windows")]
     {
         let mut app_dirs = Vec::new();
-        for key in ["LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
+        for key in [
+            "LOCALAPPDATA",
+            "ProgramFiles",
+            "ProgramFiles(x86)",
+            "ProgramW6432",
+        ] {
             if let Ok(v) = std::env::var(key) {
-                let sub = if key == "LOCALAPPDATA" { "Programs\\ZCode" } else { "ZCode" };
+                let sub = if key == "LOCALAPPDATA" {
+                    "Programs\\ZCode"
+                } else {
+                    "ZCode"
+                };
                 app_dirs.push(PathBuf::from(v).join(sub));
             }
         }
@@ -166,21 +235,38 @@ fn find_installed_bundle() -> Option<(PathBuf, PathBuf)> {
     }
 }
 
+fn common_backend_envs() -> Vec<(String, String)> {
+    let mut envs = vec![("ZCODE_RUNTIME_ENV".into(), "desktop".into())];
+    for key in [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+        "ZCODE_DATA_BASE_DIR",
+        "ZCODE_HOME",
+    ] {
+        if let Ok(val) = std::env::var(key) {
+            envs.push((key.into(), val));
+        }
+    }
+    envs
+}
+
 fn installed_app_launch() -> Option<BackendLaunch> {
     let (app, cjs) = find_installed_bundle()?;
-    let mut envs = vec![("ELECTRON_RUN_AS_NODE".into(), "1".into())];
+    let mut envs = common_backend_envs();
+    envs.push(("ELECTRON_RUN_AS_NODE".into(), "1".into()));
 
     if let Some(res) = cjs.parent().and_then(|p| p.parent()) {
-        let cfg = res.join("config").join("provider").join("zcode-builtin.json");
-        let glm_dir = res.join("glm").join("provider");
-        let glm = glm_dir.join("zcode-builtin.json");
-
-        // Self-heal: ensure resources/glm/provider/zcode-builtin.json exists so
-        // that zcode.cjs fallback search (argv[1]/../provider/zcode-builtin.json) succeeds.
-        if cfg.exists() && !glm.exists() {
-            let _ = std::fs::create_dir_all(&glm_dir);
-            let _ = std::fs::copy(&cfg, &glm);
-        }
+        let cfg = res
+            .join("config")
+            .join("provider")
+            .join("zcode-builtin.json");
+        let glm = res.join("glm").join("provider").join("zcode-builtin.json");
 
         let builtin = if cfg.exists() {
             Some(cfg)
@@ -189,14 +275,19 @@ fn installed_app_launch() -> Option<BackendLaunch> {
         } else {
             None
         };
-        if let Some(b) = builtin.filter(|_| std::env::var("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE").is_err()) {
+        if let Some(b) =
+            builtin.filter(|_| std::env::var("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE").is_err())
+        {
             envs.push((
                 "ZCODE_BUILTIN_PROVIDER_CONFIG_FILE".into(),
                 b.to_string_lossy().into_owned(),
             ));
         }
 
-        let rg = res.join("tools").join("ripgrep").join(if cfg!(windows) { "rg.exe" } else { "rg" });
+        let rg =
+            res.join("tools")
+                .join("ripgrep")
+                .join(if cfg!(windows) { "rg.exe" } else { "rg" });
         if rg.exists() && std::env::var("ZCODE_RG_BINARY").is_err() {
             envs.push(("ZCODE_RG_BINARY".into(), rg.to_string_lossy().into_owned()));
         }
@@ -208,177 +299,15 @@ fn installed_app_launch() -> Option<BackendLaunch> {
             cjs.to_string_lossy().into_owned(),
             "app-server".into(),
             "--stdio".into(),
+            "--surface".into(),
+            "desktop".into(),
         ],
         envs,
         describe: "installed ZCode app runtime".into(),
     })
 }
 
-pub enum ConnEvent {
-    /// One protocol line from child stdout.
-    Line(String),
-    /// Diagnostics from child stderr (never parsed as protocol).
-    Log(String),
-    /// stdout EOF → child is gone.
-    Exited,
-}
-
-pub struct Connection {
-    pub events: futures::channel::mpsc::UnboundedReceiver<ConnEvent>,
-    /// Protocol lines to write to child stdin (LF-terminated).
-    pub inbound: Sender<String>,
-    /// Force-kills the child (and its tree on Windows). Called on idle unload;
-    /// on Windows the job object also guarantees death on frontend crash.
-    pub kill: Box<dyn FnOnce() + Send>,
-}
-
-#[cfg(windows)]
-fn make_kill(child: &Child) -> Box<dyn FnOnce() + Send> {
-    // Job object with KILL_ON_JOB_CLOSE: the kernel kills the whole tree even
-    // if this frontend crashes — mirrors the desktop's processTreeOwnership.
-    use std::os::windows::io::AsRawHandle;
-    use windows::Win32::Foundation::HANDLE;
-    use windows::Win32::System::JobObjects::{
-        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-        SetInformationJobObject, TerminateJobObject,
-    };
-    // SAFETY: creating a kernel object and binding one child handle to it.
-    let job = unsafe { CreateJobObjectW(None, None) }.expect("CreateJobObjectW");
-    unsafe {
-        let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        SetInformationJobObject(
-            job,
-            JobObjectExtendedLimitInformation,
-            &info as *const _ as _,
-            std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
-        )
-        .expect("SetInformationJobObject");
-        AssignProcessToJobObject(job, HANDLE(child.as_raw_handle() as _))
-            .expect("AssignProcessToJobObject");
-    }
-    // HANDLE is a raw pointer, so it isn't Send; carry it as usize (closure
-    // field-capture would otherwise grab the raw pointer directly).
-    let job = job.0 as usize;
-    Box::new(move || unsafe {
-        let _ = TerminateJobObject(HANDLE(job as *mut _), 0);
-    })
-}
-
-#[cfg(not(windows))]
-fn make_kill(child: &std::sync::Arc<std::sync::Mutex<Option<Child>>>) -> Box<dyn FnOnce() + Send> {
-    let child = child.clone();
-    Box::new(move || {
-        if let Ok(mut guard) = child.lock() {
-            if let Some(c) = guard.as_mut() {
-                let _ = c.kill();
-            }
-        }
-    })
-}
-
-pub fn spawn_connection(launch: &BackendLaunch, workspace: &Path) -> std::io::Result<Connection> {
-    let mut child = Command::new(&launch.program)
-        .args(&launch.args)
-        .envs(launch.envs.iter().map(|(k, v)| (k.as_str(), v.as_str())))
-        .current_dir(workspace)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-
-    let mut stdin = child.stdin.take().expect("stdin piped");
-    let stdout = child.stdout.take().expect("stdout piped");
-    let stderr = child.stderr.take().expect("stderr piped");
-
-    let (in_tx, in_rx) = std::sync::mpsc::channel::<String>();
-    let (ev_tx, ev_rx) = futures::channel::mpsc::unbounded::<ConnEvent>();
-
-    std::thread::spawn(move || {
-        for line in in_rx {
-            let mut bytes = line.into_bytes();
-            bytes.push(b'\n');
-            if stdin.write_all(&bytes).and_then(|_| stdin.flush()).is_err() {
-                break;
-            }
-        }
-    });
-
-    let out_tx = ev_tx.clone();
-    std::thread::spawn(move || {
-        let reader = BufReader::new(stdout);
-        for line in reader.lines() {
-            match line {
-                Ok(l) => {
-                    let l = l.trim_end_matches('\r');
-                    if l.is_empty() {
-                        continue;
-                    }
-                    if out_tx
-                        .unbounded_send(ConnEvent::Line(l.to_string()))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-        let _ = out_tx.unbounded_send(ConnEvent::Exited);
-    });
-
-    let err_tx = ev_tx.clone();
-    std::thread::spawn(move || {
-        let reader = BufReader::new(stderr);
-        for line in reader.lines() {
-            match line {
-                Ok(l) => {
-                    if err_tx.unbounded_send(ConnEvent::Log(l)).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-
-    // Kill handle + zombie reaper. On Windows the job object covers crash
-    // safety; elsewhere a shared handle + polling watcher does both jobs.
-    #[cfg(windows)]
-    let kill = make_kill(&child);
-    #[cfg(windows)]
-    std::thread::spawn(move || {
-        let mut child = child;
-        let _ = child.wait();
-    });
-    #[cfg(not(windows))]
-    let child = std::sync::Arc::new(std::sync::Mutex::new(Some(child)));
-    #[cfg(not(windows))]
-    let kill = make_kill(&child);
-    #[cfg(not(windows))]
-    {
-        let watcher_child = child.clone();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(std::time::Duration::from_millis(200));
-                let Ok(mut guard) = watcher_child.lock() else {
-                    break;
-                };
-                match guard.as_mut().map(|c| c.try_wait()) {
-                    Some(Ok(Some(_))) | Some(Err(_)) | None => break,
-                    Some(Ok(None)) => {}
-                }
-            }
-        });
-    }
-
-    Ok(Connection {
-        events: ev_rx,
-        inbound: in_tx,
-        kill,
-    })
-}
+pub use crate::backend::conn::{ConnEvent, spawn_connection};
 
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()

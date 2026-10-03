@@ -17,16 +17,35 @@ fn palette_matches_xterm_layout() {
 #[test]
 fn named_colors_resolve_to_palette_or_default() {
     assert_eq!(resolve_color(Color::Named(NamedColor::Red), 0), 0xbf616a);
-    assert_eq!(resolve_color(Color::Named(NamedColor::Foreground), TERM_FG), TERM_FG);
-    assert_eq!(resolve_color(Color::Spec(Rgb { r: 0x12, g: 0x34, b: 0x56 }), 0), 0x123456);
+    assert_eq!(
+        resolve_color(Color::Named(NamedColor::Foreground), TERM_FG),
+        TERM_FG
+    );
+    assert_eq!(
+        resolve_color(
+            Color::Spec(Rgb {
+                r: 0x12,
+                g: 0x34,
+                b: 0x56
+            }),
+            0
+        ),
+        0x123456
+    );
 }
 
 #[test]
 fn key_mapping_covers_shell_needs() {
     assert_eq!(key_to_bytes("enter", false, false, false), b"\r".to_vec());
-    assert_eq!(key_to_bytes("backspace", false, false, false), b"\x7f".to_vec());
+    assert_eq!(
+        key_to_bytes("backspace", false, false, false),
+        b"\x7f".to_vec()
+    );
     assert_eq!(key_to_bytes("up", false, false, false), b"\x1b[A".to_vec());
-    assert_eq!(key_to_bytes("left", true, false, false), b"\x1b[1;5D".to_vec());
+    assert_eq!(
+        key_to_bytes("left", true, false, false),
+        b"\x1b[1;5D".to_vec()
+    );
     assert_eq!(key_to_bytes("c", true, false, false), vec![3]); // Ctrl+C = ETX
     assert_eq!(key_to_bytes("d", true, false, false), vec![4]); // Ctrl+D = EOT
     assert_eq!(key_to_bytes("z", true, false, false), vec![26]); // Ctrl+Z = SUB

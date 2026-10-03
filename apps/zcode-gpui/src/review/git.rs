@@ -37,8 +37,16 @@ impl GitFile {
     /// Short status badge shown before the path ("M", "A", "??", …). When
     /// the viewed column is empty the other column is shown instead.
     pub fn badge(&self, staged_view: bool) -> String {
-        let primary = if staged_view { self.index } else { self.worktree };
-        let fallback = if staged_view { self.worktree } else { self.index };
+        let primary = if staged_view {
+            self.index
+        } else {
+            self.worktree
+        };
+        let fallback = if staged_view {
+            self.worktree
+        } else {
+            self.index
+        };
         (if primary == ' ' { fallback } else { primary }).to_string()
     }
     pub fn total_add(&self) -> u32 {
@@ -52,6 +60,7 @@ impl GitFile {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct GitStatus {
     pub branch: String,
+    pub branches: Vec<String>,
     pub files: Vec<GitFile>,
 }
 
@@ -149,7 +158,10 @@ impl DiffSide {
         }
     }
     fn cache_key(self, path: &str) -> String {
-        format!("{}:{path}", if self == DiffSide::Staged { "s" } else { "u" })
+        format!(
+            "{}:{path}",
+            if self == DiffSide::Staged { "s" } else { "u" }
+        )
     }
 }
 
@@ -252,6 +264,28 @@ pub fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
         Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+/// Read cap for untracked previews: only `MAX_DIFF_LINES` are shown, so a
+/// multi-GB log must not be loaded whole.
+const MAX_UNTRACKED_BYTES: u64 = 256 * 1024;
+const MAX_DIFF_LINES: usize = 400;
+
+pub fn untracked_as_diff(root: &Path, rel: &str) -> String {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    let read = std::fs::File::open(root.join(rel))
+        .and_then(|f| f.take(MAX_UNTRACKED_BYTES).read_to_end(&mut bytes));
+    match read {
+        Ok(_) if bytes.contains(&0) => "(binary file)".to_string(),
+        Ok(_) => String::from_utf8_lossy(&bytes)
+            .lines()
+            .take(MAX_DIFF_LINES)
+            .map(|l| format!("+{l}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Err(e) => format!("(cannot read untracked file: {e})"),
     }
 }
 

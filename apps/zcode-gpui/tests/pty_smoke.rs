@@ -1,7 +1,7 @@
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::term::{Config, Term};
 use alacritty_terminal::vte::ansi::Processor;
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
@@ -25,22 +25,35 @@ struct Dims {
     rows: usize,
 }
 impl alacritty_terminal::grid::Dimensions for Dims {
-    fn total_lines(&self) -> usize { self.rows }
-    fn screen_lines(&self) -> usize { self.rows }
-    fn columns(&self) -> usize { self.cols }
+    fn total_lines(&self) -> usize {
+        self.rows
+    }
+    fn screen_lines(&self) -> usize {
+        self.rows
+    }
+    fn columns(&self) -> usize {
+        self.cols
+    }
 }
 
 #[test]
 fn pty_roundtrip_smoke() {
     let pty = native_pty_system()
-        .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
         .expect("openpty");
 
     let cmd = CommandBuilder::new("cmd.exe");
     let mut reader = pty.master.try_clone_reader().expect("reader");
     let writer = Arc::new(Mutex::new(pty.master.take_writer().expect("writer")));
 
-    let listener = TestListener { writer: writer.clone() };
+    let listener = TestListener {
+        writer: writer.clone(),
+    };
     let mut term = Term::new(Config::default(), &Dims { cols: 80, rows: 24 }, listener);
     let mut processor: Processor = Processor::default();
 

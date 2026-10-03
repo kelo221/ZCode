@@ -4,9 +4,9 @@
 
 use crate::app::root::RootView;
 use gpui::{
-    div, px, AnyElement, Context, CursorStyle, InteractiveElement, IntoElement, ListAlignment,
-    ListOffset, ListSizingBehavior, ListState, MouseButton, MouseDownEvent, ParentElement,
-    ScrollWheelEvent, Styled,
+    AnyElement, Context, CursorStyle, InteractiveElement, IntoElement, ListAlignment, ListOffset,
+    ListSizingBehavior, ListState, MouseButton, MouseDownEvent, ParentElement, ScrollWheelEvent,
+    Styled, div, px,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,27 +30,74 @@ pub(crate) fn new_list_state() -> (ListState, Arc<AtomicBool>) {
     (state, follow)
 }
 
+/// How the cached row index changes between two renders.
+#[derive(Debug, PartialEq)]
+pub(crate) enum ListEdit {
+    /// Same ids: nothing to splice (streaming may still grow the last row).
+    Unchanged,
+    /// `n` rows appended at the tail.
+    Append(usize),
+    /// `n` older rows paged in at the head (history).
+    Prepend(usize),
+    /// Anything else: rebuild the index.
+    Reset,
+}
+
+pub(crate) fn plan_list_edit(prev: &[u64], next: &[u64], session_changed: bool) -> ListEdit {
+    if session_changed {
+        ListEdit::Reset
+    } else if prev == next {
+        ListEdit::Unchanged
+    } else if next.len() > prev.len() && next.starts_with(prev) {
+        ListEdit::Append(next.len() - prev.len())
+    } else if !prev.is_empty() && next.len() > prev.len() && next.ends_with(prev) {
+        ListEdit::Prepend(next.len() - prev.len())
+    } else {
+        ListEdit::Reset
+    }
+}
+
+/// `offset_in_item` used to pin the tail. Larger than any row, so gpui's
+/// layout pass ("rendered items do not fill the visible region") walks
+/// upward and bottom-aligns the last row, even one taller than the
+/// viewport. `scroll_to_reveal_item` would instead snap a tall last row to
+/// its top when it already starts the viewport.
+const PIN_TAIL_OFFSET: f32 = 1.0e7;
+
+pub(crate) fn tail_pin(row_count: usize) -> Option<ListOffset> {
+    (row_count > 0).then(|| ListOffset {
+        item_ix: row_count - 1,
+        offset_in_item: px(PIN_TAIL_OFFSET),
+    })
+}
+
 impl RootView {
     /// Reconcile the cached row index with the conversation model. Called
-    /// every frame before the element tree is built; only acts on change.
-    pub(crate) fn sync_list(&mut self, row_count: usize, first_row_id: u64, cx: &Context<Self>) {
-        let (active_sid, last_id) = {
+    /// every render before the element tree is built.
+    pub(crate) fn sync_list(&mut self, _row_count: usize, first_row_id: u64, cx: &Context<Self>) {
+        let (active_sid, last_id, count) = {
             let state = self.state.read(cx);
+            let conv = state.active_conversation();
             (
                 state.active.clone(),
-                state
-                    .active_conversation()
-                    .and_then(|c| c.rows.keys().next_back().copied())
+                conv.and_then(|c| c.rows.keys().next_back().copied())
                     .unwrap_or(0),
+                conv.map_or(0, |c| c.rows.len()),
             )
         };
         // Row ids restart at 1 per conversation, so a session switch invalidates
         // the whole cached index even when counts/prefixes coincide.
         let session_changed = active_sid != self.last_session;
+        let follow = self.follow_bottom.load(Ordering::Relaxed);
         if !session_changed
-            && row_count == self.last_row_count
+            && count == self.last_row_count
             && (first_row_id, last_id) == self.last_bounds
         {
+            // Same rows, but a streaming row may have grown: keep the tail
+            // pinned while following.
+            if follow && let Some(pin) = tail_pin(count) {
+                self.list_state.scroll_to(pin);
+            }
             return;
         }
 
@@ -60,25 +107,20 @@ impl RootView {
             .active_conversation()
             .map(|c| c.rows.keys().copied().collect())
             .unwrap_or_default();
-
-        // Snapshot the previous index state before it is overwritten below.
-        let prev_count = self.last_row_count;
-        let prev_first = self.last_first_row_id;
+        // The index is the single source of the list's item count.
+        let row_count = ids.len();
+        let prev_count = self.row_index.len();
         // `reset` discards the logical scroll top, so capture it first.
         let prev_top = self.list_state.logical_scroll_top();
-        let appended = !session_changed
-            && row_count > prev_count
-            && first_row_id == prev_first
-            && ids.starts_with(&self.row_index);
-        let prepended = !session_changed
-            && prev_count > 0
-            && row_count > prev_count
-            && first_row_id != prev_first
-            && ids.ends_with(&self.row_index);
-        if appended {
-            self.list_state.splice(prev_count..prev_count, row_count - prev_count);
-        } else {
-            self.list_state.reset(row_count);
+        let edit = plan_list_edit(&self.row_index, &ids, session_changed);
+        match edit {
+            ListEdit::Unchanged => {}
+            ListEdit::Append(n) => self.list_state.splice(prev_count..prev_count, n),
+            // Splicing at the head keeps measured heights and shifts the
+            // logical scroll top by `n`, so the visible row stays in place
+            // without the flash a full `reset` (all rows unmeasured) causes.
+            ListEdit::Prepend(n) => self.list_state.splice(0..0, n),
+            ListEdit::Reset => self.list_state.reset(row_count),
         }
 
         self.row_index = ids;
@@ -98,24 +140,21 @@ impl RootView {
 
         // These only mutate list state (consumed by the next layout), so they
         // are safe to call here during render.
-        let follow = self.follow_bottom.load(Ordering::Relaxed);
         if session_changed || prev_count == 0 || follow {
-            self.list_state.scroll_to_reveal_item(row_count - 1);
-        } else if appended {
-            // splice keeps the logical scroll top; nothing to restore.
-        } else if prepended {
-            // History paging: keep the previously visible row exactly in place.
-            self.list_state.scroll_to(ListOffset {
-                item_ix: prev_top.item_ix + (row_count - prev_count),
-                offset_in_item: prev_top.offset_in_item,
-            });
-        } else {
+            if let Some(pin) = tail_pin(row_count) {
+                self.list_state.scroll_to(pin);
+            }
+        } else if edit == ListEdit::Reset {
             // Replacement/truncation while reading history: stay on the same
             // row (clamped) instead of snapping to the top after `reset`.
             let clamped = prev_top.item_ix >= row_count;
             self.list_state.scroll_to(ListOffset {
                 item_ix: prev_top.item_ix.min(row_count - 1),
-                offset_in_item: if clamped { px(0.) } else { prev_top.offset_in_item },
+                offset_in_item: if clamped {
+                    px(0.)
+                } else {
+                    prev_top.offset_in_item
+                },
             });
         }
     }
@@ -185,3 +224,7 @@ impl RootView {
             .into_any_element()
     }
 }
+
+#[cfg(test)]
+#[path = "list_tests.rs"]
+mod tests;

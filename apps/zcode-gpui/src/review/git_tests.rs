@@ -70,7 +70,11 @@ fn badge_prefers_view_column() {
     };
     assert_eq!(f.badge(true), "A");
     assert_eq!(f.badge(false), "M");
-    let unstaged_only = GitFile { index: ' ', worktree: 'M', ..f.clone() };
+    let unstaged_only = GitFile {
+        index: ' ',
+        worktree: 'M',
+        ..f.clone()
+    };
     // Staged view of an unstaged-only file falls back to the worktree letter.
     assert_eq!(unstaged_only.badge(true), "M");
 }

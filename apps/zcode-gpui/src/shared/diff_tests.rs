@@ -9,12 +9,16 @@ fn detects_hunk_headers() {
 
 #[test]
 fn detects_git_headers() {
-    assert!(looks_like_diff("diff --git a/x.rs b/x.rs\n--- a/x.rs\n+++ b/x.rs\n@@ -1 +1 @@"));
+    assert!(looks_like_diff(
+        "diff --git a/x.rs b/x.rs\n--- a/x.rs\n+++ b/x.rs\n@@ -1 +1 @@"
+    ));
 }
 
 #[test]
 fn plain_prose_is_not_a_diff() {
-    assert!(!looks_like_diff("+1 looks good to me\nthanks for the +1 review"));
+    assert!(!looks_like_diff(
+        "+1 looks good to me\nthanks for the +1 review"
+    ));
     assert!(!looks_like_diff("regular chat text\nnothing special"));
 }
 

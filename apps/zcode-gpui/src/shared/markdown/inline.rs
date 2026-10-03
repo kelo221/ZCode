@@ -6,8 +6,8 @@
 //! Spec: PARITY.md M2 "Streaming Markdown renderer".
 
 use gpui::{
-    px, rgb, AnyElement, Font, FontFeatures, FontStyle, FontWeight, Hsla,
-    InteractiveText, IntoElement, StrikethroughStyle, StyledText, TextRun, UnderlineStyle,
+    AnyElement, Font, FontFeatures, FontStyle, FontWeight, Hsla, InteractiveText, IntoElement,
+    StrikethroughStyle, StyledText, TextRun, UnderlineStyle, px, rgb,
 };
 use pulldown_cmark::{Event, Tag, TagEnd};
 use std::ops::Range;
@@ -53,11 +53,23 @@ impl Style {
 
 fn font_of(st: &Style) -> Font {
     Font {
-        family: if st.code { CODE_FONT.into() } else { BODY_FONT.into() },
+        family: if st.code {
+            CODE_FONT.into()
+        } else {
+            BODY_FONT.into()
+        },
         features: FontFeatures::default(),
         fallbacks: None,
-        weight: if st.bold { FontWeight::BOLD } else { FontWeight::NORMAL },
-        style: if st.italic { FontStyle::Italic } else { FontStyle::Normal },
+        weight: if st.bold {
+            FontWeight::BOLD
+        } else {
+            FontWeight::NORMAL
+        },
+        style: if st.italic {
+            FontStyle::Italic
+        } else {
+            FontStyle::Normal
+        },
     }
 }
 
@@ -153,7 +165,9 @@ pub(crate) fn render_inlines(
                 inline.text.push(' ');
                 *pos += 1;
             }
-            Event::Start(tag @ (Tag::Strong | Tag::Emphasis | Tag::Strikethrough | Tag::Link { .. })) => {
+            Event::Start(
+                tag @ (Tag::Strong | Tag::Emphasis | Tag::Strikethrough | Tag::Link { .. }),
+            ) => {
                 let mut inner = st.clone();
                 let mut url = None;
                 match tag {
@@ -176,7 +190,9 @@ pub(crate) fn render_inlines(
                 // to the inner text and shift by the splice offset; the link's
                 // own range is already absolute.
                 for (range, link) in inner_inline.links {
-                    inline.links.push((range.start + start_byte..range.end + start_byte, link));
+                    inline
+                        .links
+                        .push((range.start + start_byte..range.end + start_byte, link));
                 }
                 if let Some(url) = url {
                     inline.links.push((start_byte..inline.text.len(), url));
@@ -189,7 +205,10 @@ pub(crate) fn render_inlines(
                 let label = format!("[image: {dest_url}]");
                 push_run(&mut inline, label.len(), &img);
                 inline.text.push_str(&label);
-                inline.links.push((inline.text.len() - label.len()..inline.text.len(), dest_url.to_string()));
+                inline.links.push((
+                    inline.text.len() - label.len()..inline.text.len(),
+                    dest_url.to_string(),
+                ));
                 *pos += 1;
             }
             Event::InlineHtml(h) | Event::Html(h) => {

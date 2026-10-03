@@ -8,9 +8,18 @@ on:
 
 jobs:
   check:
-    # Windows runner: gpui's DirectWrite backend needs no extra system deps,
-    # unlike Linux (X11/wayland dev packages).
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+          - os: macos-latest
+            platform: macos
+          - os: ubuntu-latest
+            platform: linux
+
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: apps/zcode-gpui
@@ -19,9 +28,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev \
+            libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libxrandr-dev libxi-dev libxcursor-dev libvulkan-dev libasound2-dev
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/zcode-gpui
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
+      - name: Format check
+        if: runner.os == 'Windows'
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test

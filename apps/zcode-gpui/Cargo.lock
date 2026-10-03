@@ -7303,6 +7303,7 @@ dependencies = [
  "pulldown-cmark",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "syntect",
  "uuid",
  "windows 0.62.2",

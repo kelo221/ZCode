@@ -17,8 +17,10 @@ fn parses_conversation_snapshot() {
             { "rowId": 41, "kind": "assistantText", "text": "hello", "state": "streaming" }
         ]}
     });
+    assert!(!c.revision_known, "a default state has no CAS base");
     c.apply_snapshot(&snap);
     assert_eq!(c.revision, 3);
+    assert!(c.revision_known);
     assert_eq!(c.first_row_id, 40);
     assert_eq!(c.total_count, 50);
     assert!(c.has_more_history());
@@ -160,4 +162,58 @@ fn parses_model_values_with_and_without_thought() {
     assert_eq!(o.model, "grok-4.6");
     assert_eq!(o.thought_levels, vec!["high".to_string()]);
     assert_eq!(o.value, "05c1eaa8-0000/grok-4.6");
+}
+
+#[test]
+fn workflow_runs_mirroring_in_conversation_state() {
+    let mut state = ConversationState::default();
+
+    // 1. Initial snapshot with workflowRuns
+    state.apply_snapshot(&json!({
+        "workflowRuns": {
+            "revision": 10,
+            "runs": [
+                {
+                    "runId": "run-initial",
+                    "status": "pending",
+                    "usage": { "spentTokens": 0, "nodesUsed": 0 },
+                    "lastEventSequence": 1
+                }
+            ]
+        }
+    }));
+    assert_eq!(state.workflow_runs.revision, 10);
+    assert_eq!(state.workflow_runs.runs.len(), 1);
+    assert_eq!(state.workflow_runs.runs[0].run_id, "run-initial");
+
+    // 2. workflowRun.updated delta
+    state.apply_deltas(&[json!({
+        "op": "workflowRun.updated",
+        "runId": "run-initial",
+        "revision": 11,
+        "run": { "status": "running" },
+        "nodes": [
+            { "siteId": "siteA", "ordinal": 0, "phase": "executing" }
+        ]
+    })]);
+    assert_eq!(state.workflow_runs.revision, 11);
+    assert_eq!(state.workflow_runs.runs[0].status, "running");
+    assert_eq!(state.workflow_runs.runs[0].nodes.len(), 1);
+
+    // 3. workflowRun.removed delta
+    state.apply_deltas(&[json!({
+        "op": "workflowRun.removed",
+        "runId": "run-initial",
+        "revision": 12
+    })]);
+    assert_eq!(state.workflow_runs.revision, 12);
+    assert!(state.workflow_runs.runs.is_empty());
+}
+
+#[test]
+fn snapshot_without_revision_does_not_mark_revision_known() {
+    let mut c = ConversationState::default();
+    c.apply_snapshot(&json!({ "logEpoch": "e", "seq": 1 }));
+    assert!(!c.revision_known);
+    assert_eq!(c.revision, 0);
 }

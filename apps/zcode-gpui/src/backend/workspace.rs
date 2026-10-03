@@ -28,6 +28,14 @@ pub(crate) enum Pending {
     Resync,
     /// `v4/conversation/rowsRange` history page for a session.
     FetchRows(String),
+    /// `v4/usage/stats` query for token metrics and timeline.
+    FetchUsageStats(String),
+    /// `mcp/list` inspection of connected MCP servers.
+    FetchMcpList,
+    /// `plugins/overview` query for plugin marketplace catalog.
+    FetchPluginsOverview,
+    /// Mutating plugin operation (`install`, `uninstall`, `update`, `setEnabled`, `restoreBuiltin`, `marketplace/*`).
+    PluginAction(String),
 }
 
 /// Everything needed to resend a session command on `stale` or to roll back
@@ -42,6 +50,9 @@ pub(crate) struct CommandCtx {
     /// Envelope `baseLogEpoch` for ROW_TARGETING_COMMANDS.
     pub log_epoch: Option<String>,
     pub retried: bool,
+    /// Stale retry only: the ack's `revisionAtDecision`, used as
+    /// `baseRevision` instead of the mirror (which stays snapshot-owned).
+    pub retry_base: Option<u64>,
 }
 
 impl CommandCtx {
@@ -53,6 +64,7 @@ impl CommandCtx {
             cas: false,
             log_epoch: None,
             retried: false,
+            retry_base: None,
         }
     }
 
@@ -132,6 +144,15 @@ impl WorkspaceHandle {
         }
     }
 
+    /// Cleanly terminate the backend process / job object.
+    pub fn shutdown(&mut self) {
+        if let Some(kill) = self.kill.take() {
+            kill();
+        }
+        self.started = false;
+        self.inbound = None;
+    }
+
     /// Spawn (or fall back to) the next backend candidate. Returns the event
     /// receiver for the store's pump task when a process came up.
     pub fn try_spawn(&mut self) -> Option<futures::channel::mpsc::UnboundedReceiver<ConnEvent>> {
@@ -196,6 +217,12 @@ impl WorkspaceHandle {
     pub fn sort_sessions(&mut self) {
         self.sessions
             .sort_by_key(|s| std::cmp::Reverse(s.last_activity_at));
+    }
+}
+
+impl Drop for WorkspaceHandle {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
 

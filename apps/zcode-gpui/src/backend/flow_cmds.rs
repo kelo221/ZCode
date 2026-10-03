@@ -1,0 +1,105 @@
+//! Topic resynchronization, backpressure flow flags, and history paging.
+
+use crate::app::store::AppState;
+use crate::backend::workspace::Pending;
+use gpui::Context;
+use serde_json::{Value, json};
+
+impl AppState {
+    /// Force a fresh snapshot for a subscribed topic after a fault (CRC
+    /// failure, seq gap, assembly timeout). Same subscriptionId, so the
+    /// server keeps the route and re-delivers from `deliveryKind:"recovery"`.
+    pub(crate) fn resync_topic(&mut self, ws_key: &str, topic: &str) {
+        let Some(ws) = self.ws_mut(ws_key) else {
+            return;
+        };
+        if !ws.started {
+            return;
+        }
+        let Some(sub) = ws.subscriptions.get(topic).cloned() else {
+            return;
+        };
+        let id = ws.next_id();
+        ws.pending.insert(id, Pending::Resync);
+        let conn_id = ws.connection_id.clone();
+        let base = Value::Null;
+        self.push_log(format!("resyncing {topic}"));
+        self.send_request(
+            ws_key,
+            "v4/conversation/resync",
+            json!({
+                "topic": topic,
+                "subscriptionId": sub,
+                "connectionId": conn_id,
+                "base": base,
+                "forceSnapshot": true,
+            }),
+            id,
+        );
+    }
+
+    /// Page in history older than the current 60-row tail window
+    /// (`v4/conversation/rowsRange`, cursor = firstRowId of the window).
+    pub fn fetch_earlier_rows(&mut self, cx: &mut Context<Self>) {
+        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
+            return;
+        };
+        let (first_row_id, subscribed) = match self.conversations.get(&sid) {
+            Some(c) => (c.first_row_id, c.subscribed),
+            None => return,
+        };
+        if first_row_id == 0 {
+            return;
+        }
+        if !subscribed {
+            self.subscribe_conversation(&ws_key, &sid);
+            cx.notify();
+            return;
+        }
+        let Some(ws) = self.ws_mut(&ws_key) else {
+            return;
+        };
+        let id = ws.next_id();
+        ws.pending.insert(id, Pending::FetchRows(sid.clone()));
+        ws.send_line(
+            json!({
+                "id": id,
+                "method": "v4/conversation/rowsRange",
+                "params": {
+                    "sessionId": sid,
+                    "beforeRowId": first_row_id,
+                    "limit": 200,
+                }
+            })
+            .to_string(),
+        );
+        cx.notify();
+    }
+
+    /// Backpressure signal for the CLI's frame pump
+    /// (`v4/connection/flow`, fire-and-forget with an empty result).
+    pub(crate) fn send_flow_flag(&mut self, ws_key: &str, saturated: bool) {
+        let Some(ws) = self.ws_mut(ws_key) else {
+            return;
+        };
+        if !ws.started {
+            return;
+        }
+        let conn_id = ws.connection_id.clone();
+        // v4/connection/flow is a request with an empty result; its response
+        // carries no pending entry and is ignored by the correlation layer.
+        let id = ws.next_id();
+        let state = if saturated { "saturated" } else { "drained" };
+        ws.send_line(
+            json!({
+                "id": id,
+                "method": "v4/connection/flow",
+                "params": {
+                    "connectionId": conn_id,
+                    "state": state,
+                }
+            })
+            .to_string(),
+        );
+    }
+}

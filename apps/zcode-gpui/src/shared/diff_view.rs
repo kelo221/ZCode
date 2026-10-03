@@ -6,7 +6,9 @@
 
 use gpui::{AnyElement, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb};
 
-use crate::shared::theme::{CODE_BG, CODE_BORDER, DIFF_ADD_BG, DIFF_DEL_BG, DIFF_HUNK_BG, MUTED, TEXT};
+use crate::shared::theme::{
+    CODE_BG, CODE_BORDER, DIFF_ADD_BG, DIFF_DEL_BG, DIFF_HUNK_BG, MUTED, TEXT,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum LineKind {
@@ -103,7 +105,10 @@ pub fn render_diff(text: &str) -> AnyElement {
                 div()
                     .text_size(px(11.))
                     .text_color(rgb(MUTED))
-                    .child(format!("… {} more diff lines", text.lines().count() - MAX_LINES)),
+                    .child(format!(
+                        "… {} more diff lines",
+                        text.lines().count() - MAX_LINES
+                    )),
             )
         })
         .into_any_element()

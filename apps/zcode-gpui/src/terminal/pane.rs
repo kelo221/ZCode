@@ -3,14 +3,14 @@
 //! Output arrives on a reader thread into a shared buffer; a 60ms poll drains it
 //! on the main thread.
 
+use crate::app::root::RootView;
 use crate::terminal::grid;
 use crate::terminal::io::{dims_for_pixels, shell_command, spawn_reader};
-use crate::app::root::RootView;
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::term::{Config, Term};
 use alacritty_terminal::vte::ansi::Processor;
-use gpui::{actions, AppContext, Context, FocusHandle, Keystroke, Pixels, Point, Task};
-use portable_pty::{native_pty_system, MasterPty, PtySize};
+use gpui::{AppContext, Context, FocusHandle, Keystroke, Pixels, Point, Task, actions};
+use portable_pty::{MasterPty, PtySize, native_pty_system};
 
 // Ctrl+` toggles the bottom terminal drawer (aligned with desktop shortcut).
 actions!(zcode_gpui, [ToggleTerminal]);
@@ -219,7 +219,10 @@ impl RootView {
                 })
                 .await;
                 let bytes = if dirty.swap(false, Ordering::Relaxed) {
-                    buffer.lock().map(|mut b| std::mem::take(&mut *b)).unwrap_or_default()
+                    buffer
+                        .lock()
+                        .map(|mut b| std::mem::take(&mut *b))
+                        .unwrap_or_default()
                 } else {
                     Vec::new()
                 };

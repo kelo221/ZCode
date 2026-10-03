@@ -3,7 +3,9 @@
 //!
 //! Spec: PARITY.md M2 "Code highlighting (syntect) + copy button".
 
-use gpui::{AnyElement, InteractiveElement, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb};
+use gpui::{
+    AnyElement, InteractiveElement, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb,
+};
 use std::sync::OnceLock;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{FontStyle, ThemeSet};
@@ -129,7 +131,9 @@ const CODE_FONT: &str = "Consolas";
 /// Render one highlighted line as a single flowing text element (spans as
 /// runs — separate divs would stack each colored chunk vertically).
 fn code_line(spans: &[CodeSpan]) -> gpui::AnyElement {
-    use gpui::{Font, FontFeatures, FontStyle, FontWeight, StrikethroughStyle, StyledText, TextRun};
+    use gpui::{
+        Font, FontFeatures, FontStyle, FontWeight, StrikethroughStyle, StyledText, TextRun,
+    };
 
     if spans.is_empty() {
         return div().child(" ").into_any_element();
@@ -147,8 +151,16 @@ fn code_line(spans: &[CodeSpan]) -> gpui::AnyElement {
                 family: CODE_FONT.into(),
                 features: FontFeatures::default(),
                 fallbacks: None,
-                weight: if s.bold { FontWeight::BOLD } else { FontWeight::NORMAL },
-                style: if s.italic { FontStyle::Italic } else { FontStyle::Normal },
+                weight: if s.bold {
+                    FontWeight::BOLD
+                } else {
+                    FontWeight::NORMAL
+                },
+                style: if s.italic {
+                    FontStyle::Italic
+                } else {
+                    FontStyle::Normal
+                },
             },
             color: rgb(s.color).into(),
             background_color: None,

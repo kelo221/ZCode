@@ -2,7 +2,7 @@
 //! assistant text with streaming cursor, collapsible reasoning, and expandable tool cards.
 
 use crate::conversation::model::Row;
-use crate::shared::theme::{ACCENT, BORDER, CARD, MUTED, PANEL, REASONING, TEXT, TOOL, USER_BLUE};
+use crate::shared::theme::{ACCENT, BORDER, CARD, MUTED, REASONING, TEXT, USER_BLUE};
 use gpui::{
     AnyElement, ClipboardItem, Context, ElementId, IntoElement, ParentElement, Styled, div,
     prelude::*, px, rgb,
@@ -135,7 +135,9 @@ impl crate::app::root::RootView {
                         .flex_col()
                         .items_start()
                         .gap_1()
-                        .child(crate::shared::markdown::render_markdown(text, *row_id, streaming))
+                        .child(crate::shared::markdown::render_markdown(
+                            text, *row_id, streaming,
+                        ))
                         .when(!streaming && !text.is_empty(), |el| {
                             el.child(
                                 div()
@@ -163,28 +165,116 @@ impl crate::app::root::RootView {
                                     )
                                     .when(c_retry, |actions| {
                                         let target_ent = ent_id.clone();
-                                        actions.child(
-                                            div()
-                                                .id(ElementId::NamedInteger(
-                                                    "retry-turn".into(),
-                                                    r_id,
-                                                ))
-                                                .px_1p5()
-                                                .py_0p5()
-                                                .rounded_sm()
-                                                .text_size(px(10.))
-                                                .text_color(rgb(MUTED))
-                                                .hover(|s| s.text_color(rgb(ACCENT)))
-                                                .cursor_pointer()
-                                                .child("Retry")
-                                                .on_click(cx.listener(move |this, _, _, cx| {
-                                                    cx.stop_propagation();
-                                                    let e_id = target_ent.clone();
-                                                    this.state.update(cx, |app, cx| {
-                                                        app.retry_turn(r_id, &e_id, cx);
-                                                    });
-                                                })),
-                                        )
+                                        let ent_fork = ent_id.clone();
+                                        let ent_like = ent_id.clone();
+                                        let ent_dislike = ent_id.clone();
+                                        actions
+                                            .child(
+                                                div()
+                                                    .id(ElementId::NamedInteger(
+                                                        "retry-turn".into(),
+                                                        r_id,
+                                                    ))
+                                                    .px_1p5()
+                                                    .py_0p5()
+                                                    .rounded_sm()
+                                                    .text_size(px(10.))
+                                                    .text_color(rgb(MUTED))
+                                                    .hover(|s| s.text_color(rgb(ACCENT)))
+                                                    .cursor_pointer()
+                                                    .child("Retry")
+                                                    .on_click(cx.listener(
+                                                        move |this, _, _, cx| {
+                                                            cx.stop_propagation();
+                                                            let e_id = target_ent.clone();
+                                                            this.state.update(cx, |app, cx| {
+                                                                app.retry_turn(r_id, &e_id, cx);
+                                                            });
+                                                        },
+                                                    )),
+                                            )
+                                            .child(
+                                                div()
+                                                    .id(ElementId::NamedInteger(
+                                                        "fork-turn".into(),
+                                                        r_id,
+                                                    ))
+                                                    .px_1p5()
+                                                    .py_0p5()
+                                                    .rounded_sm()
+                                                    .text_size(px(10.))
+                                                    .text_color(rgb(MUTED))
+                                                    .hover(|s| s.text_color(rgb(ACCENT)))
+                                                    .cursor_pointer()
+                                                    .child("Fork")
+                                                    .on_click(cx.listener(
+                                                        move |this, _, _, cx| {
+                                                            cx.stop_propagation();
+                                                            let e_id = ent_fork.clone();
+                                                            this.state.update(cx, |app, cx| {
+                                                                app.fork_assistant(r_id, &e_id, cx);
+                                                            });
+                                                        },
+                                                    )),
+                                            )
+                                            .child(
+                                                div()
+                                                    .id(ElementId::NamedInteger(
+                                                        "like-turn".into(),
+                                                        r_id,
+                                                    ))
+                                                    .px_1p5()
+                                                    .py_0p5()
+                                                    .rounded_sm()
+                                                    .text_size(px(10.))
+                                                    .text_color(rgb(MUTED))
+                                                    .hover(|s| s.text_color(rgb(ACCENT)))
+                                                    .cursor_pointer()
+                                                    .child("👍")
+                                                    .on_click(cx.listener(
+                                                        move |this, _, _, cx| {
+                                                            cx.stop_propagation();
+                                                            let e_id = ent_like.clone();
+                                                            this.state.update(cx, |app, cx| {
+                                                                app.set_assistant_feedback(
+                                                                    r_id,
+                                                                    &e_id,
+                                                                    Some("like"),
+                                                                    cx,
+                                                                );
+                                                            });
+                                                        },
+                                                    )),
+                                            )
+                                            .child(
+                                                div()
+                                                    .id(ElementId::NamedInteger(
+                                                        "dislike-turn".into(),
+                                                        r_id,
+                                                    ))
+                                                    .px_1p5()
+                                                    .py_0p5()
+                                                    .rounded_sm()
+                                                    .text_size(px(10.))
+                                                    .text_color(rgb(MUTED))
+                                                    .hover(|s| s.text_color(rgb(ACCENT)))
+                                                    .cursor_pointer()
+                                                    .child("👎")
+                                                    .on_click(cx.listener(
+                                                        move |this, _, _, cx| {
+                                                            cx.stop_propagation();
+                                                            let e_id = ent_dislike.clone();
+                                                            this.state.update(cx, |app, cx| {
+                                                                app.set_assistant_feedback(
+                                                                    r_id,
+                                                                    &e_id,
+                                                                    Some("dislike"),
+                                                                    cx,
+                                                                );
+                                                            });
+                                                        },
+                                                    )),
+                                            )
                                     }),
                             )
                         })
@@ -253,116 +343,7 @@ impl crate::app::root::RootView {
                 status,
                 input_text,
                 output_text,
-            } => {
-                let r_id = *row_id;
-                let expanded = self.expanded_tools.contains(&r_id);
-                let is_running = status == "running" || status == "inputStreaming";
-                let is_error = status == "error";
-
-                let status_color = if is_error {
-                    crate::shared::theme::DANGER
-                } else if is_running {
-                    ACCENT
-                } else {
-                    MUTED
-                };
-
-                Some(
-                    div()
-                        .w_full()
-                        .flex()
-                        .flex_col()
-                        .bg(rgb(CARD))
-                        .border_1()
-                        .border_color(rgb(BORDER))
-                        .rounded_md()
-                        .my_1()
-                        .child(
-                            div()
-                                .id(ElementId::NamedInteger("toggle-tool".into(), r_id))
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .px_2p5()
-                                .py_1p5()
-                                .cursor_pointer()
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    if this.expanded_tools.contains(&r_id) {
-                                        this.expanded_tools.remove(&r_id);
-                                    } else {
-                                        this.expanded_tools.insert(r_id);
-                                    }
-                                    cx.notify();
-                                }))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .gap_2()
-                                        .child(
-                                            div()
-                                                .text_size(px(10.))
-                                                .text_color(rgb(MUTED))
-                                                .child(if expanded { "▼" } else { "▶" }),
-                                        )
-                                        .child(
-                                            div()
-                                                .font_family("Consolas")
-                                                .text_size(px(12.))
-                                                .font_weight(gpui::FontWeight::SEMIBOLD)
-                                                .text_color(rgb(TOOL))
-                                                .child(label.clone()),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(px(10.))
-                                        .px_1p5()
-                                        .rounded_sm()
-                                        .bg(rgb(PANEL))
-                                        .text_color(rgb(status_color))
-                                        .child(status.clone()),
-                                ),
-                        )
-                        .when(expanded, |el| {
-                            el.child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .px_2p5()
-                                    .pb_2()
-                                    .pt_1()
-                                    .border_t_1()
-                                    .border_color(rgb(BORDER))
-                                    .when(!input_text.is_empty(), |inp| {
-                                        inp.child(
-                                            div()
-                                                .font_family("Consolas")
-                                                .text_size(px(11.))
-                                                .text_color(rgb(TEXT))
-                                                .child(input_text.clone()),
-                                        )
-                                    })
-                                    .when(!output_text.is_empty(), |out| {
-                                        out.child(if crate::shared::diff_view::looks_like_diff(output_text)
-                                        {
-                                            crate::shared::diff_view::render_diff(output_text)
-                                        } else {
-                                            div()
-                                                .font_family("Consolas")
-                                                .text_size(px(11.))
-                                                .text_color(rgb(MUTED))
-                                                .child(output_text.clone())
-                                                .into_any_element()
-                                        })
-                                    }),
-                            )
-                        })
-                        .into_any_element(),
-                )
-            }
+            } => Some(self.render_tool_row(*row_id, label, status, input_text, output_text, cx)),
             Row::Other => None,
         }
     }

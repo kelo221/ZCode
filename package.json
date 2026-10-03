@@ -13,6 +13,7 @@
     "dev:desktop:remote-prod": "node scripts/dev-desktop-remote-prod.mjs",
     "dev:gpui": "cargo run --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace .",
     "start:gpui": "cargo run --release --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace .",
+    "package:gpui": "node scripts/package-gpui.mjs",
     "dev:server": "pnpm --filter @zcode/server dev",
     "prepare": "husky",
     "prepare:desktop-runtime": "pnpm --filter @zcode/desktop prepare:runtime-assets",
@@ -81,16 +82,20 @@
   "engines": {
     "node": ">=24.0.0"
   },
-  "packageManager": "pnpm@10.33.2",
-  "pnpm": {
-    "overrides": {
-      "react": "19.2.7",
-      "react-dom": "19.2.7"
-    },
-    "patchedDependencies": {
-      "@arms/rum-electron@0.0.3": "patches/@arms__rum-electron@0.0.3.patch",
-      "@ai-sdk/openai-compatible@2.0.60": "patches/@ai-sdk__openai-compatible@2.0.60.patch",
-      "@ai-sdk/anthropic@3.0.81": "patches/@ai-sdk__anthropic@3.0.81.patch"
-    }
-  }
+  "packageManager": "bun@1.4.2",
+  "overrides": {
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "patchedDependencies": {
+    "@arms/rum-electron@0.0.3": "patches/@arms__rum-electron@0.0.3.patch",
+    "@ai-sdk/openai-compatible@2.0.60": "patches/@ai-sdk__openai-compatible@2.0.60.patch",
+    "@ai-sdk/anthropic@3.0.81": "patches/@ai-sdk__anthropic@3.0.81.patch"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/zcode-cli",
+    "apps/zcode-cli/packages/*",
+    "apps/zcode-cli/tools/*"
+  ]
 }

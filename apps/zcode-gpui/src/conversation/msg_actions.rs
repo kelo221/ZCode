@@ -5,8 +5,8 @@
 //!
 //! Spec source: packages/shared/src/zcode-protocol-v4/command.ts.
 
-use crate::backend::session_cmds::row_payload;
 use crate::app::store::AppState;
+use crate::backend::session_cmds::row_payload;
 use crate::backend::workspace::CommandCtx;
 use gpui::Context;
 use serde_json::{Value, json};
@@ -75,9 +75,89 @@ impl AppState {
         cx.notify();
     }
 
+    /// Fork conversation branch from a completed assistant turn.
+    pub fn fork_assistant(&mut self, row_id: u64, entity_id: &str, cx: &mut Context<Self>) {
+        self.row_command("forkAssistant", row_id, entity_id, json!({}));
+        cx.notify();
+    }
+
+    /// Provide like/dislike/clear feedback on an assistant turn.
+    pub fn set_assistant_feedback(
+        &mut self,
+        row_id: u64,
+        entity_id: &str,
+        feedback: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        let fb_val = feedback.map(|f| json!(f)).unwrap_or(Value::Null);
+        self.row_command(
+            "setAssistantFeedback",
+            row_id,
+            entity_id,
+            json!({ "feedback": fb_val }),
+        );
+        cx.notify();
+    }
+
     /// Workspace-only file undo; the UI asks for confirmation first.
     pub fn apply_file_rewind(&mut self, row_id: u64, entity_id: &str, cx: &mut Context<Self>) {
         self.row_command("applyFileRewind", row_id, entity_id, json!({}));
+        cx.notify();
+    }
+
+    /// Compact conversation history into a concise summary.
+    pub fn compact_session(&mut self, cx: &mut Context<Self>) {
+        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
+            return;
+        };
+        let ctx = CommandCtx::new(&sid, "compact", json!({}));
+        self.send_session_command(&ws_key, ctx);
+        cx.notify();
+    }
+
+    /// Send a goal-oriented background objective.
+    pub fn send_goal_command(&mut self, text: &str, cx: &mut Context<Self>) {
+        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
+            return;
+        };
+        let ctx = CommandCtx::new(&sid, "sendGoalCommand", json!({ "text": text }));
+        self.send_session_command(&ws_key, ctx);
+        cx.notify();
+    }
+
+    /// Pause the active goal execution (stopPausesActiveGoalTarget).
+    #[allow(dead_code)]
+    pub fn pause_goal(&mut self, cx: &mut Context<Self>) {
+        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
+            return;
+        };
+        self.send_session_command(&ws_key, CommandCtx::new(&sid, "pauseGoal", json!({})).cas());
+        cx.notify();
+    }
+
+    /// Resume a paused goal execution.
+    #[allow(dead_code)]
+    pub fn resume_goal(&mut self, cx: &mut Context<Self>) {
+        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
+            return;
+        };
+        self.send_session_command(
+            &ws_key,
+            CommandCtx::new(&sid, "resumeGoal", json!({})).cas(),
+        );
+        cx.notify();
+    }
+
+    /// Set session-level followup routing mode ("queue" or "guide").
+    #[allow(dead_code)]
+    pub fn set_followup_mode(&mut self, mode: &str, cx: &mut Context<Self>) {
+        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
+            return;
+        };
+        self.send_session_command(
+            &ws_key,
+            CommandCtx::new(&sid, "setFollowupMode", json!({ "mode": mode })).cas(),
+        );
         cx.notify();
     }
 
@@ -234,44 +314,39 @@ impl AppState {
         cx.notify();
     }
 
-    // ── Interactions ──
-
-    /// Answer a pending interaction through V4 `resolveInteraction` only.
-    /// The backend races the legacy stdio request against this command and
-    /// cancels the stdio request when the V4 answer lands, so the stdio
-    /// request is deliberately never answered here: a stdio reply would win
-    /// the race with less information (Allow always / Full access lost).
-    pub fn resolve_interaction(
-        &mut self,
-        interaction_id: &str,
-        answer: Value,
-        cx: &mut Context<Self>,
-    ) {
-        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
-            return;
-        };
-        let payload = json!({ "interactionId": interaction_id, "answer": answer });
-        let ctx = CommandCtx::new(&sid, "resolveInteraction", payload);
-        if self.send_session_command(&ws_key, ctx)
-            && let Some(state) = self.conversations.get_mut(&sid)
-        {
-            state
-                .pending_interactions
-                .retain(|pi| pi.interaction_id != interaction_id);
-        }
+    #[allow(dead_code)]
+    pub fn edit_queue_item(&mut self, queue_item_id: &str, new_text: &str, cx: &mut Context<Self>) {
+        self.queue_command(
+            "editQueueItem",
+            json!({ "queueItemId": queue_item_id, "newText": new_text }),
+        );
         cx.notify();
     }
 
-    /// Composer text used as an interaction's free-text answer/feedback;
-    /// clears the composer on use.
-    pub(crate) fn take_composer_answer(&mut self, cx: &mut Context<Self>) -> Option<String> {
-        let text = self.composer.read(cx).text().trim().to_string();
-        if text.is_empty() {
-            self.push_error("Type your answer in the message box first".into());
-            cx.notify();
-            return None;
-        }
-        self.composer.update(cx, |c, _ccx| c.set_text(""));
-        Some(text)
+    pub fn reorder_queue_item(
+        &mut self,
+        queue_item_id: &str,
+        before_queue_item_id: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        let before_val = before_queue_item_id
+            .map(|b| json!(b))
+            .unwrap_or(Value::Null);
+        self.queue_command(
+            "reorderQueueItem",
+            json!({ "queueItemId": queue_item_id, "beforeQueueItemId": before_val }),
+        );
+        cx.notify();
+    }
+
+    /// Cancel an in-flight background task or workflow run.
+    #[allow(dead_code)]
+    pub fn cancel_background_work(&mut self, work_id: &str, cx: &mut Context<Self>) {
+        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
+            return;
+        };
+        let ctx = CommandCtx::new(&sid, "cancelBackgroundWork", json!({ "workId": work_id }));
+        self.send_session_command(&ws_key, ctx);
+        cx.notify();
     }
 }

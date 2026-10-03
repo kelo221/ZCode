@@ -1,8 +1,8 @@
 //! Outbound actions on AppState: RPC plumbing, topic subscriptions and chat
 //! commands. Config switches (model/thinking/mode) live in composer/config_cmds.rs.
 
-use crate::backend::launcher::{new_command_id, now_ms};
 use crate::app::store::AppState;
+use crate::backend::launcher::{new_command_id, now_ms};
 use crate::backend::workspace::Pending;
 use gpui::Context;
 use serde_json::{Value, json};
@@ -226,15 +226,45 @@ impl AppState {
         cx.notify();
     }
 
+    #[allow(dead_code)]
     pub fn send(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.send_with_attachments(text, Vec::new(), cx);
+    }
+
+    pub fn send_with_attachments(
+        &mut self,
+        text: &str,
+        attachments: Vec<crate::composer::attachment::AttachmentRef>,
+        cx: &mut Context<Self>,
+    ) {
         let text = text.trim();
-        if text.is_empty() {
+        if text.is_empty() && attachments.is_empty() {
             return;
         }
         if self.composer_intent != crate::conversation::msg_actions::ComposerIntent::Send {
             self.submit_intent(text, cx);
             return;
         }
+
+        // Handle slash commands (/compact, /goal <desc>, etc.)
+        if text.starts_with('/') {
+            match crate::composer::slash::classify_slash_command(text) {
+                crate::composer::slash::SlashAction::Compact => {
+                    if self.active.is_some() {
+                        self.compact_session(cx);
+                        return;
+                    }
+                }
+                crate::composer::slash::SlashAction::Goal(desc) => {
+                    if self.active.is_some() {
+                        self.send_goal_command(&desc, cx);
+                        return;
+                    }
+                }
+                crate::composer::slash::SlashAction::Plain(_) => {}
+            }
+        }
+
         let Some(ws_key) = self.active_ws_key() else {
             self.push_log("no workspace selected".into());
             return;
@@ -259,9 +289,13 @@ impl AppState {
             // Draft selections (model/mode) ride into createSession.config —
             // CAS config commands need a live session.
             let config = self.draft_config();
+            let mut first_input = json!({ "text": text });
+            if !attachments.is_empty() {
+                first_input["attachments"] = json!(attachments);
+            }
             let mut payload = json!({
                 "workspaceId": self.ws(&ws_key).map(|w| w.key.clone()).unwrap_or_default(),
-                "firstInput": { "text": text },
+                "firstInput": first_input,
             });
             if !config.is_null() {
                 payload["config"] = config;
@@ -276,11 +310,20 @@ impl AppState {
             );
             self.push_log("creating session…".into());
         } else if let Some(sid) = self.active.clone() {
+            let mut text_payload = json!({ "text": text });
+            if !attachments.is_empty() {
+                text_payload["attachments"] = json!(attachments);
+            }
+            if let Some(c) = self.conversations.get(&sid)
+                && c.config.followup_mode == "guide"
+            {
+                text_payload["requestedDelivery"] = json!("guide");
+            }
             self.send_command(
                 &ws_key,
                 Some(sid),
                 "sendText",
-                json!({ "text": text }),
+                text_payload,
                 None,
                 Pending::SendText,
             );
@@ -291,105 +334,14 @@ impl AppState {
     pub fn stop(&mut self, cx: &mut Context<Self>) {
         if let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) {
             self.ensure_spawned(&ws_key, cx);
-            self.send_command(&ws_key, Some(sid), "stop", json!({}), None, Pending::Stop);
+            let mut payload = json!({});
+            if let Some(c) = self.conversations.get(&sid)
+                && let Some(fg_id) = &c.active_foreground_execution_id
+            {
+                payload["expectedForegroundExecutionId"] = json!(fg_id);
+            }
+            self.send_command(&ws_key, Some(sid), "stop", payload, None, Pending::Stop);
             cx.notify();
         }
-    }
-
-    /// Force a fresh snapshot for a subscribed topic after a fault (CRC
-    /// failure, seq gap, assembly timeout). Same subscriptionId, so the
-    /// server keeps the route and re-delivers from `deliveryKind:"recovery"`.
-    pub(crate) fn resync_topic(&mut self, ws_key: &str, topic: &str) {
-        let Some(ws) = self.ws_mut(ws_key) else {
-            return;
-        };
-        if !ws.started {
-            return;
-        }
-        let Some(sub) = ws.subscriptions.get(topic).cloned() else {
-            return;
-        };
-        let id = ws.next_id();
-        ws.pending.insert(id, Pending::Resync);
-        let conn_id = ws.connection_id.clone();
-        let base = Value::Null;
-        self.push_log(format!("resyncing {topic}"));
-        self.send_request(
-            ws_key,
-            "v4/conversation/resync",
-            json!({
-                "topic": topic,
-                "subscriptionId": sub,
-                "connectionId": conn_id,
-                "base": base,
-                "forceSnapshot": true,
-            }),
-            id,
-        );
-    }
-
-    /// Page in history older than the current 60-row tail window
-    /// (`v4/conversation/rowsRange`, cursor = firstRowId of the window).
-    pub fn fetch_earlier_rows(&mut self, cx: &mut Context<Self>) {
-        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
-            return;
-        };
-        let (first_row_id, subscribed) = match self.conversations.get(&sid) {
-            Some(c) => (c.first_row_id, c.subscribed),
-            None => return,
-        };
-        if first_row_id == 0 {
-            return;
-        }
-        if !subscribed {
-            self.subscribe_conversation(&ws_key, &sid);
-            cx.notify();
-            return;
-        }
-        let Some(ws) = self.ws_mut(&ws_key) else {
-            return;
-        };
-        let id = ws.next_id();
-        ws.pending.insert(id, Pending::FetchRows(sid.clone()));
-        ws.send_line(
-            json!({
-                "id": id,
-                "method": "v4/conversation/rowsRange",
-                "params": {
-                    "sessionId": sid,
-                    "beforeRowId": first_row_id,
-                    "limit": 200,
-                }
-            })
-            .to_string(),
-        );
-        cx.notify();
-    }
-
-    /// Backpressure signal for the CLI's frame pump
-    /// (`v4/connection/flow`, fire-and-forget with an empty result).
-    pub(crate) fn send_flow_flag(&mut self, ws_key: &str, saturated: bool) {
-        let Some(ws) = self.ws_mut(ws_key) else {
-            return;
-        };
-        if !ws.started {
-            return;
-        }
-        let conn_id = ws.connection_id.clone();
-        // v4/connection/flow is a request with an empty result; its response
-        // carries no pending entry and is ignored by the correlation layer.
-        let id = ws.next_id();
-        let state = if saturated { "saturated" } else { "drained" };
-        ws.send_line(
-            json!({
-                "id": id,
-                "method": "v4/connection/flow",
-                "params": {
-                    "connectionId": conn_id,
-                    "state": state,
-                }
-            })
-            .to_string(),
-        );
     }
 }

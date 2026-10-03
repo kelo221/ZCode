@@ -10,9 +10,11 @@ fn highlights_rust_keywords_and_strings() {
     assert!(flat.contains("fn main()"));
     // Chunks split arbitrarily, so assert on variety of colors in the
     // `let s = "hi";` line rather than on one specific span.
-    let colors: std::collections::HashSet<u32> =
-        lines[1].iter().map(|s| s.color).collect();
-    assert!(colors.len() >= 2, "expected syntax coloring, got {colors:?}");
+    let colors: std::collections::HashSet<u32> = lines[1].iter().map(|s| s.color).collect();
+    assert!(
+        colors.len() >= 2,
+        "expected syntax coloring, got {colors:?}"
+    );
 }
 
 #[test]

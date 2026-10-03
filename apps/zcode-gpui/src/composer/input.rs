@@ -1,9 +1,11 @@
 //! Single-line composer with IME support (composition via marked text),
 //! caret navigation, clipboard paste, and Enter-to-submit.
 
+use crate::composer::attachment::AttachmentRef;
+use crate::composer::chips::{self, ChipTable};
 use gpui::{
-    ClickEvent, Context, CursorStyle, EntityInputHandler, EventEmitter, FocusHandle, KeyDownEvent,
-    Keystroke, Pixels, Point, Render, UTF16Selection, Window, canvas, div, prelude::*, px, rgb,
+    ClickEvent, Context, CursorStyle, EventEmitter, FocusHandle, KeyDownEvent, Keystroke, Render,
+    Window, canvas, div, prelude::*, px, rgb,
 };
 use std::ops::Range;
 
@@ -12,15 +14,18 @@ pub enum ComposerEvent {
 }
 
 pub struct Composer {
-    content: String,
+    pub(crate) content: String,
     /// Byte offset into `content`, always on a char boundary.
-    caret: usize,
+    pub(crate) caret: usize,
     /// Active IME composition range in UTF-16 code units.
-    marked_utf16: Option<Range<usize>>,
-    focus: FocusHandle,
+    pub(crate) marked_utf16: Option<Range<usize>>,
+    pub(crate) focus: FocusHandle,
     /// Single-line mode (commit box): Enter submits, newlines are stripped.
     pub(crate) single_line: bool,
     pub(crate) placeholder: &'static str,
+    pub(crate) attachments: Vec<AttachmentRef>,
+    /// Atomic mention/skill chips (byte ranges into `content`).
+    pub(crate) chips: ChipTable,
 }
 
 impl Composer {
@@ -32,31 +37,77 @@ impl Composer {
             focus: cx.focus_handle(),
             single_line: false,
             placeholder: "Ask for follow-up changes",
+            attachments: Vec::new(),
+            chips: ChipTable::default(),
         }
     }
 
     /// One-line variant reused for the commit-message input.
     pub fn new_single_line(placeholder: &'static str, cx: &mut Context<Self>) -> Self {
-        Self { single_line: true, placeholder, ..Self::new(cx) }
+        Self {
+            single_line: true,
+            placeholder,
+            ..Self::new(cx)
+        }
     }
 
     pub fn take_text(&mut self) -> String {
         self.caret = 0;
         self.marked_utf16 = None;
+        self.chips.clear();
         std::mem::take(&mut self.content)
+    }
+
+    pub fn take_attachments(&mut self) -> Vec<AttachmentRef> {
+        std::mem::take(&mut self.attachments)
+    }
+
+    pub fn attachments(&self) -> &[AttachmentRef] {
+        &self.attachments
+    }
+
+    pub fn add_attachment(&mut self, att: AttachmentRef, cx: &mut Context<Self>) {
+        if !self
+            .attachments
+            .iter()
+            .any(|a| a.reference == att.reference)
+        {
+            self.attachments.push(att);
+            cx.notify();
+        }
+    }
+
+    pub fn remove_attachment(&mut self, index: usize, cx: &mut Context<Self>) {
+        if index < self.attachments.len() {
+            self.attachments.remove(index);
+            cx.notify();
+        }
     }
 
     pub fn set_text(&mut self, text: &str) {
         self.content = text.to_string();
         self.caret = self.content.len();
         self.marked_utf16 = None;
+        self.chips.clear();
+    }
+
+    /// Replace `range` (bytes) with an atomic chip plus a trailing space.
+    pub fn insert_chip(&mut self, range: Range<usize>, chip: &str) {
+        self.marked_utf16 = None;
+        self.caret = chips::insert_chip(&mut self.content, &mut self.chips, range, chip);
+    }
+
+    /// Replace `range` (bytes) with `text`, chip-atomically. Returns the
+    /// byte range actually replaced (widened to whole chips).
+    pub(crate) fn edit_range(&mut self, range: Range<usize>, text: &str) -> Range<usize> {
+        chips::edit(&mut self.content, &mut self.chips, range, text)
     }
 
     pub fn text(&self) -> &str {
         &self.content
     }
 
-    fn sanitize(&self, text: &str) -> String {
+    pub(crate) fn sanitize(&self, text: &str) -> String {
         text.chars()
             .filter(|c| *c != '\r' && (!self.single_line || *c != '\n'))
             .collect()
@@ -67,12 +118,12 @@ impl Composer {
         if cleaned.is_empty() {
             return;
         }
-        self.content.insert_str(self.caret, &cleaned);
-        self.caret += cleaned.len();
+        let r = self.edit_range(self.caret..self.caret, &cleaned);
+        self.caret = r.start + cleaned.len();
         cx.notify();
     }
 
-    fn byte_from_utf16(&self, pos: usize) -> Option<usize> {
+    pub(crate) fn byte_from_utf16(&self, pos: usize) -> Option<usize> {
         let mut units = 0usize;
         for (offset, ch) in self.content.char_indices() {
             if units >= pos {
@@ -83,7 +134,7 @@ impl Composer {
         (units >= pos).then_some(self.content.len())
     }
 
-    fn caret_utf16(&self) -> usize {
+    pub(crate) fn caret_utf16(&self) -> usize {
         self.content[..self.caret]
             .chars()
             .map(char::len_utf16)
@@ -92,20 +143,25 @@ impl Composer {
 
     fn move_caret(&mut self, delta: isize, cx: &mut Context<Self>) {
         let bytes = &self.content;
+        // A chip is one caret stop: jump over it whole.
         let new = if delta < 0 {
-            bytes[..self.caret]
-                .char_indices()
-                .next_back()
-                .map(|(i, _)| i)
-                .unwrap_or(0)
+            self.chips.chip_ending_at(self.caret).unwrap_or_else(|| {
+                bytes[..self.caret]
+                    .char_indices()
+                    .next_back()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0)
+            })
         } else {
-            bytes[self.caret..]
-                .chars()
-                .next()
-                .map(|c| self.caret + c.len_utf8())
-                .unwrap_or(self.caret)
+            self.chips.chip_starting_at(self.caret).unwrap_or_else(|| {
+                bytes[self.caret..]
+                    .chars()
+                    .next()
+                    .map(|c| self.caret + c.len_utf8())
+                    .unwrap_or(self.caret)
+            })
         };
-        self.caret = new;
+        self.caret = self.chips.snap(new);
         self.marked_utf16 = None;
         cx.notify();
     }
@@ -128,12 +184,9 @@ impl Composer {
                 .map(|c| self.caret..self.caret + c.len_utf8())
         };
         if let Some(r) = range {
-            self.content.replace_range(r, "");
-            if !backward {
-                // caret stays; deleting forward removes the next char
-            } else {
-                self.caret = self.caret.min(self.content.len());
-            }
+            // Touching a chip deletes the whole chip.
+            let removed = self.edit_range(r, "");
+            self.caret = removed.start;
         }
         cx.notify();
     }
@@ -167,9 +220,35 @@ impl Composer {
             }
             "v" if modifiers.control || modifiers.platform => {
                 if let Some(item) = cx.read_from_clipboard() {
-                    let text = item.text().unwrap_or_default();
-                    self.marked_utf16 = None;
-                    self.insert_at_caret(&text, cx);
+                    let mut has_image = false;
+                    for entry in item.entries() {
+                        if let gpui::ClipboardEntry::Image(img) = entry
+                            && !img.bytes.is_empty()
+                        {
+                            has_image = true;
+                            let ts = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis())
+                                .unwrap_or(0);
+                            let file_name = format!("pasted_image_{ts}.png");
+                            let tmp_path = std::env::temp_dir().join(&file_name);
+                            if std::fs::write(&tmp_path, &img.bytes).is_ok() {
+                                let att = AttachmentRef {
+                                    reference: tmp_path.to_string_lossy().into_owned(),
+                                    file_name,
+                                    mime: "image/png".to_string(),
+                                    bytes: img.bytes.len() as u64,
+                                    preview_ref: None,
+                                };
+                                self.add_attachment(att, cx);
+                            }
+                        }
+                    }
+                    if !has_image {
+                        let text = item.text().unwrap_or_default();
+                        self.marked_utf16 = None;
+                        self.insert_at_caret(&text, cx);
+                    }
                 }
             }
             _ => handled = false,
@@ -181,113 +260,6 @@ impl Composer {
 }
 
 impl EventEmitter<ComposerEvent> for Composer {}
-
-impl EntityInputHandler for Composer {
-    fn selected_text_range(
-        &mut self,
-        _ignore_disabled_input: bool,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Option<UTF16Selection> {
-        // Caret-only selection (empty range) in UTF-16 units.
-        let pos = self.caret_utf16();
-        Some(UTF16Selection {
-            range: pos..pos,
-            reversed: false,
-        })
-    }
-
-    fn marked_text_range(
-        &self,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Option<Range<usize>> {
-        self.marked_utf16.clone()
-    }
-
-    fn text_for_range(
-        &mut self,
-        range_utf16: Range<usize>,
-        _adjusted_range: &mut Option<Range<usize>>,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Option<String> {
-        let start = self.byte_from_utf16(range_utf16.start)?;
-        let end = self.byte_from_utf16(range_utf16.end)?;
-        self.content.get(start..end).map(str::to_string)
-    }
-
-    fn replace_text_in_range(
-        &mut self,
-        range_utf16: Option<Range<usize>>,
-        text: &str,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let range = range_utf16
-            .or_else(|| self.marked_utf16.clone())
-            .map(|r| {
-                let start = self.byte_from_utf16(r.start).unwrap_or(0);
-                let end = self.byte_from_utf16(r.end).unwrap_or(self.content.len());
-                start..end
-            })
-            .unwrap_or(self.caret..self.caret);
-        let cleaned = self.sanitize(text);
-        self.content.replace_range(range.clone(), &cleaned);
-        self.caret = range.start + cleaned.len();
-        self.marked_utf16 = None;
-        cx.notify();
-    }
-
-    fn replace_and_mark_text_in_range(
-        &mut self,
-        range_utf16: Option<Range<usize>>,
-        new_text: &str,
-        _new_selected_range: Option<Range<usize>>,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let (byte_range, start_utf16) =
-            match range_utf16.or_else(|| self.marked_utf16.clone()).map(|r| {
-                let start = self.byte_from_utf16(r.start).unwrap_or(0);
-                let end = self.byte_from_utf16(r.end).unwrap_or(self.content.len());
-                (start..end, r.start)
-            }) {
-                Some(v) => v,
-                None => ((self.caret..self.caret), self.caret_utf16()),
-            };
-        let cleaned = self.sanitize(new_text);
-        let marked_len_utf16: usize = cleaned.chars().map(char::len_utf16).sum();
-        self.content.replace_range(byte_range, &cleaned);
-        self.caret = (self.byte_from_utf16(start_utf16).unwrap_or(0)) + cleaned.len();
-        self.marked_utf16 = Some(start_utf16..start_utf16 + marked_len_utf16);
-        cx.notify();
-    }
-
-    fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
-        self.marked_utf16 = None;
-    }
-
-    fn bounds_for_range(
-        &mut self,
-        _range_utf16: Range<usize>,
-        element_bounds: gpui::Bounds<Pixels>,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Option<gpui::Bounds<Pixels>> {
-        // IME candidate window positioning: anchor to the composer element.
-        Some(element_bounds)
-    }
-
-    fn character_index_for_point(
-        &mut self,
-        _point: Point<Pixels>,
-        _window: &mut Window,
-        _cx: &mut Context<Self>,
-    ) -> Option<usize> {
-        None
-    }
-}
 
 impl Render for Composer {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -336,7 +308,9 @@ impl Render for Composer {
                         .size_full(),
                     )
                     .children(empty.then(|| {
-                        div().text_color(rgb(crate::shared::theme::MUTED)).child(self.placeholder)
+                        div()
+                            .text_color(rgb(crate::shared::theme::MUTED))
+                            .child(self.placeholder)
                     })),
             )
             .children((!empty).then(|| {

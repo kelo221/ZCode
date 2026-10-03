@@ -2,10 +2,10 @@
 //! signaling), wire routing, fault recovery (resync) and auto-restart.
 //! Response correlation lives in backend/responses.rs.
 
-use crate::backend::launcher::ConnEvent;
-use crate::conversation::model::{ConversationState, SessionEntry};
 use crate::app::store::AppState;
+use crate::backend::launcher::ConnEvent;
 use crate::backend::wire::Incoming;
+use crate::conversation::model::{ConversationState, SessionEntry};
 use futures::StreamExt;
 use gpui::{AppContext, Context};
 use serde_json::Value;
@@ -62,6 +62,9 @@ impl AppState {
         match ev {
             ConnEvent::Line(line) => self.handle_line(ws_key, &line, cx),
             ConnEvent::Log(l) => {
+                // Agent stderr can carry provider request dumps; scrub before
+                // it reaches the console or the in-memory log.
+                let l = crate::shared::redact::scrub(&l);
                 eprintln!("[zcode-gpui:{ws_key}:stderr] {l}");
                 self.push_log(l);
                 cx.notify();
@@ -93,7 +96,9 @@ impl AppState {
             let display = ws.display.clone();
             match ws.try_spawn() {
                 Some(events) => {
-                    eprintln!("[zcode-gpui] backend for {ws_key} exited before startup, trying next candidate");
+                    eprintln!(
+                        "[zcode-gpui] backend for {ws_key} exited before startup, trying next candidate"
+                    );
                     self.push_log(format!(
                         "backend for {ws_key} died before startup, trying next candidate"
                     ));
@@ -186,28 +191,18 @@ impl AppState {
             return true;
         };
         match incoming {
-            Incoming::AgentRequest { id, method, .. } => {
-                // Legacy interaction callbacks stay unanswered on purpose: the
-                // same interaction is mirrored in the V4 `pendingInteractions`
-                // region and answered with `resolveInteraction`, which cancels
-                // this request (interaction-response-race.ts). The backend
-                // re-announces it every second, so it isn't logged either.
-                if method == "interaction/requestPermission"
-                    || method == "interaction/requestUserInput"
-                {
-                    return true;
+            Incoming::AgentRequest { id, method, params } => {
+                let action =
+                    crate::backend::reverse_rpc::dispatch_reverse_rpc(&id, &method, &params);
+                match action {
+                    crate::backend::reverse_rpc::ReverseRpcAction::Raced => true,
+                    crate::backend::reverse_rpc::ReverseRpcAction::Respond(resp) => {
+                        if let Some(ws) = self.ws_mut(ws_key) {
+                            ws.send_line(resp);
+                        }
+                        true
+                    }
                 }
-                self.push_log(format!("agent request (unhandled): {method}"));
-                if let Some(ws) = self.ws_mut(ws_key) {
-                    ws.send_line(
-                        serde_json::json!({
-                            "id": id,
-                            "error": { "code": -32601, "message": "Method not found" }
-                        })
-                        .to_string(),
-                    );
-                }
-                true
             }
             Incoming::Notification { method, params } => {
                 match method.as_str() {

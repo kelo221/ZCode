@@ -1,17 +1,17 @@
 //! Smaller pieces of the root layout: error banners, the composer intent
 //! banner (editing a message / renaming a session) and the composer card.
 
+use crate::app::root::RootView;
 use crate::composer::input::Composer;
 use crate::conversation::msg_actions::ComposerIntent;
-use crate::shared::theme::{
-    icon, phase_badge, ACCENT, AMBER, BORDER, CARD, CARD_HOVER, DANGER, I_ARROW_UP, I_STOP, MUTED,
-    PRIMARY, TEXT,
-};
 use crate::conversation::turn_meta::PlanState;
-use crate::app::root::RootView;
+use crate::shared::theme::{
+    ACCENT, AMBER, BORDER, CARD, CARD_HOVER, DANGER, I_ARROW_UP, I_STOP, MUTED, PANEL, PRIMARY,
+    TEXT, icon, phase_badge,
+};
 use gpui::{
-    div, prelude::*, px, rgb, AnyElement, ClickEvent, Context, CursorStyle, Div, Entity,
-    ParentElement, SharedString, Stateful, Styled,
+    AnyElement, ClickEvent, Context, CursorStyle, Div, Entity, ParentElement, SharedString,
+    Stateful, Styled, div, prelude::*, px, rgb,
 };
 
 fn banner() -> Div {
@@ -129,6 +129,36 @@ impl RootView {
                 .into_any_element(),
         )
     }
+
+    pub(crate) fn load_earlier_btn(
+        &self,
+        has_more: bool,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if !has_more {
+            return None;
+        }
+        Some(
+            div()
+                .id("load-earlier")
+                .mx_auto()
+                .px_3()
+                .py_1()
+                .rounded_md()
+                .bg(rgb(PANEL))
+                .border_1()
+                .border_color(rgb(BORDER))
+                .text_size(px(11.5))
+                .text_color(rgb(MUTED))
+                .cursor(CursorStyle::PointingHand)
+                .hover(|s| s.bg(rgb(CARD)).text_color(rgb(TEXT)))
+                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.state.update(cx, |s, cx| s.fetch_earlier_rows(cx));
+                }))
+                .child("Load earlier messages")
+                .into_any_element(),
+        )
+    }
 }
 
 fn round_button(id: &'static str, glyph: char, bg: u32, fg: u32) -> Stateful<Div> {
@@ -161,31 +191,70 @@ impl RootView {
             .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                 this.state.update(cx, |s, cx| s.stop(cx));
             }));
-        div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .px_3()
-            .pt_3()
-            .pb_2()
-            .rounded_xl()
-            .bg(rgb(CARD))
-            .border_1()
-            .border_color(rgb(BORDER))
-            .child(composer)
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_1()
-                    .child(self.mode_menu(cx))
-                    .child(div().flex_1())
-                    .child(self.composer_selectors(cx))
-                    .when(running, |el| el.child(stop))
-                    .child(send),
-            )
+
+        let suggestions = self.autocomplete_suggestions(cx);
+        let popup = suggestions.map(|s| self.render_autocomplete_popup(&s, cx));
+        let att_tray = Self::render_attachment_tray(&composer, cx);
+        let attach_btn = Self::render_attach_button(cx);
+
+        div().w_full().flex().flex_col().children(popup).child(
+            div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .px_3()
+                .pt_3()
+                .pb_2()
+                .rounded_xl()
+                .bg(rgb(CARD))
+                .border_1()
+                .border_color(rgb(BORDER))
+                .on_drop(
+                    cx.listener(|this, paths: &gpui::ExternalPaths, _window, cx| {
+                        this.attach_files(paths.paths().to_vec(), cx);
+                    }),
+                )
+                .children(att_tray)
+                .child(composer)
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .child(self.mode_menu(cx))
+                        .child(attach_btn)
+                        .child(div().flex_1())
+                        .child(self.composer_selectors(cx))
+                        .when(running, |el| el.child(stop))
+                        .child(send),
+                ),
+        )
+    }
+
+    pub(crate) fn autocomplete_suggestions(
+        &self,
+        cx: &Context<Self>,
+    ) -> Option<Vec<crate::composer::autocomplete::AutocompleteSuggestion>> {
+        let state = self.state.read(cx);
+        let text = state.composer.read(cx).text().to_string();
+        let mut slash = crate::composer::slash::builtin_slash_commands();
+        if let Some(cfg) = state.active_workspace_config() {
+            for cmd in cfg.slash_commands() {
+                if !slash.iter().any(|s| s.name == cmd.name) {
+                    slash.push(cmd);
+                }
+            }
+        }
+        let sessions = state.active_sessions();
+        let ws_path = state.active_workspace_path();
+        crate::composer::autocomplete::detect_autocomplete(
+            &text,
+            &slash,
+            &sessions,
+            ws_path.as_deref(),
+        )
     }
 
     /// Filesystem path of the active workspace (git, terminal, file tree).
@@ -194,10 +263,12 @@ impl RootView {
     }
 
     pub(crate) fn submit(&mut self, cx: &mut Context<Self>) {
-        let text = self
-            .state
-            .update(cx, |s, cx| s.composer.update(cx, |c, _ccx| c.take_text()));
-        self.state.update(cx, |s, cx| s.send(&text, cx));
+        let (text, attachments) = self.state.update(cx, |s, cx| {
+            s.composer
+                .update(cx, |c, _ccx| (c.take_text(), c.take_attachments()))
+        });
+        self.state
+            .update(cx, |s, cx| s.send_with_attachments(&text, attachments, cx));
     }
 
     /// Header bar with conversation title, progress counter, tools & terminal toggles.

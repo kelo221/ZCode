@@ -34,10 +34,6 @@ impl AppState {
         let Some(pending) = self.ws_mut(ws_key).and_then(|ws| ws.pending.remove(&id)) else {
             return;
         };
-        let revision = result
-            .as_ref()
-            .and_then(|ack| ack.get("revisionAtDecision"))
-            .and_then(Value::as_u64);
         match pending {
             Pending::SubscribeIndex => {
                 self.capture_subscription(ws_key, "sessions-index", &result);
@@ -107,15 +103,10 @@ impl AppState {
                     self.subscribe_conversation(ws_key, &sid);
                 }
             }
-            Pending::SendText | Pending::Stop => {
-                // Keep the CAS revision fresh: non-CAS acks also carry the
-                // decision revision.
-                if let (Some(sid), Some(r)) = (&self.active, revision)
-                    && let Some(c) = self.conversations.get_mut(sid)
-                {
-                    c.revision = r + 1;
-                }
-            }
+            // The CAS revision is mirrored only from the conversation stream.
+            // `revisionAtDecision + 1` was a guess, and was applied to whatever
+            // session happened to be active when the ack arrived.
+            Pending::SendText | Pending::Stop => {}
             Pending::Command(ctx) => {
                 self.handle_command_ack(ws_key, result.as_ref(), ctx);
             }
@@ -123,13 +114,12 @@ impl AppState {
                 self.push_log("resync acknowledged".into());
             }
             Pending::FetchRows(sid) => {
-                let (rows, has_more, at_rev) = match &result {
+                let (rows, has_more) = match &result {
                     Some(r) => (
                         r.get("rows").and_then(Value::as_array).cloned(),
                         r.get("hasMore").and_then(Value::as_bool),
-                        r.get("atRevision").and_then(Value::as_u64),
                     ),
-                    None => (None, None, None),
+                    None => (None, None),
                 };
                 let count = rows.as_ref().map(|r| r.len()).unwrap_or(0);
                 if let Some(c) = self.conversations.get_mut(&sid) {
@@ -141,11 +131,49 @@ impl AppState {
                         // Load-earlier button derives from first_row_id, so
                         // nothing else to store here.
                     }
-                    if let Some(r) = at_rev {
-                        c.revision = r;
-                    }
+                    // `atRevision` describes when the page was read; it can be
+                    // older than the live mirror, so it never overwrites it.
                 }
                 self.push_log(format!("history page: +{count} rows"));
+            }
+            Pending::FetchUsageStats(range) => {
+                if let Some(res) = &result {
+                    self.usage_stats = Some(
+                        crate::shared::usage_stats::AppUsageSnapshot::from_value(res, &range),
+                    );
+                    self.push_log(format!("usage stats loaded ({range})"));
+                }
+            }
+            Pending::FetchMcpList => {
+                if let Some(res) = &result {
+                    self.mcp_servers = crate::shared::mcp::McpServerSnapshot::list_from_value(res);
+                    self.push_log(format!(
+                        "mcp servers loaded: {} found",
+                        self.mcp_servers.len()
+                    ));
+                }
+            }
+            Pending::FetchPluginsOverview => {
+                if let Some(res) = &result {
+                    self.plugins_overview = Some(
+                        crate::shared::plugins::PluginsOverviewResult::from_value(res),
+                    );
+                    self.push_log(format!(
+                        "plugins overview loaded: {} available, {} installed",
+                        self.plugins_overview
+                            .as_ref()
+                            .map(|o| o.available_plugins.len())
+                            .unwrap_or(0),
+                        self.plugins_overview
+                            .as_ref()
+                            .map(|o| o.installed_plugins.len())
+                            .unwrap_or(0),
+                    ));
+                }
+            }
+            Pending::PluginAction(desc) => {
+                self.push_log(format!("plugin action completed: {desc}"));
+                self.fetch_plugins_overview(cx);
             }
         }
         cx.notify();

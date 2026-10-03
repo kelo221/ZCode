@@ -17,6 +17,7 @@ pub struct SessionConfig {
     pub thought: String,
     pub thought_levels: Vec<String>,
     pub mode: String,
+    pub followup_mode: String,
 }
 
 /// One selectable model.
@@ -120,12 +121,16 @@ impl ModelOption {
     }
 }
 
+use crate::composer::slash::SlashCommand;
+
 /// workspace-config topic state (workspaceConfigStateSchema): whole-replacement.
 #[derive(Clone, Debug, Default)]
 pub struct WorkspaceConfig {
     pub models: Vec<ModelOption>,
     /// currentValue of the `mode` option (workspace default).
     pub default_mode: String,
+    /// Slash command catalog for this workspace.
+    pub slash_commands: Vec<SlashCommand>,
     /// Raw option list for anything the minimal UI doesn't model yet.
     pub raw_options: Vec<Value>,
 }
@@ -157,6 +162,30 @@ impl WorkspaceConfig {
                 _ => {}
             }
         }
+        if let Some(cmds) = state.get("slashCommands").and_then(Value::as_array) {
+            let mut list = Vec::new();
+            for c in cmds {
+                if let Some(name) = c.get("name").and_then(Value::as_str) {
+                    let description = c
+                        .get("description")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let input_hint = c
+                        .get("inputHint")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                    list.push(SlashCommand {
+                        name: name.to_string(),
+                        description,
+                        input_hint,
+                    });
+                }
+            }
+            if !list.is_empty() {
+                self.slash_commands = list;
+            }
+        }
         // The standalone CLI's workspace-config topic may carry an EMPTY model
         // list (the catalog is host-provided there); never clobber a catalog
         // harvested from the legacy session/create probe with empty data.
@@ -167,6 +196,15 @@ impl WorkspaceConfig {
             self.default_mode = default_mode;
         }
         self.raw_options = options;
+    }
+
+    /// Available slash commands for this workspace (falls back to builtins).
+    pub fn slash_commands(&self) -> Vec<SlashCommand> {
+        if !self.slash_commands.is_empty() {
+            self.slash_commands.clone()
+        } else {
+            crate::composer::slash::builtin_slash_commands()
+        }
     }
 
     /// Merge the legacy session/create settings snapshot

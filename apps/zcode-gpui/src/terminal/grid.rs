@@ -2,8 +2,8 @@
 //! text runs, and keystroke → PTY byte mapping (PARITY.md M3
 //! "portable-pty + alacritty_terminal rendered in gpui").
 
-use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::RenderableContent;
+use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
 
 /// base16-ocean.dark ANSI palette (matches the syntect code theme).
@@ -92,7 +92,11 @@ struct RunStyle {
 /// Convert the terminal's renderable viewport into styled rows (one Vec per
 /// screen line, viewport-relative). Cursor cell renders inverted; trailing
 /// unstyled spaces are trimmed.
-pub fn grid_rows(content: RenderableContent, default_fg: u32, default_bg: u32) -> Vec<Vec<GridRun>> {
+pub fn grid_rows(
+    content: RenderableContent,
+    default_fg: u32,
+    default_bg: u32,
+) -> Vec<Vec<GridRun>> {
     let cursor = &content.cursor.point;
     let cursor_visible = content.cursor.shape != CursorShape::Hidden;
     // Grid lines are negative while scrolled into history; shift them back

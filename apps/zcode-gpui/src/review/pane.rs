@@ -1,16 +1,13 @@
 //! Review pane: unstaged/staged filters, per-file +/− stats with expandable
 //! diffs, stage/commit/push. All git I/O runs on the background executor.
 
+use crate::app::root::RootView;
 use crate::review::git::{self, DiffSide};
 use crate::shared::theme::{BORDER, CARD, DANGER, HOVER, MUTED, SUCCESS, TEXT};
-use crate::app::root::RootView;
 use gpui::{
     AnyElement, Context, CursorStyle, IntoElement, ParentElement, Stateful, Styled, div,
     prelude::*, px, rgb,
 };
-use std::path::Path;
-
-const MAX_DIFF_LINES: usize = 400;
 
 /// What to do with a finished `run_git` result.
 #[derive(Clone)]
@@ -37,6 +34,7 @@ impl RootView {
                         git::run_git(&path, &["status", "--porcelain=v1", "-b"]),
                         git::run_git(&path, &["diff", "--numstat"]),
                         git::run_git(&path, &["diff", "--cached", "--numstat"]),
+                        git::run_git(&path, &["branch", "--list", "--format=%(refname:short)"]),
                     )
                 })
                 .await;
@@ -44,11 +42,17 @@ impl RootView {
                 if v.git.generation != generation {
                     return;
                 }
-                let (status, unstaged, staged) = res;
+                let (status, unstaged, staged, branches) = res;
                 v.git.busy = false;
                 match status {
                     Ok(out) => {
                         let mut st = git::parse_status(&out);
+                        st.branches = branches
+                            .unwrap_or_default()
+                            .lines()
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
                         git::apply_numstat(
                             &mut st,
                             staged.map_or(Default::default(), |s| git::parse_numstat(&s)),
@@ -98,7 +102,9 @@ impl RootView {
         cx.notify();
         cx.spawn(async move |this, cx| {
             let res = cx
-                .background_spawn(async move { git::run_git(&path, &args.iter().map(String::as_str).collect::<Vec<_>>()) })
+                .background_spawn(async move {
+                    git::run_git(&path, &args.iter().map(String::as_str).collect::<Vec<_>>())
+                })
                 .await;
             this.update(cx, |v, cx| {
                 v.git.busy = false;
@@ -154,7 +160,7 @@ impl RootView {
                     if untracked {
                         // Untracked files have no index diff: show an
                         // all-added view from the file contents.
-                        Ok(untracked_as_diff(&ws, &file))
+                        Ok(git::untracked_as_diff(&ws, &file))
                     } else {
                         let mut args = vec!["diff"];
                         if side == DiffSide::Staged {
@@ -188,11 +194,73 @@ impl RootView {
             return;
         }
         self.commit_input.update(cx, |c, _ccx| c.take_text());
-        self.run_git_action(vec!["commit".into(), "-m".into(), msg], GitAction::ThenRefresh("Commit"), cx);
+        self.run_git_action(
+            vec!["commit".into(), "-m".into(), msg],
+            GitAction::ThenRefresh("Commit"),
+            cx,
+        );
     }
 
     pub(crate) fn stage_all(&mut self, cx: &mut Context<Self>) {
-        self.run_git_action(vec!["add".into(), "-A".into()], GitAction::ThenRefresh("Stage all"), cx);
+        self.run_git_action(
+            vec!["add".into(), "-A".into()],
+            GitAction::ThenRefresh("Stage all"),
+            cx,
+        );
+    }
+
+    pub(crate) fn stage_file(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.run_git_action(
+            vec!["add".into(), "--".into(), path.to_string()],
+            GitAction::ThenRefresh("Stage file"),
+            cx,
+        );
+    }
+
+    pub(crate) fn unstage_file(&mut self, path: &str, cx: &mut Context<Self>) {
+        self.run_git_action(
+            vec![
+                "restore".into(),
+                "--staged".into(),
+                "--".into(),
+                path.to_string(),
+            ],
+            GitAction::ThenRefresh("Unstage file"),
+            cx,
+        );
+    }
+
+    pub(crate) fn discard_file(&mut self, path: &str, untracked: bool, cx: &mut Context<Self>) {
+        let args = if untracked {
+            vec!["clean".into(), "-f".into(), "--".into(), path.to_string()]
+        } else {
+            vec!["restore".into(), "--".into(), path.to_string()]
+        };
+        self.run_git_action(args, GitAction::ThenRefresh("Discard file"), cx);
+    }
+
+    pub(crate) fn checkout_branch(&mut self, branch: &str, cx: &mut Context<Self>) {
+        self.run_git_action(
+            vec!["checkout".into(), branch.to_string()],
+            GitAction::ThenRefresh("Switch branch"),
+            cx,
+        );
+    }
+
+    pub(crate) fn cycle_branch(&mut self, cx: &mut Context<Self>) {
+        let branches = &self.git.status.branches;
+        if branches.len() <= 1 {
+            return;
+        }
+        let current = &self.git.status.branch;
+        if let Some(pos) = branches.iter().position(|b| b == current) {
+            let next_pos = (pos + 1) % branches.len();
+            let next_branch = branches[next_pos].clone();
+            self.checkout_branch(&next_branch, cx);
+        } else if let Some(first) = branches.first() {
+            let first = first.clone();
+            self.checkout_branch(&first, cx);
+        }
     }
 
     pub(crate) fn push(&mut self, cx: &mut Context<Self>) {
@@ -286,25 +354,4 @@ pub(crate) fn side_btn(
         .hover(|h| h.bg(rgb(HOVER)))
         .child(label)
         .on_click(on_click)
-}
-
-/// Read cap for untracked previews: only `MAX_DIFF_LINES` are shown, so a
-/// multi-GB log must not be loaded whole.
-const MAX_UNTRACKED_BYTES: u64 = 256 * 1024;
-
-fn untracked_as_diff(root: &Path, rel: &str) -> String {
-    use std::io::Read;
-    let mut bytes = Vec::new();
-    let read = std::fs::File::open(root.join(rel))
-        .and_then(|f| f.take(MAX_UNTRACKED_BYTES).read_to_end(&mut bytes));
-    match read {
-        Ok(_) if bytes.contains(&0) => "(binary file)".to_string(),
-        Ok(_) => String::from_utf8_lossy(&bytes)
-            .lines()
-            .take(MAX_DIFF_LINES)
-            .map(|l| format!("+{l}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        Err(e) => format!("(cannot read untracked file: {e})"),
-    }
 }

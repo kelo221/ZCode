@@ -2,12 +2,12 @@
 //! AnimatedTerminalPanel parity. Renders colored grid rows, provides focus
 //! handling, and auto-reports size changes via paint-phase probe.
 
-use crate::terminal::grid::{self, GridRun, TERM_FG};
-use crate::shared::theme::{BORDER, CODE_BG, CODE_BORDER, HOVER, MUTED, PANEL, TEXT};
 use crate::app::root::RootView;
+use crate::shared::theme::{BORDER, CODE_BG, CODE_BORDER, HOVER, MUTED, PANEL, TEXT};
+use crate::terminal::grid::{self, GridRun, TERM_FG};
 use gpui::{
-    div, prelude::*, px, rgb, AnyElement, Context, CursorStyle, IntoElement, MouseButton,
-    ParentElement, Styled,
+    AnyElement, Context, CursorStyle, IntoElement, MouseButton, ParentElement, Styled, div,
+    prelude::*, px, rgb,
 };
 use std::sync::{Arc, Mutex};
 
@@ -15,7 +15,11 @@ const FONT_SIZE: f32 = 11.5;
 
 impl RootView {
     /// Render the terminal as an expandable bottom drawer.
-    pub(crate) fn term_drawer(&mut self, window: &mut gpui::Window, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn term_drawer(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         if self.term.workspace.is_none() {
             return div()
                 .p_3()
@@ -57,16 +61,18 @@ impl RootView {
             .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, _window, cx| {
                 this.term_key(&ev.keystroke, cx);
             }))
-            .on_scroll_wheel(cx.listener(|this, ev: &gpui::ScrollWheelEvent, _window, cx| {
-                let delta = ev.delta.pixel_delta(px(20.));
-                let lines = (delta.y / px(crate::terminal::pane::CELL_H)).round() as i32;
-                if lines != 0
-                    && let Some(term) = this.term.term.as_mut()
-                {
-                    term.scroll_display(alacritty_terminal::grid::Scroll::Delta(lines));
-                    cx.notify();
-                }
-            }))
+            .on_scroll_wheel(
+                cx.listener(|this, ev: &gpui::ScrollWheelEvent, _window, cx| {
+                    let delta = ev.delta.pixel_delta(px(20.));
+                    let lines = (delta.y / px(crate::terminal::pane::CELL_H)).round() as i32;
+                    if lines != 0
+                        && let Some(term) = this.term.term.as_mut()
+                    {
+                        term.scroll_display(alacritty_terminal::grid::Scroll::Delta(lines));
+                        cx.notify();
+                    }
+                }),
+            )
             .on_mouse_down(
                 MouseButton::Middle,
                 cx.listener(|this, ev: &gpui::MouseDownEvent, _window, cx| {
@@ -139,16 +145,13 @@ impl RootView {
                             .text_color(rgb(TEXT))
                             .child("Terminal"),
                     )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(rgb(MUTED))
-                            .child(if self.term.exited {
-                                "process exited — reopen to restart".to_string()
-                            } else {
-                                format!("{}×{} — local shell", dims.cols, dims.rows)
-                            }),
-                    )
+                    .child(div().text_size(px(11.)).text_color(rgb(MUTED)).child(
+                        if self.term.exited {
+                            "process exited — reopen to restart".to_string()
+                        } else {
+                            format!("{}×{} — local shell", dims.cols, dims.rows)
+                        },
+                    ))
                     .child(div().flex_1())
                     .child(
                         div()
@@ -169,12 +172,12 @@ impl RootView {
                     ),
             )
             .child(
-                div()
-                    .relative()
-                    .flex_1()
-                    .min_h_0()
-                    .child(grid)
-                    .child(div().absolute().inset_0().child(resize_probe(&self.term.pending_size))),
+                div().relative().flex_1().min_h_0().child(grid).child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .child(resize_probe(&self.term.pending_size)),
+                ),
             )
             .into_any_element()
     }

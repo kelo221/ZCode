@@ -2,15 +2,15 @@
 //! with text / markdown preview (PARITY.md M3 "file tree + workspace file
 //! preview").
 
-use crate::shared::theme::{BORDER, CARD, HOVER, MUTED, TEXT, TOOL};
 use crate::app::root::RootView;
+pub use crate::files::preview::Preview;
+use crate::files::preview::{pane_note, preview_element, read_preview};
+use crate::shared::theme::{BORDER, CARD, HOVER, MUTED, TEXT, TOOL};
 use gpui::{
     AnyElement, Context, CursorStyle, IntoElement, ParentElement, SharedString, Styled, div,
     prelude::*, px, rgb,
 };
 use std::path::{Path, PathBuf};
-
-const MAX_PREVIEW_BYTES: u64 = 256 * 1024;
 
 #[derive(Clone, Debug)]
 pub struct FilesNode {
@@ -19,16 +19,6 @@ pub struct FilesNode {
     pub is_dir: bool,
     /// `None` until the directory is expanded once (lazy loading).
     pub children: Option<Vec<FilesNode>>,
-}
-
-/// What the preview pane shows for the selected file.
-#[derive(Clone, Debug)]
-pub enum Preview {
-    Markdown(String),
-    Text(String),
-    Binary,
-    TooLarge(u64),
-    Error(String),
 }
 
 #[derive(Default)]
@@ -104,7 +94,9 @@ impl RootView {
         cx.notify();
         cx.spawn(async move |this, cx| {
             let read_path = path.clone();
-            let preview = cx.background_spawn(async move { read_preview(&read_path) }).await;
+            let preview = cx
+                .background_spawn(async move { read_preview(&read_path) })
+                .await;
             this.update(cx, |v, cx| {
                 // Rapid clicks: an older, slower read must not replace the
                 // preview of the file selected since.
@@ -129,10 +121,12 @@ impl RootView {
         ) {
             for n in nodes {
                 out.push((depth, n));
-                if n.is_dir && expanded.contains(&n.path)
-                    && let Some(children) = &n.children {
-                        walk(children, depth + 1, expanded, out);
-                    }
+                if n.is_dir
+                    && expanded.contains(&n.path)
+                    && let Some(children) = &n.children
+                {
+                    walk(children, depth + 1, expanded, out);
+                }
             }
         }
         let mut out = Vec::new();
@@ -166,9 +160,10 @@ impl RootView {
                     .when(self.files.roots.is_empty() && !self.files.loading, |el| {
                         el.child(pane_note("No workspace"))
                     })
-                    .children(rows.into_iter().map(|(depth, node)| {
-                        self.files_row(depth, node, cx)
-                    })),
+                    .children(
+                        rows.into_iter()
+                            .map(|(depth, node)| self.files_row(depth, node, cx)),
+                    ),
             )
             // Preview column.
             .child(
@@ -189,12 +184,7 @@ impl RootView {
             .into_any_element()
     }
 
-    fn files_row(
-        &self,
-        depth: usize,
-        node: &FilesNode,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn files_row(&self, depth: usize, node: &FilesNode, cx: &mut Context<Self>) -> AnyElement {
         let selected = self.files.selected.as_ref() == Some(&node.path);
         let expanded = self.files.expanded.contains(&node.path);
         let name = node.name.clone();
@@ -260,42 +250,6 @@ fn insert_children(nodes: &mut [FilesNode], dir: &Path, entries: Vec<FilesNode>)
     }
 }
 
-fn pane_note(text: &str) -> AnyElement {
-    div()
-        .p_3()
-        .text_size(px(12.))
-        .text_color(rgb(MUTED))
-        .child(text.to_string())
-        .into_any_element()
-}
-
-fn preview_element(path: &Path, preview: &Preview) -> AnyElement {
-    let header = div()
-        .px_2()
-        .py_1()
-        .text_size(px(11.))
-        .text_color(rgb(MUTED))
-        .border_b_1()
-        .border_color(rgb(BORDER))
-        .child(path.display().to_string());
-    let body: AnyElement = match preview {
-        Preview::Error(e) => pane_note(&format!("Cannot read: {e}")),
-        Preview::Binary => pane_note("Binary file"),
-        Preview::TooLarge(size) => pane_note(&format!("File too large ({size} bytes)")),
-        Preview::Text(text) => div()
-            .p_2()
-            .font_family("Consolas")
-            .text_size(px(11.5))
-            .child(text.clone())
-            .into_any_element(),
-        Preview::Markdown(text) => div()
-            .p_2()
-            .child(crate::shared::markdown::render_markdown(text, 0xF11E5, false))
-            .into_any_element(),
-    };
-    div().flex().flex_col().min_h_0().child(header).child(body).into_any_element()
-}
-
 /// List one directory: dirs first, then files, both alphabetically.
 fn list_dir(root: &Path, rel: Option<&Path>) -> Vec<FilesNode> {
     let dir = match rel {
@@ -329,27 +283,4 @@ fn list_dir(root: &Path, rel: Option<&Path>) -> Vec<FilesNode> {
     files.sort_by_key(|a| a.name.to_lowercase());
     dirs.extend(files);
     dirs
-}
-
-/// Read a file for preview, sniffing binary content and markdown extension.
-fn read_preview(path: &Path) -> Preview {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return Preview::Error("not found".into());
-    };
-    if meta.len() > MAX_PREVIEW_BYTES {
-        return Preview::TooLarge(meta.len());
-    }
-    match std::fs::read(path) {
-        Ok(bytes) => {
-            if bytes.contains(&0) {
-                return Preview::Binary;
-            }
-            let text = String::from_utf8_lossy(&bytes).into_owned();
-            match path.extension().and_then(|e| e.to_str()) {
-                Some("md") | Some("markdown") => Preview::Markdown(text),
-                _ => Preview::Text(text),
-            }
-        }
-        Err(e) => Preview::Error(e.to_string()),
-    }
 }

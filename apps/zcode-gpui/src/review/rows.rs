@@ -1,10 +1,10 @@
 //! Review pane row/header/commit-bar rendering (split from review/pane.rs
 //! for the 400-line cap).
 
-use crate::review::git::DiffSide;
-use crate::shared::theme::{ACCENT, BORDER, CARD, DANGER, HOVER, MUTED, SUCCESS, icon};
-use crate::review::pane::side_btn;
 use crate::app::root::RootView;
+use crate::review::git::DiffSide;
+use crate::review::pane::side_btn;
+use crate::shared::theme::{ACCENT, BORDER, CARD, DANGER, HOVER, MUTED, SUCCESS, icon};
 use gpui::{
     AnyElement, Context, CursorStyle, IntoElement, ParentElement, SharedString, Styled, div,
     prelude::*, px, rgb,
@@ -35,12 +35,19 @@ impl RootView {
                     .gap_2()
                     .child(
                         div()
+                            .id("branch-chip")
                             .px_1p5()
                             .py_0p5()
                             .rounded_sm()
                             .bg(rgb(CARD))
+                            .hover(|h| h.bg(rgb(HOVER)))
+                            .cursor(CursorStyle::PointingHand)
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_size(px(11.))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.cycle_branch(cx);
+                            }))
                             .child(if branch.is_empty() {
                                 "no branch".to_string()
                             } else {
@@ -66,22 +73,28 @@ impl RootView {
                             .child(format!("-{del}")),
                     )
                     .child(div().flex_1())
-                    .child(side_btn("stage-all", "Stage all", cx.listener(
-                        |this, _, _, cx| {
+                    .child(side_btn(
+                        "stage-all",
+                        "Stage all",
+                        cx.listener(|this, _, _, cx| {
                             cx.stop_propagation();
                             this.stage_all(cx);
-                        },
-                    )))
-                    .child(side_btn("git-refresh", "Refresh", cx.listener(
-                        |this, _, _, cx| {
+                        }),
+                    ))
+                    .child(side_btn(
+                        "git-refresh",
+                        "Refresh",
+                        cx.listener(|this, _, _, cx| {
                             cx.stop_propagation();
                             this.refresh_git(cx);
-                        },
-                    ))),
+                        }),
+                    )),
             )
             .child(
-                div().flex().gap_1().children(
-                    [DiffSide::Unstaged, DiffSide::Staged].map(|s| {
+                div()
+                    .flex()
+                    .gap_1()
+                    .children([DiffSide::Unstaged, DiffSide::Staged].map(|s| {
                         let selected = s == side;
                         div()
                             .id(SharedString::from(format!("side-{}", s.label())))
@@ -102,13 +115,17 @@ impl RootView {
                                 cx.notify();
                             }))
                             .child(s.label())
-                    }),
-                ),
+                    })),
             )
             .into_any_element()
     }
 
-    pub(crate) fn review_row(&self, path: &str, side: DiffSide, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn review_row(
+        &self,
+        path: &str,
+        side: DiffSide,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let (badge, add, del) = self
             .git
             .status
@@ -125,6 +142,15 @@ impl RootView {
             .unwrap_or(("--".to_string(), 0, 0));
         let expanded = self.git.expanded.contains(path);
         let row_path = path.to_string();
+        let act_path = path.to_string();
+        let is_untracked = self
+            .git
+            .status
+            .files
+            .iter()
+            .find(|f| f.path == path)
+            .is_some_and(crate::review::git::GitFile::untracked);
+
         let row = div()
             .id(SharedString::from(format!("file-{path}")))
             .flex()
@@ -168,6 +194,64 @@ impl RootView {
                     .text_color(rgb(DANGER))
                     .child(format!("-{del}")),
             )
+            .when(side == DiffSide::Unstaged, |el| {
+                let p1 = act_path.clone();
+                let p2 = act_path.clone();
+                el.child(
+                    div()
+                        .id(SharedString::from(format!("stage-btn-{act_path}")))
+                        .px_1p5()
+                        .py_0p5()
+                        .rounded_sm()
+                        .bg(rgb(CARD))
+                        .hover(|h| h.bg(rgb(HOVER)))
+                        .text_size(px(10.))
+                        .text_color(rgb(SUCCESS))
+                        .cursor(CursorStyle::PointingHand)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.stage_file(&p1, cx);
+                        }))
+                        .child("+"),
+                )
+                .child(
+                    div()
+                        .id(SharedString::from(format!("discard-btn-{act_path}")))
+                        .px_1p5()
+                        .py_0p5()
+                        .rounded_sm()
+                        .bg(rgb(CARD))
+                        .hover(|h| h.bg(rgb(HOVER)))
+                        .text_size(px(10.))
+                        .text_color(rgb(DANGER))
+                        .cursor(CursorStyle::PointingHand)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.discard_file(&p2, is_untracked, cx);
+                        }))
+                        .child("✕"),
+                )
+            })
+            .when(side == DiffSide::Staged, |el| {
+                let p1 = act_path.clone();
+                el.child(
+                    div()
+                        .id(SharedString::from(format!("unstage-btn-{act_path}")))
+                        .px_1p5()
+                        .py_0p5()
+                        .rounded_sm()
+                        .bg(rgb(CARD))
+                        .hover(|h| h.bg(rgb(HOVER)))
+                        .text_size(px(10.))
+                        .text_color(rgb(MUTED))
+                        .cursor(CursorStyle::PointingHand)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.unstage_file(&p1, cx);
+                        }))
+                        .child("−"),
+                )
+            })
             .child(icon(if expanded { '▾' } else { '▸' }, 9., MUTED));
         if !expanded {
             return row.into_any_element();
@@ -210,14 +294,22 @@ impl RootView {
                 div()
                     .flex()
                     .gap_1p5()
-                    .child(side_btn("commit", "Commit", cx.listener(|this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.do_commit(cx);
-                    })))
-                    .child(side_btn("push", "Push", cx.listener(|this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.push(cx);
-                    }))),
+                    .child(side_btn(
+                        "commit",
+                        "Commit",
+                        cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.do_commit(cx);
+                        }),
+                    ))
+                    .child(side_btn(
+                        "push",
+                        "Push",
+                        cx.listener(|this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.push(cx);
+                        }),
+                    )),
             )
             .into_any_element()
     }
