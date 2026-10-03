@@ -48,6 +48,10 @@ pub struct AppState {
     pub mcp_servers: Vec<crate::shared::mcp::McpServerSnapshot>,
     /// Plugin store overview snapshot (`plugins/overview`).
     pub plugins_overview: Option<crate::shared::plugins::PluginsOverviewResult>,
+    /// Child subagent session -> (workspace_key, parent_session_id)
+    pub child_owner: HashMap<String, (String, String)>,
+    /// Active child subagent session being viewed (read-only)
+    pub viewing_child: Option<String>,
 }
 
 impl AppState {
@@ -64,6 +68,8 @@ impl AppState {
             active_workspace: None,
             conversations: HashMap::new(),
             active: None,
+            child_owner: HashMap::new(),
+            viewing_child: None,
             draft: false,
             workspace_configs: HashMap::new(),
             ui_model_value: None,
@@ -154,6 +160,11 @@ impl AppState {
         }
         if let Some(k) = topic.strip_prefix("workspace-config/") {
             return Some(k.to_string());
+        }
+        if let Some(ws_key) =
+            crate::conversation::subagent_nav::child_topic_workspace(&self.child_owner, topic)
+        {
+            return Some(ws_key);
         }
         if let Some(sid) = topic.strip_prefix("conversation/") {
             return self
@@ -329,9 +340,11 @@ impl AppState {
     }
 
     pub(crate) fn active_conversation(&self) -> Option<&ConversationState> {
-        self.active
-            .as_ref()
-            .and_then(|sid| self.conversations.get(sid))
+        let sid = crate::conversation::subagent_nav::active_conversation_sid(
+            self.viewing_child.as_deref(),
+            self.active.as_deref(),
+        )?;
+        self.conversations.get(sid)
     }
 
     pub(crate) fn push_log(&mut self, line: String) {

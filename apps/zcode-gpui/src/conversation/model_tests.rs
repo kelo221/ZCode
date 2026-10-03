@@ -217,3 +217,149 @@ fn snapshot_without_revision_does_not_mark_revision_known() {
     assert!(!c.revision_known);
     assert_eq!(c.revision, 0);
 }
+
+#[test]
+fn subagent_row_parsing_and_deltas() {
+    let mut c = ConversationState::default();
+
+    // 1. Initial snapshot with subagent row
+    c.apply_snapshot(&json!({
+        "rows": {
+            "firstRowId": 1,
+            "totalCount": 1,
+            "window": [
+                {
+                    "rowId": 10,
+                    "kind": "subagent",
+                    "subagentType": "explore",
+                    "status": "running",
+                    "summaryText": "Initial summary",
+                    "parentToolCallId": "tool-call-1",
+                    "childSessionId": "child-sess-1",
+                    "workId": "work-1",
+                    "backgrounded": true,
+                    "startedAt": 5000
+                }
+            ]
+        }
+    }));
+
+    match &c.rows[&10] {
+        Row::Subagent {
+            row_id,
+            subagent_type,
+            status,
+            summary_text,
+            parent_tool_call_id,
+            child_session_id,
+            work_id,
+            backgrounded,
+            started_at,
+        } => {
+            assert_eq!(*row_id, 10);
+            assert_eq!(subagent_type, "explore");
+            assert_eq!(status, "running");
+            assert_eq!(summary_text, "Initial summary");
+            assert_eq!(parent_tool_call_id.as_deref(), Some("tool-call-1"));
+            assert_eq!(child_session_id.as_deref(), Some("child-sess-1"));
+            assert_eq!(work_id.as_deref(), Some("work-1"));
+            assert!(backgrounded);
+            assert_eq!(*started_at, Some(5000));
+        }
+        other => panic!("expected Row::Subagent, got {other:?}"),
+    }
+
+    // 2. Append to summaryText via row.delta
+    c.apply_deltas(&[json!({
+        "op": "row.delta",
+        "rowId": 10,
+        "path": "summaryText",
+        "append": " - extra progress"
+    })]);
+
+    match &c.rows[&10] {
+        Row::Subagent { summary_text, .. } => {
+            assert_eq!(summary_text, "Initial summary - extra progress");
+        }
+        other => panic!("expected Row::Subagent, got {other:?}"),
+    }
+
+    // 3. Append to unknown path on Subagent row is a no-op
+    c.apply_deltas(&[json!({
+        "op": "row.delta",
+        "rowId": 10,
+        "path": "unknownPath",
+        "append": "should be ignored"
+    })]);
+    match &c.rows[&10] {
+        Row::Subagent { summary_text, .. } => {
+            assert_eq!(summary_text, "Initial summary - extra progress");
+        }
+        other => panic!("expected Row::Subagent, got {other:?}"),
+    }
+
+    // 4. Append to non-existent row is a no-op
+    c.apply_deltas(&[json!({
+        "op": "row.delta",
+        "rowId": 999,
+        "path": "summaryText",
+        "append": "phantom"
+    })]);
+    assert!(!c.rows.contains_key(&999));
+}
+
+#[test]
+fn subagent_and_background_works_whole_replace_patch() {
+    let mut c = ConversationState::default();
+
+    // 1. Snapshot with subagents and backgroundWorks
+    c.apply_snapshot(&json!({
+        "subagents": {
+            "revision": 1,
+            "childSessionIds": ["c1"],
+            "running": [{
+                "childSessionId": "c1",
+                "subagentType": "agent",
+                "title": "Sub 1",
+                "status": "running"
+            }],
+            "endedTotal": 0
+        },
+        "backgroundWorks": [{
+            "workId": "w1",
+            "kind": "subagent",
+            "title": "Work 1",
+            "status": "running",
+            "startedAt": 100,
+            "childSessionId": "c1"
+        }]
+    }));
+
+    assert!(c.subagents.is_some());
+    assert_eq!(c.subagents.as_ref().unwrap().child_session_ids, vec!["c1"]);
+    assert_eq!(c.background_works.len(), 1);
+
+    let joined = c.running_subagents();
+    assert_eq!(joined.len(), 1);
+    assert_eq!(joined[0].work_id.as_deref(), Some("w1"));
+
+    // 2. State updated patch whole-replaces both
+    c.apply_deltas(&[json!({
+        "op": "state.updated",
+        "patch": {
+            "subagents": {
+                "revision": 2,
+                "childSessionIds": ["c2"],
+                "running": [],
+                "endedTotal": 1
+            },
+            "backgroundWorks": []
+        }
+    })]);
+
+    assert_eq!(c.subagents.as_ref().unwrap().child_session_ids, vec!["c2"]);
+    assert_eq!(c.subagents.as_ref().unwrap().ended_total, 1);
+    assert!(c.subagents.as_ref().unwrap().running.is_empty());
+    assert!(c.background_works.is_empty());
+    assert!(c.running_subagents().is_empty());
+}

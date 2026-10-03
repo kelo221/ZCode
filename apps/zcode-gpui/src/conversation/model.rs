@@ -91,6 +91,10 @@ pub struct ConversationState {
     pub active_foreground_execution_id: Option<String>,
     /// Workflow runs state and subagents progress
     pub workflow_runs: crate::conversation::workflows::WorkflowRunsState,
+    /// Mirrored subagents projection (subagentProjectionStateSchema).
+    pub subagents: Option<crate::conversation::subagents::SubagentsState>,
+    /// Background work items (backgroundWorkSummarySchema).
+    pub background_works: Vec<crate::conversation::subagents::BackgroundWork>,
 }
 
 /// V4 `sessionPhaseSchema` phases during which a turn is live.
@@ -99,6 +103,14 @@ pub fn phase_is_active(phase: &str) -> bool {
 }
 
 impl ConversationState {
+    #[allow(dead_code)]
+    pub fn running_subagents(&self) -> Vec<crate::conversation::subagents::JoinedRunningSubagent> {
+        crate::conversation::subagents::join_running_subagents(
+            self.subagents.as_ref(),
+            &self.background_works,
+        )
+    }
+
     pub fn phase_running(&self) -> bool {
         phase_is_active(&self.phase)
     }
@@ -141,6 +153,15 @@ impl ConversationState {
         }
         if let Some(wf) = snap.get("workflowRuns") {
             self.workflow_runs = crate::conversation::workflows::WorkflowRunsState::from_value(wf);
+        }
+        if let Some(s) = snap.get("subagents") {
+            self.subagents = crate::conversation::subagents::SubagentsState::from_value(s);
+        }
+        if let Some(bw) = snap.get("backgroundWorks").and_then(Value::as_array) {
+            self.background_works = bw
+                .iter()
+                .filter_map(crate::conversation::subagents::BackgroundWork::from_value)
+                .collect();
         }
         if let Some(rows) = snap.get("rows") {
             self.first_row_id = rows
@@ -261,12 +282,7 @@ impl ConversationState {
                     }
                 }
                 "row.delta" => {
-                    // Only path:"text" carries chat text; other paths (tool
-                    // input streaming etc.) are ignored for the minimal client.
                     let path = d.get("path").and_then(Value::as_str).unwrap_or("text");
-                    if path != "text" {
-                        continue;
-                    }
                     let append = d.get("append").and_then(Value::as_str).unwrap_or("");
                     if append.is_empty() {
                         continue;
@@ -275,9 +291,9 @@ impl ConversationState {
                         .get("rowId")
                         .and_then(Value::as_u64)
                         .and_then(|id| self.rows.get_mut(&id))
-                        && let Some(text) = row.text_mut()
+                        && let Some(field) = row.stream_field_mut(path)
                     {
-                        text.push_str(append);
+                        field.push_str(append);
                     }
                 }
                 "state.updated" => {
@@ -305,6 +321,22 @@ impl ConversationState {
                         if let Some(wf) = patch.get("workflowRuns") {
                             self.workflow_runs =
                                 crate::conversation::workflows::WorkflowRunsState::from_value(wf);
+                        }
+                        if let Some(s) = patch.get("subagents") {
+                            self.subagents =
+                                crate::conversation::subagents::SubagentsState::from_value(s);
+                        }
+                        if let Some(bw_val) = patch.get("backgroundWorks") {
+                            self.background_works = bw_val
+                                .as_array()
+                                .map(|bw| {
+                                    bw.iter()
+                                        .filter_map(
+                                            crate::conversation::subagents::BackgroundWork::from_value,
+                                        )
+                                        .collect()
+                                })
+                                .unwrap_or_default();
                         }
                     }
                 }

@@ -38,6 +38,18 @@ pub enum Row {
         status: String,
         input_text: String,
         output_text: String,
+        tool_call_id: Option<String>,
+    },
+    Subagent {
+        row_id: u64,
+        subagent_type: String,
+        status: String,
+        summary_text: String,
+        parent_tool_call_id: Option<String>,
+        child_session_id: Option<String>,
+        work_id: Option<String>,
+        backgrounded: bool,
+        started_at: Option<u64>,
     },
     Other,
 }
@@ -124,6 +136,11 @@ impl Row {
                     .unwrap_or("")
                     .to_string();
 
+                let tool_call_id = v
+                    .get("toolCallId")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string);
+
                 Row::ToolCall {
                     row_id,
                     label: ["label", "title", "toolName", "name"]
@@ -134,18 +151,62 @@ impl Row {
                     status: str_field("status"),
                     input_text,
                     output_text,
+                    tool_call_id,
+                }
+            }
+            "subagent" => {
+                let parent_tool_call_id = v
+                    .get("parentToolCallId")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string);
+                let subagent_type = str_field("subagentType");
+                let status = str_field("status");
+                let summary_text = str_field("summaryText");
+                let child_session_id = v
+                    .get("childSessionId")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string);
+                let work_id = v
+                    .get("workId")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string);
+                let backgrounded = v
+                    .get("backgrounded")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let started_at = v.get("startedAt").and_then(Value::as_u64);
+
+                Row::Subagent {
+                    row_id,
+                    subagent_type,
+                    status,
+                    summary_text,
+                    parent_tool_call_id,
+                    child_session_id,
+                    work_id,
+                    backgrounded,
+                    started_at,
                 }
             }
             _ => Row::Other,
         }
     }
 
-    pub fn text_mut(&mut self) -> Option<&mut String> {
-        match self {
-            Row::UserInput { text, .. }
-            | Row::AssistantText { text, .. }
-            | Row::Reasoning { text, .. } => Some(text),
+    pub fn stream_field_mut(&mut self, path: &str) -> Option<&mut String> {
+        match (self, path) {
+            (
+                Row::UserInput { text, .. }
+                | Row::AssistantText { text, .. }
+                | Row::Reasoning { text, .. },
+                "text",
+            ) => Some(text),
+            (Row::Subagent { summary_text, .. }, "summaryText") => Some(summary_text),
             _ => None,
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn text_mut(&mut self) -> Option<&mut String> {
+        self.stream_field_mut("text")
     }
 }

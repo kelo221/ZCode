@@ -307,6 +307,7 @@ impl RootView {
             .children(plan.as_ref().map(|p| {
                 crate::conversation::turn_meta::render_plan_checklist(p, self.plan_expanded, cx)
             }))
+            .child(self.render_agents_section(cx))
             .child(self.review_header(&branch, files_n, add, del, cx))
             .children(self.notice_banner())
             .child(

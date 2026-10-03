@@ -6,4 +6,5 @@ pub(crate) mod list;
 pub(crate) mod scroll;
 #[cfg(test)]
 mod scroll_tests;
+pub(crate) mod subagent_card;
 pub(crate) mod tool_card;

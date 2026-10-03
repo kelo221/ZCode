@@ -9,6 +9,8 @@ pub(crate) mod model;
 pub(crate) mod msg_actions;
 pub(crate) mod queue;
 pub(crate) mod rows;
+pub(crate) mod subagent_nav;
+pub(crate) mod subagents;
 pub(crate) mod turn_meta;
 pub(crate) mod workflows;
 pub(crate) mod workflows_types;
