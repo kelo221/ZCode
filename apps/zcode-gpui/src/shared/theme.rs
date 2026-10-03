@@ -1,23 +1,19 @@
-//! Color tokens mirroring the Zai dark theme (packages/ui/src/styles.css,
-//! `[data-theme="zai-dark"]`): sidebar/background #161616, panel #202020,
-//! card/input #2b2b2b, borders at 10% white.
+//! Color tokens and typography ladder mirroring Zai design system
+//! (packages/ui/src/styles.css and DESIGN.md).
+
+#![allow(dead_code)]
 
 use gpui::{AnyElement, Div, IntoElement, div, prelude::*, px, rgb};
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
-/// App background and sidebar (`--color-background`, `--color-sidebar`).
+// Default static tokens (Zai Dark fallback)
 pub const BG: u32 = 0x161616;
-/// Header / main panel (`--color-panel`).
 pub const PANEL: u32 = 0x202020;
-/// Card, input and popover surface (`--color-card`, `--color-input`).
 pub const CARD: u32 = 0x2b2b2b;
-/// Menu hover (`--color-menu-hover`).
 pub const CARD_HOVER: u32 = 0x363636;
-/// 10% white over the dark surfaces (`--color-border`).
 pub const BORDER: u32 = 0x343434;
-/// Sidebar row hover / selection (5% / 10% white over #161616).
 pub const HOVER: u32 = 0x232323;
 pub const SELECTED: u32 = 0x2d2d2d;
-/// `--color-foreground` (neutral-200) and muted text.
 pub const TEXT: u32 = 0xe5e5e5;
 pub const MUTED: u32 = 0x8f8f8f;
 pub const ACCENT: u32 = 0x2dd4bf;
@@ -25,24 +21,200 @@ pub const USER_BLUE: u32 = 0x60a5fa;
 pub const REASONING: u32 = 0xa78bfa;
 pub const TOOL: u32 = 0xf59e0b;
 pub const AMBER: u32 = 0xf59e0b;
-/// `--color-warning` (yellow-500), used for the Full access mode.
 pub const WARNING: u32 = 0xeab308;
 pub const DANGER: u32 = 0xff5c5c;
 pub const SUCCESS: u32 = 0x22c55e;
-/// `--color-primary`: the round send button.
 pub const PRIMARY: u32 = 0xffffff;
-/// Code block surface: darker than CARD so highlighted code reads as a
-/// distinct `pre` region (matches syntect base16-ocean.dark backgrounds).
 pub const CODE_BG: u32 = 0x21252b;
 pub const CODE_BORDER: u32 = 0x181a1f;
 pub const CODE_HEADER: u32 = 0x2a2f38;
-/// Browser-style links (`--color-icon-blue`).
 pub const LINK: u32 = 0x58a6ff;
-/// Diff line backgrounds (`--color-diff-added` / `--color-diff-removed`).
 pub const DIFF_ADD_BG: u32 = 0x1d3327;
 pub const DIFF_DEL_BG: u32 = 0x3d2323;
-/// Unified-diff hunk header (`@@`) strip.
 pub const DIFF_HUNK_BG: u32 = 0x223140;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThemeMode {
+    #[default]
+    ZaiDark,
+    ZaiLight,
+    System,
+}
+
+impl ThemeMode {
+    pub fn parse(s: &str) -> Self {
+        match s {
+            "light" | "zai-light" => Self::ZaiLight,
+            "dark" | "zai-dark" => Self::ZaiDark,
+            _ => Self::System,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::ZaiDark => "zai-dark",
+            Self::ZaiLight => "zai-light",
+            Self::System => "system",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ThemePalette {
+    pub bg: u32,
+    pub panel: u32,
+    pub card: u32,
+    pub card_hover: u32,
+    pub border: u32,
+    pub hover: u32,
+    pub selected: u32,
+    pub text: u32,
+    pub muted: u32,
+    pub accent: u32,
+    pub user_blue: u32,
+    pub reasoning: u32,
+    pub tool: u32,
+    pub warning: u32,
+    pub danger: u32,
+    pub success: u32,
+    pub primary: u32,
+    pub code_bg: u32,
+    pub code_border: u32,
+    pub code_header: u32,
+    pub link: u32,
+    pub diff_add_bg: u32,
+    pub diff_del_bg: u32,
+    pub diff_hunk_bg: u32,
+}
+
+impl ThemePalette {
+    pub const fn zai_dark() -> Self {
+        Self {
+            bg: BG,
+            panel: PANEL,
+            card: CARD,
+            card_hover: CARD_HOVER,
+            border: BORDER,
+            hover: HOVER,
+            selected: SELECTED,
+            text: TEXT,
+            muted: MUTED,
+            accent: ACCENT,
+            user_blue: USER_BLUE,
+            reasoning: REASONING,
+            tool: TOOL,
+            warning: WARNING,
+            danger: DANGER,
+            success: SUCCESS,
+            primary: PRIMARY,
+            code_bg: CODE_BG,
+            code_border: CODE_BORDER,
+            code_header: CODE_HEADER,
+            link: LINK,
+            diff_add_bg: DIFF_ADD_BG,
+            diff_del_bg: DIFF_DEL_BG,
+            diff_hunk_bg: DIFF_HUNK_BG,
+        }
+    }
+
+    pub const fn zai_light() -> Self {
+        Self {
+            bg: 0xf8f8f8,
+            panel: 0xffffff,
+            card: 0xffffff,
+            card_hover: 0xf0f0f0,
+            border: 0xe5e5e5,
+            hover: 0xf2f2f2,
+            selected: 0xebebeb,
+            text: 0x262626,
+            muted: 0x737373,
+            accent: 0x0f766e,
+            user_blue: 0x2563eb,
+            reasoning: 0x7c3aed,
+            tool: 0xd97706,
+            warning: 0xe07b00,
+            danger: 0xe03131,
+            success: 0x1e8a3e,
+            primary: 0x000000,
+            code_bg: 0xf5f5f5,
+            code_border: 0xe0e0e0,
+            code_header: 0xeaeaea,
+            link: 0x0b7fff,
+            diff_add_bg: 0xd4edda,
+            diff_del_bg: 0xf8d7da,
+            diff_hunk_bg: 0xe8f0fe,
+        }
+    }
+}
+
+static ACTIVE_THEME: AtomicU8 = AtomicU8::new(0); // 0 = ZaiDark, 1 = ZaiLight
+
+pub fn set_theme_mode(mode: ThemeMode) {
+    let val = match mode {
+        ThemeMode::ZaiLight => 1,
+        _ => 0,
+    };
+    ACTIVE_THEME.store(val, Ordering::Relaxed);
+}
+
+pub fn theme_mode() -> ThemeMode {
+    match ACTIVE_THEME.load(Ordering::Relaxed) {
+        1 => ThemeMode::ZaiLight,
+        _ => ThemeMode::ZaiDark,
+    }
+}
+
+pub fn active_theme() -> ThemePalette {
+    match theme_mode() {
+        ThemeMode::ZaiLight => ThemePalette::zai_light(),
+        _ => ThemePalette::zai_dark(),
+    }
+}
+
+// ============================================================================
+// UI Font Scaling Ladder (DESIGN.md)
+// Base font size: 14px default, clamped between 12px and 20px.
+// ============================================================================
+
+const DEFAULT_UI_FONT_SIZE: f32 = 14.0;
+const MIN_UI_FONT_SIZE: f32 = 12.0;
+const MAX_UI_FONT_SIZE: f32 = 20.0;
+
+// Stored as u32 bits of f32 for atomic updates
+static UI_FONT_SIZE_BITS: AtomicU32 = AtomicU32::new(DEFAULT_UI_FONT_SIZE.to_bits());
+
+pub fn set_ui_font_size(size: f32) {
+    let clamped = size.clamp(MIN_UI_FONT_SIZE, MAX_UI_FONT_SIZE);
+    UI_FONT_SIZE_BITS.store(clamped.to_bits(), Ordering::Relaxed);
+}
+
+pub fn font_size_base() -> f32 {
+    f32::from_bits(UI_FONT_SIZE_BITS.load(Ordering::Relaxed))
+}
+
+pub fn font_size_xl() -> f32 {
+    font_size_base() + 4.0
+}
+
+pub fn font_size_lg() -> f32 {
+    font_size_base() + 2.0
+}
+
+pub fn font_size_caption() -> f32 {
+    font_size_base() - 1.0
+}
+
+pub fn font_size_sm() -> f32 {
+    font_size_base() - 2.0
+}
+
+pub fn font_size_xs() -> f32 {
+    font_size_base() - 4.0
+}
+
+pub fn font_size_2xs() -> f32 {
+    font_size_base() - 5.0
+}
 
 /// Windows icon font (ships with Windows 10+); glyph code points below.
 const ICON_FONT: &str = "Segoe MDL2 Assets";

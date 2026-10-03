@@ -6,8 +6,8 @@
 //! Connection event handling lives in backend/events.rs, outbound actions in
 //! backend/commands.rs / composer/config_cmds.rs.
 
-use crate::conversation::model::ConversationState;
 use crate::backend::workspace::WorkspaceHandle;
+use crate::conversation::model::ConversationState;
 use gpui::{AppContext, Context, Entity};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -42,6 +42,12 @@ pub struct AppState {
     /// Last applied `toSeq` per topic; a `(fromSeq, toSeq]` gap means the
     /// client missed frames (deltas are then unreliable until re-subscribe).
     pub(crate) last_seq: HashMap<String, u64>,
+    /// Usage statistics snapshot (`v4/usage/stats`).
+    pub usage_stats: Option<crate::shared::usage_stats::AppUsageSnapshot>,
+    /// Connected MCP server snapshots (`mcp/list`).
+    pub mcp_servers: Vec<crate::shared::mcp::McpServerSnapshot>,
+    /// Plugin store overview snapshot (`plugins/overview`).
+    pub plugins_overview: Option<crate::shared::plugins::PluginsOverviewResult>,
 }
 
 impl AppState {
@@ -72,6 +78,9 @@ impl AppState {
             flow_saturated: HashMap::new(),
             assembler: crate::backend::wire::FrameAssembler::new(),
             last_seq: HashMap::new(),
+            usage_stats: None,
+            mcp_servers: Vec::new(),
+            plugins_overview: None,
         };
         state.active_workspace = state.workspaces.first().map(|w| w.key.clone());
         let keys: Vec<String> = state.workspaces.iter().map(|w| w.key.clone()).collect();
@@ -84,6 +93,14 @@ impl AppState {
             }
         }
         state.start_maintenance(cx);
+        // gpui does not guarantee entity drops at process exit, so `Drop`
+        // alone can leave agents running where no kill-on-close job object
+        // exists (non-Windows, or a failed job assignment).
+        cx.on_app_quit(|this, _cx| {
+            this.shutdown_all_workspaces();
+            async {}
+        })
+        .detach();
         state
     }
 
@@ -149,7 +166,8 @@ impl AppState {
     }
 
     pub(crate) fn push_error(&mut self, line: String) {
-        self.errors.push_back(line);
+        // Error banners echo backend/provider text, which can quote keys.
+        self.errors.push_back(crate::shared::redact::scrub(&line));
         while self.errors.len() > 3 {
             self.errors.pop_front();
         }
@@ -160,6 +178,13 @@ impl AppState {
         let len = self.errors.len();
         if index < len {
             self.errors.remove(len - 1 - index);
+        }
+    }
+
+    /// Terminate all workspace agents cleanly.
+    pub fn shutdown_all_workspaces(&mut self) {
+        for w in &mut self.workspaces {
+            w.shutdown();
         }
     }
 
@@ -255,7 +280,10 @@ impl AppState {
     /// Filesystem path of the active workspace (git + terminal + file tree).
     pub(crate) fn active_workspace_path(&self) -> Option<std::path::PathBuf> {
         let key = self.active_ws_key()?;
-        self.workspaces.iter().find(|w| w.key == key).map(|w| w.path.clone())
+        self.workspaces
+            .iter()
+            .find(|w| w.key == key)
+            .map(|w| w.path.clone())
     }
 
     /// Workspace of the active session if known, else the last active one.
@@ -275,6 +303,31 @@ impl AppState {
         self.ws_mut(&key)
     }
 
+    pub(crate) fn active_workspace_config(
+        &self,
+    ) -> Option<&crate::composer::catalog::WorkspaceConfig> {
+        let key = self.active_ws_key()?;
+        self.workspace_configs.get(&key)
+    }
+
+    pub(crate) fn active_sessions(&self) -> Vec<(String, String)> {
+        let key = self.active_ws_key();
+        let mut list = Vec::new();
+        for w in &self.workspaces {
+            if key.as_ref() == Some(&w.key) {
+                for s in &w.sessions {
+                    let title = if s.title.trim().is_empty() {
+                        s.session_id.clone()
+                    } else {
+                        s.title.clone()
+                    };
+                    list.push((s.session_id.clone(), title));
+                }
+            }
+        }
+        list
+    }
+
     pub(crate) fn active_conversation(&self) -> Option<&ConversationState> {
         self.active
             .as_ref()
@@ -282,6 +335,8 @@ impl AppState {
     }
 
     pub(crate) fn push_log(&mut self, line: String) {
+        // The in-memory log feeds the diagnostic export; scrub at the sink.
+        let line = crate::shared::redact::scrub(&line);
         if std::env::var("ZCODE_GPUI_LOG_STDOUT").is_ok() {
             eprintln!("[zcode-gpui] {line}");
         }
@@ -296,5 +351,11 @@ impl AppState {
         if let Some(ws) = self.active_ws_mut() {
             ws.status = format!("error: {msg}");
         }
+    }
+}
+
+impl Drop for AppState {
+    fn drop(&mut self) {
+        self.shutdown_all_workspaces();
     }
 }

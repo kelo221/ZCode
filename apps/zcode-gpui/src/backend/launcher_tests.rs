@@ -1,78 +1,69 @@
+//! Tests for `backend/launcher.rs`.
+
 use super::*;
 
-#[test]
-fn test_candidate_resolution() {
-    let ws = std::env::current_dir().unwrap();
-    let candidates = resolve_candidates(&ws);
-    println!("Candidates found: {}", candidates.len());
-    for c in &candidates {
-        println!("  Candidate: {} -> {} {:?}", c.describe, c.program, c.args);
-    }
-    assert!(!candidates.is_empty(), "Candidates list must not be empty");
+fn scratch(tag: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!("zcode_gpui_launcher_{tag}_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
 }
 
+fn touch(root: &Path, rel: &str) {
+    let p = root.join(rel);
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(p, "").unwrap();
+}
+
+const READY_FILES: [&str; 5] = [
+    "node_modules/@zcode/shared/package.json",
+    "apps/zcode-cli/packages/cli/src/main.ts",
+    "apps/zcode-cli/packages/core/dist/index.js",
+    "apps/zcode-cli/packages/bootstrap/dist/index.js",
+    "apps/zcode-cli/packages/adapters/dist/index.js",
+];
+
+/// A source checkout that was never installed or built must not become the
+/// first candidate: it dies before startup and costs a fallback round-trip.
 #[test]
-fn test_installed_backend_spawn() {
-    let ws = std::env::current_dir().unwrap().canonicalize().unwrap();
-    println!("Testing with canonicalized workspace: {:?}", ws);
-    let candidates = resolve_candidates(&ws);
-    let installed = candidates
-        .iter()
-        .find(|c| c.describe == "installed ZCode app runtime");
-    if let Some(launch) = installed {
-        let mut conn = spawn_connection(launch, &ws).expect("spawn connection");
-        let mut ready = false;
-        let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_secs(5) {
-            if let Ok(ev) = conn.events.try_recv() {
-                match ev {
-                    ConnEvent::Line(line) => {
-                        if line.contains(r#""phase":"ready""#) {
-                            ready = true;
-                            break;
-                        }
-                    }
-                    ConnEvent::Log(log) => {
-                        println!("Received log: {log}");
-                    }
-                    ConnEvent::Exited => {
-                        panic!("Backend process exited prematurely");
-                    }
-                }
-            } else {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
+fn bun_source_requires_install_and_built_packages() {
+    for missing in READY_FILES {
+        let root = scratch("partial");
+        for f in READY_FILES.iter().filter(|f| **f != missing) {
+            touch(&root, f);
         }
-        assert!(ready, "Backend should reach phase: ready");
-
-        let sub_msg = serde_json::json!({
-            "id": 1,
-            "method": "v4/conversation/subscribe",
-            "params": {
-                "topic": format!("sessions-index/{}", ws.to_string_lossy()),
-                "connectionId": "test-conn",
-                "clientMode": "desktop-continuous",
-                "visibility": "foreground"
-            }
-        });
-        conn.inbound.send(sub_msg.to_string()).unwrap();
-
-        let mut got_response = false;
-        let start = std::time::Instant::now();
-        while start.elapsed() < std::time::Duration::from_secs(5) {
-            if let Ok(ev) = conn.events.try_recv() {
-                if let ConnEvent::Line(line) = ev {
-                    println!("Sub response: {line}");
-                    if line.contains(r#""id":1"#) || line.contains("sessions-index") {
-                        got_response = true;
-                        break;
-                    }
-                }
-            } else {
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-        }
-        (conn.kill)();
-        assert!(got_response, "Backend should respond to subscription");
+        assert!(!bun_source_ready(&root), "ready without {missing}");
+        let _ = std::fs::remove_dir_all(&root);
     }
+    let root = scratch("ready");
+    for f in READY_FILES {
+        touch(&root, f);
+    }
+    assert!(bun_source_ready(&root));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// `ZCODE_GPUI_AGENT_PROGRAM` always wins; the variables the desktop app
+/// exports to its children must not, or a GPUI launched from a ZCode terminal
+/// would silently skip bun. One test so the env mutations cannot race.
+#[test]
+fn only_the_gpui_variable_overrides() {
+    let is_override = |c: &BackendLaunch| c.describe == "env override";
+    // SAFETY: these variables are only read by this test.
+    unsafe {
+        std::env::set_var("GLM_BINARY_PATH", "desktop-agent");
+        std::env::set_var("ZCODE_AGENT_SERVER_COMMAND", "desktop-agent");
+    }
+    let inherited = resolve_candidates(Path::new("."));
+    unsafe { std::env::set_var("ZCODE_GPUI_AGENT_PROGRAM", "custom-agent") };
+    let explicit = resolve_candidates(Path::new("."));
+    unsafe {
+        std::env::remove_var("ZCODE_GPUI_AGENT_PROGRAM");
+        std::env::remove_var("GLM_BINARY_PATH");
+        std::env::remove_var("ZCODE_AGENT_SERVER_COMMAND");
+    }
+    assert!(!inherited.iter().any(is_override));
+    let first = explicit.first().expect("override candidate");
+    assert!(is_override(first));
+    assert_eq!(first.program, "custom-agent");
 }

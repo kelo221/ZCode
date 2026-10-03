@@ -2,11 +2,11 @@
 //! pane, toggled from the header pill or Ctrl+B (PARITY.md M3 "pane
 //! container: dockable right pane + shortcuts").
 
-use crate::shared::theme::{BORDER, CARD, HOVER, MUTED, PANEL, TEXT};
 use crate::app::root::RootView;
+use crate::shared::theme::{BORDER, CARD, HOVER, MUTED, PANEL, TEXT};
 use gpui::{
-    div, prelude::*, px, rgb, actions, AnyElement, Context, CursorStyle, IntoElement,
-    InteractiveElement, ParentElement, SharedString, Styled,
+    AnyElement, Context, CursorStyle, InteractiveElement, IntoElement, ParentElement, SharedString,
+    Styled, actions, div, prelude::*, px, rgb,
 };
 
 // Ctrl+B toggles the right dock (aligned with desktop SidePane shortcuts).
@@ -16,19 +16,34 @@ actions!(zcode_gpui, [ToggleDock]);
 pub enum DockTab {
     Review,
     Files,
+    Workflows,
+    Usage,
+    Mcp,
+    Plugins,
 }
 
-/// Desktop `w-80`: the floating status panel is 320px wide.
-pub const DOCK_WIDTH: f32 = 320.;
-/// Desktop `max-h-[min(64dvh,32rem)]`: the panel never exceeds 512px.
-pub const DOCK_MAX_HEIGHT: f32 = 512.;
-const TABS: [DockTab; 2] = [DockTab::Review, DockTab::Files];
+/// Desktop `w-80`: the floating status panel is 340px wide.
+pub const DOCK_WIDTH: f32 = 340.;
+/// Desktop `max-h-[min(64dvh,32rem)]`: the panel never exceeds 540px.
+pub const DOCK_MAX_HEIGHT: f32 = 540.;
+const TABS: [DockTab; 6] = [
+    DockTab::Review,
+    DockTab::Files,
+    DockTab::Workflows,
+    DockTab::Usage,
+    DockTab::Mcp,
+    DockTab::Plugins,
+];
 
 impl DockTab {
     pub fn label(self) -> &'static str {
         match self {
             DockTab::Review => "Review",
             DockTab::Files => "Files",
+            DockTab::Workflows => "Workflows",
+            DockTab::Usage => "Usage",
+            DockTab::Mcp => "MCP",
+            DockTab::Plugins => "Plugins",
         }
     }
 }
@@ -112,16 +127,36 @@ impl RootView {
                     .child(match active {
                         DockTab::Review => self.review_pane(cx),
                         DockTab::Files => self.files_pane(cx),
+                        DockTab::Workflows => self.workflows_pane(cx),
+                        DockTab::Usage => self.usage_pane(cx),
+                        DockTab::Mcp => self.mcp_pane(cx),
+                        DockTab::Plugins => self.plugins_pane(cx),
                     }),
             )
             .into_any_element()
     }
 
-    /// First-open hooks: fetch git status / load the file tree.
+    /// First-open hooks: fetch git status / load the file tree / queries.
     pub(crate) fn on_dock_tab(&mut self, tab: DockTab, cx: &mut Context<Self>) {
         match tab {
             DockTab::Review => self.sync_git_workspace(cx),
             DockTab::Files => self.ensure_files_loaded(cx),
+            DockTab::Workflows => {}
+            DockTab::Usage => {
+                self.state.update(cx, |state, cx| {
+                    state.fetch_usage_stats("7d", cx);
+                });
+            }
+            DockTab::Mcp => {
+                self.state.update(cx, |state, cx| {
+                    state.fetch_mcp_servers(cx);
+                });
+            }
+            DockTab::Plugins => {
+                self.state.update(cx, |state, cx| {
+                    state.fetch_plugins_overview(cx);
+                });
+            }
         }
         cx.notify();
     }
@@ -132,6 +167,7 @@ impl RootView {
         match self.dock_tab {
             DockTab::Review => self.sync_git_workspace(cx),
             DockTab::Files => self.ensure_files_loaded(cx),
+            DockTab::Workflows | DockTab::Usage | DockTab::Mcp | DockTab::Plugins => {}
         }
     }
 }

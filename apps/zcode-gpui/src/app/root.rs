@@ -1,18 +1,18 @@
 //! Root layout: sidebar (all projects + sessions), header selectors, chat
 //! transcript, mode bar and composer.
 
-use crate::composer::input::{Composer, ComposerEvent};
 use crate::app::dock::{DockTab, ToggleDock};
-use crate::review::git::GitState;
-use crate::files::pane::FilesState;
+use crate::app::store::AppState;
+use crate::composer::input::{Composer, ComposerEvent};
 use crate::composer::menus::MenuKind;
 use crate::conversation::model::format_preview;
-use crate::app::store::AppState;
+use crate::files::pane::FilesState;
+use crate::review::git::GitState;
+use crate::shared::theme::{BG, BORDER, MUTED, PANEL, TEXT};
 use crate::terminal::pane::{TermPane, ToggleTerminal};
-use crate::shared::theme::{BG, BORDER, CARD, MUTED, PANEL, TEXT};
 use gpui::{
-    ClickEvent, Context, CursorStyle, Entity, IntoElement, ListState, MouseButton, ParentElement,
-    Render, SharedString, Styled, Window, div, prelude::*, px, rgb,
+    Context, Entity, IntoElement, ListState, MouseButton, ParentElement, Render, SharedString,
+    Styled, Window, div, prelude::*, px, rgb,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -58,6 +58,11 @@ pub struct RootView {
     pub(crate) middle_scroll: Option<crate::transcript::scroll::MiddleScrollState>,
     /// An autoscroll `on_next_frame` callback is queued (see transcript/scroll.rs).
     pub(crate) autoscroll_frame_pending: bool,
+    pub(crate) quickpick_open: bool,
+    pub(crate) quickpick_query: String,
+    pub(crate) quickpick_selected: usize,
+    pub(crate) os_lifecycle: crate::app::os_lifecycle::OsLifecycleState,
+    pub(crate) plugin_segment: crate::app::plugin_pane::PluginSegment,
 }
 
 impl RootView {
@@ -105,6 +110,11 @@ impl RootView {
             last_plan_present: false,
             middle_scroll: None,
             autoscroll_frame_pending: false,
+            quickpick_open: false,
+            quickpick_query: String::new(),
+            quickpick_selected: 0,
+            os_lifecycle: crate::app::os_lifecycle::OsLifecycleState::default(),
+            plugin_segment: crate::app::plugin_pane::PluginSegment::Public,
         }
     }
 }
@@ -139,6 +149,18 @@ impl Render for RootView {
                 format_preview(&title, 60).into()
             }
         };
+
+        crate::app::os_lifecycle::sync_window_state(
+            window,
+            &mut self.os_lifecycle.last_saved_bounds,
+        );
+        crate::app::os_lifecycle::sync_keep_awake(&mut self.os_lifecycle.keep_awake, running);
+        crate::app::os_lifecycle::check_turn_completion_notification(
+            &self.last_phase,
+            &phase,
+            &title,
+            window.is_window_active(),
+        );
         let composer = state.composer.clone();
         let first_row_id = state
             .active_conversation()
@@ -215,6 +237,32 @@ impl Render for RootView {
                 }
                 cx.notify();
             }))
+            .on_action(
+                cx.listener(|this, _: &crate::app::quickpick::ToggleQuickPick, _, cx| {
+                    this.quickpick_open = !this.quickpick_open;
+                    this.quickpick_query.clear();
+                    this.quickpick_selected = 0;
+                    cx.notify();
+                }),
+            )
+            .on_action(cx.listener(
+                |_this, _: &crate::app::quickpick::SwitchThemeAction, _, cx| {
+                    let next = match crate::shared::theme::theme_mode() {
+                        crate::shared::theme::ThemeMode::ZaiLight => {
+                            crate::shared::theme::ThemeMode::ZaiDark
+                        }
+                        _ => crate::shared::theme::ThemeMode::ZaiLight,
+                    };
+                    crate::shared::theme::set_theme_mode(next);
+                    cx.notify();
+                },
+            ))
+            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, _, cx| {
+                if this.quickpick_open && crate::app::quickpick::handle_quickpick_key(this, ev, cx)
+                {
+                    cx.stop_propagation();
+                }
+            }))
             // Any click that reaches the root (i.e. outside menus) closes them;
             // menu entries stop propagation before it gets here.
             .on_mouse_down(
@@ -279,34 +327,8 @@ impl Render for RootView {
                                     .flex()
                                     .flex_col()
                                     .gap_1()
-                                    .when(has_more, |el| {
-                                        el.child(
-                                            div()
-                                                .id("load-earlier")
-                                                .mx_auto()
-                                                .px_3()
-                                                .py_1()
-                                                .rounded_md()
-                                                .bg(rgb(PANEL))
-                                                .border_1()
-                                                .border_color(rgb(BORDER))
-                                                .text_size(px(11.5))
-                                                .text_color(rgb(MUTED))
-                                                .cursor(CursorStyle::PointingHand)
-                                                .hover(|s| s.bg(rgb(CARD)).text_color(rgb(TEXT)))
-                                                .on_click(cx.listener(
-                                                    |this, _: &ClickEvent, _window, cx| {
-                                                        this.state.update(cx, |s, cx| {
-                                                            s.fetch_earlier_rows(cx)
-                                                        });
-                                                    },
-                                                ))
-                                                .child("Load earlier messages"),
-                                        )
-                                    })
-                                    .children(
-                                        self.interaction_cards(&pending_interactions, cx),
-                                    ),
+                                    .children(self.load_earlier_btn(has_more, cx))
+                                    .children(self.interaction_cards(&pending_interactions, cx)),
                             )
                             .child(if rows_empty {
                                 div()
@@ -335,15 +357,17 @@ impl Render for RootView {
                             .px_3()
                             .pt_1()
                             .pb_3()
-                            .children(
-                                queue
-                                    .as_ref()
-                                    .and_then(|q| crate::conversation::queue::render_queue_panel(q, cx)),
-                            )
+                            .children(queue.as_ref().and_then(|q| {
+                                crate::conversation::queue::render_queue_panel(q, cx)
+                            }))
                             .children(self.intent_banner(&intent, cx))
                             .child(self.composer_card(composer, running, cx)),
                     )
                     .when(self.term_open, |el| el.child(self.term_drawer(window, cx))),
+            )
+            .children(
+                self.quickpick_open
+                    .then(|| crate::app::quickpick::render_quickpick_modal(self, window, cx)),
             )
     }
 }

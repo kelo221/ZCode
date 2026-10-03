@@ -103,15 +103,27 @@ mod tests {
     #[test]
     fn test_clamp_scroll_distance_rejects_nan() {
         // NaN must not fall through to the upward branch and snap to the top.
-        assert_eq!(clamp_scroll_distance(px(50.0), px(200.0), px(f32::NAN)), px(0.0));
-        assert_eq!(clamp_scroll_distance(px(50.0), px(200.0), px(f32::INFINITY)), px(0.0));
+        assert_eq!(
+            clamp_scroll_distance(px(50.0), px(200.0), px(f32::NAN)),
+            px(0.0)
+        );
+        assert_eq!(
+            clamp_scroll_distance(px(50.0), px(200.0), px(f32::INFINITY)),
+            px(0.0)
+        );
     }
 
     #[test]
     fn test_clamp_scroll_distance_after_content_shrinks() {
         // Offset beyond a shrunken max: downward is a no-op, upward still works.
-        assert_eq!(clamp_scroll_distance(px(300.0), px(200.0), px(20.0)), px(0.0));
-        assert_eq!(clamp_scroll_distance(px(300.0), px(200.0), px(-20.0)), px(-20.0));
+        assert_eq!(
+            clamp_scroll_distance(px(300.0), px(200.0), px(20.0)),
+            px(0.0)
+        );
+        assert_eq!(
+            clamp_scroll_distance(px(300.0), px(200.0), px(-20.0)),
+            px(-20.0)
+        );
         // Empty / fitting list in both directions.
         assert_eq!(clamp_scroll_distance(px(0.0), px(0.0), px(-20.0)), px(0.0));
     }
@@ -119,10 +131,19 @@ mod tests {
     #[test]
     fn test_follow_flag_after_programmatic_scroll() {
         // Any upward step detaches from the tail.
-        assert_eq!(follows_after_scroll(px(200.0), px(200.0), px(-1.0)), Some(false));
+        assert_eq!(
+            follows_after_scroll(px(200.0), px(200.0), px(-1.0)),
+            Some(false)
+        );
         // Downward re-attaches only on reaching the bottom.
-        assert_eq!(follows_after_scroll(px(100.0), px(200.0), px(20.0)), Some(false));
-        assert_eq!(follows_after_scroll(px(190.0), px(200.0), px(10.0)), Some(true));
+        assert_eq!(
+            follows_after_scroll(px(100.0), px(200.0), px(20.0)),
+            Some(false)
+        );
+        assert_eq!(
+            follows_after_scroll(px(190.0), px(200.0), px(10.0)),
+            Some(true)
+        );
         // No movement leaves the flag untouched.
         assert_eq!(follows_after_scroll(px(200.0), px(200.0), px(0.0)), None);
     }

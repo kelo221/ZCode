@@ -59,9 +59,29 @@ Slices extend the two central types (`RootView`, `AppState`) with their own `imp
 
 ## Backend Candidates (Auto-resolved in order)
 
-1. `ZCODE_GPUI_AGENT_PROGRAM` (+ optional `ZCODE_GPUI_AGENT_ARGS`, defaults to `app-server --stdio`) — explicit override.
-2. **Installed ZCode Desktop Runtime** (`ELECTRON_RUN_AS_NODE=1 ZCode.exe resources/glm/zcode.cjs app-server --stdio`) — default production path, updating in lockstep with the desktop app.
-3. **bun + repository source code** (experimental fallback: bun 1.4.x mis-resolves `@zcode/shared/*` subpaths in this repo and dies before startup, in which case the launcher falls back automatically).
+1. `ZCODE_GPUI_AGENT_PROGRAM` (+ optional `ZCODE_GPUI_AGENT_ARGS`, defaults to `app-server --stdio`) — explicit override. This is the only override variable: `GLM_BINARY_PATH` and `ZCODE_AGENT_SERVER_COMMAND` are ignored because the desktop app exports them to every child process (including its terminals).
+2. **bun + this branch's source** (`bun apps/zcode-cli/packages/cli/src/main.ts app-server --stdio`) — preferred. Offered only when the workspace is installed and the CLI packages are built (see below). bun is found via `BUN_INSTALL`, `PATH`, then `~/.bun/bin`. The installed app's bundled ripgrep is reused when present.
+3. **Installed ZCode Desktop Runtime** (`ELECTRON_RUN_AS_NODE=1 ZCode.exe resources/glm/zcode.cjs app-server --stdio`) — fallback, updating in lockstep with the desktop app.
+
+### bun setup (this branch)
+
+The branch uses bun as its package manager (`bun.lock`, `"packageManager": "bun@1.4.2"`). The CLI runs under bun after one backend change: `core/src/environment.ts` probes `node:sea` through `process.getBuiltinModule` instead of a static import (bun and Deno have no `node:sea`).
+
+```sh
+bun install --frozen-lockfile --ignore-scripts      # add --backend=copyfile on ReFS / Dev Drive
+# build the CLI packages in dependency order (they export dist/):
+for p in contracts dynamic-workflow adapters shared-types core dynamic-workflow-runtime i18n telemetry bootstrap tui; do
+  (cd apps/zcode-cli/packages/$p && bun run --bun build)
+done
+```
+
+Known limits in source mode:
+
+- Plugins that ship only inside the desktop installer (documents, pdf, presentations, spreadsheets, android-emulator) are not listed.
+- `apps/zcode-cli/scripts/build.mjs` (the single-file bundle) does not run under bun because it imports TypeScript through `tsx`. Source mode does not need it.
+- On ReFS, bun cannot rewrite `bun.lock` in place (no POSIX replace-rename). Regenerate it on an NTFS copy if dependencies change.
+
+Memory is about the same as the installed runtime: about 250 MB RSS idle, against 235–270 MB for the installed Electron runtime.
 
 ## Troubleshooting
 

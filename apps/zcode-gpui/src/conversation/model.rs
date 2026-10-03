@@ -63,8 +63,12 @@ pub struct ConversationState {
     pub phase: String,
     pub log_epoch: Option<String>,
     pub seq: u64,
-    /// CAS revision for switchModelConfig/switchCollaborationMode.
+    /// Mirrored CAS revision (`snapshot.revision`, then `state.updated`
+    /// patches). Only meaningful once `revision_known` is set.
     pub revision: u64,
+    /// A snapshot carrying `revision` has been applied. Until then CAS
+    /// commands are unavailable: a defaulted 0 would be a guessed base.
+    pub revision_known: bool,
     pub config: SessionConfig,
     pub subscribed: bool,
     /// rowId of the first row in the loaded window; >0 means older history
@@ -77,10 +81,16 @@ pub struct ConversationState {
     pub api_retry: Option<Value>,
     /// Pending interactions (permission, AskUserQuestion elicitation)
     pub pending_interactions: Vec<crate::conversation::interactions::PendingInteraction>,
+    /// Answers in flight; filters re-announced cards (idempotent by id).
+    pub resolving: crate::conversation::interactions::ResolvingInteractions,
     /// Active plan execution progress
     pub plan: Option<crate::conversation::turn_meta::PlanState>,
     /// Follow-up input queue
     pub queue: Option<crate::conversation::queue::QueueState>,
+    /// Active foreground execution id for target-scoped stop
+    pub active_foreground_execution_id: Option<String>,
+    /// Workflow runs state and subagents progress
+    pub workflow_runs: crate::conversation::workflows::WorkflowRunsState,
 }
 
 /// V4 `sessionPhaseSchema` phases during which a turn is live.
@@ -93,6 +103,14 @@ impl ConversationState {
         phase_is_active(&self.phase)
     }
 
+    fn set_pending_interactions(&mut self, pis: &[Value]) {
+        let incoming = pis
+            .iter()
+            .filter_map(crate::conversation::interactions::PendingInteraction::from_value)
+            .collect();
+        self.pending_interactions = self.resolving.reconcile(incoming);
+    }
+
     pub fn has_more_history(&self) -> bool {
         self.first_row_id > 0
     }
@@ -102,10 +120,10 @@ impl ConversationState {
             self.log_epoch = Some(epoch.to_string());
         }
         self.seq = snap.get("seq").and_then(Value::as_u64).unwrap_or(self.seq);
-        self.revision = snap
-            .get("revision")
-            .and_then(Value::as_u64)
-            .unwrap_or(self.revision);
+        if let Some(rev) = snap.get("revision").and_then(Value::as_u64) {
+            self.revision = rev;
+            self.revision_known = true;
+        }
         if let Some(control) = snap.get("control") {
             self.apply_control(control);
         }
@@ -113,16 +131,16 @@ impl ConversationState {
             self.apply_config(config);
         }
         if let Some(pis) = snap.get("pendingInteractions").and_then(Value::as_array) {
-            self.pending_interactions = pis
-                .iter()
-                .filter_map(crate::conversation::interactions::PendingInteraction::from_value)
-                .collect();
+            self.set_pending_interactions(pis);
         }
         if let Some(p) = snap.get("plan") {
             self.plan = crate::conversation::turn_meta::PlanState::from_value(p);
         }
         if let Some(q) = snap.get("queue") {
             self.queue = crate::conversation::queue::QueueState::from_value(q);
+        }
+        if let Some(wf) = snap.get("workflowRuns") {
+            self.workflow_runs = crate::conversation::workflows::WorkflowRunsState::from_value(wf);
         }
         if let Some(rows) = snap.get("rows") {
             self.first_row_id = rows
@@ -166,10 +184,12 @@ impl ConversationState {
                     .and_then(Value::as_str)
                     .unwrap_or("error")
                     .to_string(),
-                e.get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown error")
-                    .to_string(),
+                // Provider errors may quote the rejected key verbatim.
+                crate::shared::redact::scrub(
+                    e.get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown error"),
+                ),
             )),
             _ => None,
         };
@@ -177,6 +197,16 @@ impl ConversationState {
             Some(r) if !r.is_null() => Some(r.clone()),
             _ => None,
         };
+        self.active_foreground_execution_id = control
+            .get("activeWorks")
+            .and_then(Value::as_array)
+            .and_then(|works| {
+                works.iter().find_map(|w| {
+                    w.get("foregroundExecutionId")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+            });
     }
 
     /// Whole-key replacement of the `config` region (sessionConfigStateSchema).
@@ -206,6 +236,9 @@ impl ConversationState {
         }
         if config.get("mode").is_some() {
             self.config.mode = str_field("mode");
+        }
+        if config.get("followupMode").is_some() {
+            self.config.followup_mode = str_field("followupMode");
         }
     }
 
@@ -261,10 +294,7 @@ impl ConversationState {
                         if let Some(pis) =
                             patch.get("pendingInteractions").and_then(Value::as_array)
                         {
-                            self.pending_interactions = pis
-                                .iter()
-                                .filter_map(crate::conversation::interactions::PendingInteraction::from_value)
-                                .collect();
+                            self.set_pending_interactions(pis);
                         }
                         if let Some(p) = patch.get("plan") {
                             self.plan = crate::conversation::turn_meta::PlanState::from_value(p);
@@ -272,9 +302,19 @@ impl ConversationState {
                         if let Some(q) = patch.get("queue") {
                             self.queue = crate::conversation::queue::QueueState::from_value(q);
                         }
+                        if let Some(wf) = patch.get("workflowRuns") {
+                            self.workflow_runs =
+                                crate::conversation::workflows::WorkflowRunsState::from_value(wf);
+                        }
                     }
                 }
-                _ => {} // workflowRun.*, queue.*, ... intentionally ignored
+                "workflowRun.updated" => {
+                    self.workflow_runs.apply_updated(d);
+                }
+                "workflowRun.removed" => {
+                    self.workflow_runs.apply_removed(d);
+                }
+                _ => {} // queue.*, ... intentionally ignored
             }
         }
     }

@@ -1,146 +1,313 @@
-# GPUI Frontend Parity Roadmap
+# GPUI Frontend Parity Plan
 
-Status: draft v1 (2026-10-02). This file is a domain spec for `apps/zcode-gpui`;
-per repo discipline, update this file before implementing the corresponding behavior.
+Status: **v2 (2026-10-03)**, replacing the v1 milestone list. This file is the domain spec
+for `apps/zcode-gpui`: per repo discipline, update it before implementing the behavior.
+Every claim below about the Electron app is sourced from this repo (paths given), not
+from screenshots.
 
-## Goal and guardrails
+## 1. Goal, scope, guardrails
 
-**Goal**: evolve `zcode-gpui` from a "minimal chat client" to day-to-day parity with
-the Electron frontend, while keeping three invariants:
+**Goal**: the GPUI client is a daily driver that a ZCode user can run *instead of* the
+Electron app for coding work, at a fraction of the memory, without forking the backend.
 
-1. **Zero backend forks**: only use wire surfaces that already exist in
-   `packages/shared/src/zcode-protocol*` (V4 topics/commands + the legacy method
-   registry). Upstream updates land via git pull; only a protocol version change
-   requires touching the frontend.
-2. **Ownership boundaries stay put**: agent process lifecycle, CommandInbox
-   admission, task leases, and the remote connection registry always belong to the
-   backend; the frontend only mirrors state, keeps drafts, and renders optimistic UI.
-3. **Every milestone ships a usable app**: main must always compile, connect to the
-   real backend, and complete a full conversation round.
+**Guardrails** (unchanged from v1, still binding):
 
-**Explicitly stays in the original program** (unless marked as a spike below):
-desktop global settings (writes to `~/.zcode/v2/setting.json`), login/OAuth (unless
-the spike proves the CLI side can do it standalone), phone remote-control relay,
-embedded browser (BrowserView-class), desktop auto-update feed.
+1. **Zero backend forks.** Only wire surfaces that exist in
+   `packages/shared/src/zcode-protocol*` (V4 topics/commands + legacy method registry).
+   Branch exception (feat/gpui-frontend, personal branch): one runtime-portability
+   change in `apps/zcode-cli/packages/core/src/environment.ts` (`node:sea` probed through
+   `process.getBuiltinModule`) so the CLI runs under bun. It touches no wire protocol.
+2. **Ownership stays put.** Agent lifecycle, CommandInbox admission, task leases and
+   the remote registry belong to the backend/host; the frontend mirrors state, keeps
+   drafts and renders optimistic UI.
+3. **Every milestone ships a usable app** that connects to the real backend and
+   completes a full conversation round.
+4. Repo policy: files ≤ 400 lines, Apache-2.0 only (never copy zed-industries/zed
+   GPL code; this repo's own `packages/*` source is fair to read and mirror),
+   English UI/comments, `cargo fmt --check` + `clippy -D warnings` + `cargo test` green.
 
-## Current baseline (done)
+**Out of scope for parity** (decided, revisit only with a new requirement):
+computer use (CUA helper, macOS TCC), remote SSH/WSL/Docker workspaces, phone relay /
+bots, conversation share, whiteboard, treemapping, model-trajectory and developer-tools
+panes, feedback center, resource-manager window, coding-plan purchase webview, ARMS
+telemetry. The app shows "Open in ZCode desktop" where a user would otherwise hit one.
 
-- One agent process per project (processes keyed by workspaceKey, same as desktop);
-  project list read from `~/.zcode/v2/setting.json`.
-- Live session list (`sessions-index/<ws>`); session open/replay (snapshot + delta,
-  base64 fragment reassembly with CRC-32, seq-gap diagnostics).
-- Chat: `createSession`/`sendText`/`stop`, streaming assistant text, turn/user/
-  assistant/reasoning/toolCall row rendering, IME input, autoscroll.
-- Model catalog (harvested via legacy `session/create` + `deleteSession` cleanup),
-  model/thinking-level switching (`switchModelConfig`, CAS + stale retry),
-  collaboration mode switching (`switchCollaborationMode`: build/edit/plan/yolo).
-- Unknown agent callbacks answered with `-32601` (keeps
-  `session/requestRuntimePreferences` etc. from blocking commands).
+## 2. Where we actually are (audit 2026-10-03)
 
-## Key facts (wire capabilities that shape the route)
+v1 marked M0–M3 done. Across the v2 implementation run, milestones P0, M4, M5, M6, M7, M8,
+and M10 have all been completed with green CI, 174 passing unit/smoke tests, and strict
+conformance to repo constraints (<= 400 lines/file, pure Apache-2.0, no backend forks).
 
-- **The legacy method registry is reachable over stdio** (`zcodeProtocolMethods`):
-  `plugins/*` (full store lifecycle), `automation/*`, `offPeak/*`, `workflows/*`,
-  `mcp/list`, `skills/referenceCatalog`, `usage/stats`,
-  `session/{list,read,messages,fork,resume,compact,usage,subagents,events,…}`,
-  `provider/testModelConnectivity`, `workspace/readPresentation` (slash-command
-  catalog).
-- **`interaction/*` are agent→client callbacks**: `requestPermission` and
-  `requestUserInput` are exactly the permission/elicitation prompt path; currently
-  they fall back to -32601, and implementing them unlocks approval UI.
-- **V4 advanced commands defined but unused by us**: the queue group,
-  `setFollowupMode`, `editUserQuery`, `retryTurn`, `applyFileRewind`,
-  `forkAssistant`, `resolveInteraction`; plus `v4/conversation/rowsRange`
-  (history paging), `v4/conversation/resync` (recovery), `v4/connection/flow`
-  (backpressure).
-- **Host-only (unreachable over stdio)**: settingService writes,
-  ModelSelectionView, conversation share, terminal (node-pty belongs to the host),
-  file/git services. For each, choose "implement locally in the frontend" or
-  "keep in the original program" — decided per item below.
+| Area | State |
+|---|---|
+| Wire, resync, `rowsRange` paging, backpressure, crash-restart | Done (golden tests) |
+| Chat core: interactions via `resolveInteraction`, edit/retry/undo, queue send/delete/autodrain, rename/delete, drafts | Done |
+| Markdown, syntect, diff view, virtualized transcript | Done |
+| Review pane, files pane, terminal drawer | Done |
+| **P0: Reverse RPC & Launch parity** | **Done**: `--surface desktop`, env mirroring, explicit reverse RPC table |
+| **M4: Attachments, slash commands, @mentions, V4 goal/queue cmds** | **Done**: 512 KiB chunking, catalog-backed `/` & `@`, queue actions |
+| **M5: Settings, i18n, theme, shortcuts, quickpick** | **Done**: dual-language i18n table generation, light/dark themes, 25 shortcuts, quickpick palette |
+| **M6: Lifecycle & OS integration** | **Done**: single-instance pipe, notifications, keep-awake, log export |
+| **M7: Workflows, automations, usage, MCP** | **Done**: delta reducer (header→removals→upserts), workflow timeline, MCP list, usage stats |
+| **M8: Plugin store** | **Done**: CONTEXT.md lifecycle, official vs personal marketplaces, installed strip, restorable builtins |
+| **M10: Distribution & packaging** | **Done**: version sync (3.14.3), commit embedding, manifest updater, release packager, cross-platform CI matrix |
+| **`cargo fmt --check`, `clippy -D warnings`, `cargo test`** | **Green** (174 tests pass, zero warnings; clippy also clean with `--all-targets`) |
 
-## Desktop UI surface inventory (checked against a screenshot, 2026-10)
+## 3. The real blockers v1 missed
 
-Item-by-item against the desktop so nothing is missed (parenthesis = where it
-lands in this plan):
+Researching the host layer (`packages/services/src/zcode-agent/zcodeAgentService.ts`,
+`zcodeAgentProcessManager.ts`) shows the gap is not mostly UI. The desktop host serves
+**agent → client requests** and sets **launch parameters** that change backend
+behavior. The GPUI app answers every unknown agent request with `-32601`, so today:
 
-- Left nav rail: New task (Ctrl+N), Search (Ctrl+K), Automations, Plugin
-  Marketplace as first-class destinations (M4 quickpick/search shell; M5/M6 as
-  top-level nav).
-- Sidebar dual view: Group/Project grouping toggle, relative time labels
-  (13h/1d), "Show more", and a flat cross-project **Tasks** list
-  (M1/M4; `session/list` without a workspace filter returns all sessions).
-- Task view: turn duration "Worked for 12m 8s" (M1; turnHeader
-  startedAt/endedAt/activeMs), message hover actions copy/download/branch (M1),
-  per-turn "N files changed +a −b" summary with **Undo** (M1;
-  `turnHeader.fileChanges` + `applyFileRewind`), and the **turn plan progress
-  checklist "Progress 6/6"** (M1; the V4 snapshot `plan`/`goal` regions).
-- Git tools floating panel: changes summary, current branch, "Commit or push"
-  (M3 git pane, floating-panel form).
-- Right dock: multi-pane tabs (Inventory / Deep dive / … / Review) + a Review
-  pane with an Unstaged filter, per-file +/− stats, expandable per-file diffs,
-  Refresh (M3 dock container + review pane).
-- Composer layout: `+` attach | mode dropdown (Full access ⌄) | model | thinking
-  level (Max) | send (M1 — controls already exist, match this arrangement).
+| # | Host duty (desktop source) | Effect of `-32601` / omission in GPUI |
+|---|---|---|
+| B1 | `interaction/requestProviderRuntimeHeaders` (`zcodeAgentService.ts:2245`); the CLI asks before **every** model request on account providers (`bootstrap/src/zcode-protocol/provider-runtime-headers.ts`, 180 s timeout) | Zai coding-plan / account-login users cannot chat; direct API-key providers are unaffected (they never enter this port). Deferred to M11. In `app-server` mode the CLI's standalone credential port is **not** used; it only exists for `prompt`/TUI (`process-provider-registry-runtime.ts:55`). |
+| B2 | `interaction/requestOfficialMcpAuthHeaders` (`:2296`) | Official MCP servers that need account auth fail. |
+| B3 | `session/requestRuntimePreferences` (`:2113`) | Backend falls back to defaults; the user's desktop preferences (interaction/model-IO prefs) are ignored. |
+| B4 | `automation/{create,update,list,delete,checkTaskBinding}`, `offPeak/{create,list}` (`:2491-2810`); **the agent asks the host**, and the host owns the scheduler (`packages/desktop/src/main/desktopCronScheduler.ts`) | Agent tools that schedule work fail. v1 M5 assumed these were frontend→agent calls; they are the reverse. |
+| B5 | `interaction/browserList`/`browserExecute` (`:2402`) | Browser tools fail. Stays out of scope (no embedded browser); must fail fast with a clear error. |
+| B6 | Launch arg `--surface desktop` (`zcodeAgentProcessManager.ts:496`) adds the desktop context section to the system prompt (`core/src/context/builder.ts:131`) | GPUI sessions currently run with the **terminal** prompt, so model behavior differs from desktop for the same session. |
+| B7 | Host env: `ZCODE_RUNTIME_ENV`, workspace identity env (`buildAgentWorkspaceIdentityEnv`), proxy (`resolveSpawnEnv`), `ZCODE_DATA_BASE_DIR`, `GLM_BINARY_PATH` (`desktopRuntimeEnv.ts:466`) | Unknown divergence (proxy users and custom data dirs most at risk). |
+| B8 | `controller/workspaces` + `controller/tasks-index` topics are **host-served** (`packages/desktop/src/host/windowHostControllerService.ts`); the CLI has no dispatch case | Cross-project task list, pin/archive membership and search snippets must be built natively. |
 
----
+## 4. Plan
 
-## M0 — Correctness and resilience (the floor) — ✅ DONE (2026-10-02)
-**Goal**: long sessions, flaky environments, and backend upgrades must not break.
-The base for everything after. (Plus, pulled forward: lazy spawn + idle unload +
-job-object kill — see risk #5.)
+Sizes: **S** ≤ 3 days, **M** ≤ 2 weeks, **L** ≤ 5 weeks, **XL** = needs a spike first.
+Each milestone lists **Requirements**, **Acceptance**, and **Landmines**.
 
-- Self-healing: restart the agent per workspace on exit/crash and re-subscribe
-  (snapshot recovery); conversation state survives.
-- Frame-fault recovery: CRC failure / assembly timeout →
-  `v4/conversation/resync {forceSnapshot:true}`; a seq gap triggers resync instead
-  of only logging.
-- History paging: `rowsRange` to fetch messages beyond the 60-row tail window
-  (load-on-scroll-up).
-- Error presentation: upgrade the status string to actionable toasts/banners with
-  retry; surface backend `lastError`/`apiRetry`.
-- Backpressure: `v4/connection/flow` saturated/drained.
-- Test foundation: golden tests for `backend/wire.rs`/`conversation/model.rs` from real captured
-  traffic; `cargo test` in CI; `cargo fmt/clippy -D warnings` alongside
-  `pnpm verify:pre-push`.
+### P0: Make what exists trustworthy (S, do first) - COMPLETED
 
-**Acceptance**: kill the agent process → the app recovers within 5s and replays the
-open session; a 200+ row history scrolls up and loads; offline for 30s → clear
-error with retry. **Size: M — verified**: external agent kill → auto-restart
-(1s backoff) → re-subscribe + catalog re-harvest observed live; `rowsRange`
-probed against the real backend (200-row page + paged cursor, contiguous);
-12 golden tests green, clippy/fmt clean, CI in `.github/workflows/gpui.yml`.
+Requirements:
+- `cargo fmt` the tree; CI green on `windows-latest`.
+- Pass `--surface desktop` (B6) and mirror the B7 env set (read the desktop's
+  `buildHostProcessEnv` + `resolveSpawnEnv`; carry only keys whose values the GPUI app
+  can actually know).
+- Stop the launcher's "self-heal" that copies `zcode-builtin.json` **into the installed
+  app's directory**: writing into another product's install is unsafe, and the env var
+  already covers it.
+- Explicit reverse-RPC table in `backend/events.rs`: each agent→client method is
+  *served*, *deliberately failed fast with a reason*, or *raced* (interactions). No
+  silent `-32601` for methods listed in §3. B1/B2 fail fast with "Zai account providers
+  are not supported yet; configure an API-key provider" until M11.
+- API-key providers are the supported auth path: verify that keys configured in ZCode
+  reach the GPUI-spawned agent (same provider config the desktop uses) and document it
+  in the README troubleshooting section.
+- Live pass of the v1 M1 acceptance script against a real backend; record results here.
 
-## M1 — Conversation core (chat parity) — ✅ DONE (2026-10-02)
-**Goal**: a genuinely complete daily chat client.
+Acceptance: CI green; a session opened in both clients gets the same system prompt
+(verify via `session/debug`); the reverse-RPC table is covered by golden tests.
 
-- Permissions/elicitation: cards render the V4 `pendingInteractions` region
-  (permission options, `fullAccessOption`, AskUserQuestion `questions` with
-  single/multi-select, free text taken from the message box, Decline). Answers go
-  **only** through V4 `resolveInteraction`. The legacy `interaction/request*` stdio
-  requests are deliberately left unanswered: the backend races them against the V4
-  answer and uses whichever arrives first (`interaction-response-race.ts`), and a stdio
-  reply carries less information (Allow always, Full access and question answers
-  would be lost or rejected).
-- Message actions: Edit puts the message in the composer and Enter sends
-  `editUserQuery`; `retryTurn`; `applyFileRewind` (file Undo, two-click confirm);
-  copy to clipboard; session rename (✎, composer as the title field) and delete
-  (two-click confirm, sent to the workspace that owns the session).
-- Follow-up queue: V4 `queue` state mirroring, `sendQueuedNow`, `deleteQueueItem`,
-  and `setAutoDrain` toggle.
-- Turn metadata: duration ("Worked for 12m 8s" from turnHeader activeMs), the per-turn
-  files-changed summary bar ("N files changed +a −b") with interactive **Undo** button,
-  and the **plan progress checklist** ("Progress {completed}/{total}" with collapsible
-  checklist view in header and transcript).
-- Sidebar upgrades: local session search bar filtering sessions by title, delete
-  session button with stop propagation.
-- Composer 2.0: multi-line input (Shift+Enter for newline, Enter to send), action bar
-  matching desktop (`+` attach, mode dropdown, model selector, thinking level, Send/Stop).
-- Draft persistence: uncommitted composer drafts saved atomically per session & workspace,
-  restored smoothly on navigation, and purged upon sending.
-- Row rendering upgrades: collapsible reasoning toggle ("Thought for Ns"), expandable
-  toolCall (streaming inputText + output preview), turnHeader with elapsed time & diff stats.
+Landmines: changing `--surface` changes prompts for *existing* GPUI sessions mid-flight,
+so ship it as one release note. Job-object `.expect()`s in `launcher.rs` can panic the
+UI process on exotic Windows setups; convert them to logged fallbacks while in there.
 
-**Command rules** (`backend/session_cmds.rs`; spec: zcode-protocol-v4/command.ts):
+### M4: Composer completion (L) - COMPLETED
+
+Requirements (all wire-backed):
+- **Attachments**: `v4/attachment/{begin,chunk,commit,abort}`, chunk ≤ 512 KiB decoded,
+  total ≤ 20 MiB (`core.ts:84-98`); `v4/attachment/put` is internal-only and must never
+  be called. Sources: file picker, drag-drop (gpui external paths), clipboard image
+  paste. Thumbnails via `v4/attachment/previewSource`.
+- **Slash commands**: from the `workspace-config` topic's `slashCommands[]`, with
+  `workspace/readPresentation` as fallback; popup filtered as you type.
+- **@mentions**: files (local tree + ripgrep), sessions, skills (`skills/referenceCatalog`),
+  plugins; inserted as atomic chips; sent as `context_refs` (≤ 1) / text per the desktop
+  mention providers (`packages/ui/src/mentions/providers`).
+- Remaining V4 commands: `forkAssistant`, `setFollowupMode` + `requestedDelivery:guide`,
+  `editQueueItem`, `reorderQueueItem`, `setAssistantFeedback`, `compact`,
+  `sendGoalCommand` / `pauseGoal` / `resumeGoal`, `stop{expectedForegroundExecutionId}`,
+  `cancelBackgroundWork`.
+
+Acceptance: drag a screenshot in, mention a file, run `/compact`, fork from a reply, and
+reorder the queue, all matching desktop results on the same session.
+
+Landmines:
+- The desktop composer is **Lexical** (`LexicalChatInput.tsx`, 1,531 lines). gpui has no
+  rich editor; chips need a custom element in the existing IME-capable `composer/input.rs`
+  (UTF-16 marked ranges already handled). Keep the composer a plain string with a
+  side-table of chip ranges; never let IME composition split a chip.
+- `forkAssistant`, `setAssistantFeedback` are row-targeting: they need `baseLogEpoch`
+  (`ROW_TARGETING_COMMANDS`), and stale retry follows §6.
+
+### M5: Shell, settings, i18n, theme (L) - COMPLETED
+
+Requirements:
+- **Settings**: read `~/.zcode/v2/setting.json` for locale, theme, font size, shortcuts,
+  keep-awake, etc. **Writes only when the desktop is not running** (see landmines);
+  otherwise show "change this in ZCode desktop".
+- **i18n**: generate a Rust table from `packages/ui/src/i18n/locales/{en-US,zh-CN}.ts`
+  (~4,980 flat keys, custom `{key}` placeholders, `IntlProvider.tsx`) with a build-time
+  script; reuse key names verbatim so translations stay shared. Locale: `system | zh-CN | en-US`.
+- **Theme**: Zai Dark + Zai Light + follow-system (`packages/ui/src/styles.css` tokens);
+  UI font scaling per DESIGN.md: one `ui_font_size` base (default 14) and the `text-ui-*`
+  ladder (+4/+2/0/−1/−2/−4/−5).
+- **Shortcuts**: port the 25 commands in `packages/shared/src/shortcutCommands.ts`
+  (single source of truth, including defaults); command center (Ctrl+K / Ctrl+Shift+P)
+  over the `quickPickCommands.ts` catalog.
+- **Sidebar parity** (B8): native task index over all `sessions-index/<ws>` topics plus
+  `session/list` without a workspace filter (cross-project). Pin/archive/unread are
+  host-owned task meta; locate the desktop's store before deciding read-only vs write.
+
+Acceptance: switch to Chinese and Light theme, scale fonts to 16 px, find a task in
+another project via Ctrl+K, and all of it survives restart and matches the desktop.
+
+Landmines:
+- **`setting.json` is rewritten whole** from the desktop's in-memory state
+  (`settingService.ts:214`, `atomicWriteText`, in-process queue only). A GPUI write while
+  the desktop runs is silently clobbered (last writer wins). Detect a running desktop
+  (its single-instance lock) before writing.
+- i18n source files are TypeScript, not JSON: the extractor must fail the build on
+  unparseable entries rather than drop keys.
+- Host-owned task meta (pin/archive) may live in the host's task storage worker; if so,
+  it is unreachable without the host, so ship read-only or local-only and label it.
+
+### M6: Lifecycle and OS integration (L) - COMPLETED
+
+Requirements: multi-window (one window per workspace/session); single instance with
+forward-to-first (named mutex + pipe on Windows); window size/maximized persistence
+(**own key/file**, not the desktop's `desktopWindowSize`); task-completion notifications
+(suppressed while focused, click focuses the task); tray with show/quit and
+close-to-tray on Windows; keep-awake while a turn runs; open-in-editor / file manager;
+log export (zip `~/.zcode` logs + panic log); clean quit that kills agents first.
+
+Acceptance: run for a full workday with two windows, background notifications and
+tray, with zero orphaned `app-server` processes after quit or crash.
+
+Landmines:
+- **`zcode://` scheme ownership**: the installed desktop registers `zcode://` (OAuth,
+  payment, share import, `workspace/open`). If GPUI registers it too, deep links reach
+  whichever registered last and the desktop's OAuth breaks. Use a distinct scheme
+  (`zcode-gpui://`) or none.
+- **Coexistence with the desktop on the same workspace**: both spawn their own agent for
+  the same workspace key. Verify agent storage tolerates two writers (sessions DB) before
+  advertising side-by-side use; otherwise warn when the desktop holds the workspace.
+- gpui multi-window + the current single `RootView`/`AppState` design: `AppState` must
+  become one shared entity, with per-window view state, before the second window exists.
+
+### M7: Workflows, automations, usage, MCP, subagents (L) - COMPLETED
+
+Requirements:
+- **Workflows**: V4 `workflowRuns` snapshot region + `workflowRun.updated/removed` deltas
+  (apply order **header → removals → upserts**, `delta.ts:117-137`); queries
+  `v4/conversation/workflowRun{s,Events,Artifacts,ArtifactData,ArtifactRead,Workspace,NodeResult}`;
+  commands `startSavedWorkflow`, `resumeWorkflowRun`, `amendWorkflowRunSettings`;
+  saved workflows via `workflows/{list,get,updateMeta,delete,runs,move}`. Run timeline
+  first; graph view later.
+- **Automations / off-peak** (B4): GPUI must **serve** the reverse RPCs *and* own
+  scheduling, or forward to a running desktop. Decision required (see §7 D3).
+- **Usage**: `v4/usage/stats` (legacy `usage/stats` is deprecated); native bar/line/
+  heatmap drawing (no chart crate needed).
+- **MCP**: `mcp/list` read-only; editing stays in the desktop (host `mcp-sync` channel).
+- **Subagents / background work**: `subagents` region, `session/subagents`, sub-session
+  side pane, `v4/conversation/backgroundBashOutput`.
+
+Acceptance: start a saved workflow, watch nodes progress, view an artifact; check this
+month's usage; see MCP server status; an agent-created automation either works or fails
+with a clear, actionable message.
+
+Landmines:
+- **Double scheduling**: if GPUI schedules automations while the desktop also runs, jobs
+  fire twice. Pick one owner (D3) and enforce it with the desktop's lock.
+- `workflowRunDeltas` capability must only be declared if the host advertised it
+  (`clientHello.capabilities` is strict, `transport.ts:78-86`); stdio has no hello today,
+  so stay on the legacy 256-node clamp unless verified.
+- Closed enums (`backgroundWorkSummary.kind`, `turnHeader.origin`) break the whole frame
+  on the TS side; our parser must keep tolerating unknown values (it does; keep a
+  golden test for it).
+
+### M8: Plugin store (M) - COMPLETED
+
+Requirements: `plugins/{overview,referenceCatalog,referenceCatalogWithCategory,describe,
+install,update,uninstall,setEnabled,configure,resetConfig,restoreBuiltin,validate,
+cancelOperation}`, `plugins/marketplace/{add,remove,update}`, progress via the
+`plugins/operationProgress` notification. UI and vocabulary strictly per `CONTEXT.md`:
+Official Marketplace vs Personal Source, Public/Personal segments, Featured,
+Installed Strip, Manage Installed View, Catalog Auto-Refresh (silent, throttled,
+official-only) vs Manual Refresh, Restorable Builtin, Orphaned Installed Plugin.
+
+Acceptance: CONTEXT.md lifecycle end to end (add personal source → install → enable →
+configure → update → uninstall → restore builtin), with state matching the desktop.
+
+Landmines: plugin management also has host channels (`plugin-management`,
+`plugin-sync`); confirm stdio covers persistence or label host-only actions. Restorable
+builtins must not auto-reseed. Detail pages render markdown listings (reuse M2).
+
+### M9: Panes long tail (M)
+
+Per-file stage/unstage and discard; branch switcher; git graph (read-only); terminal
+tabs, scrollback selection and copy; file search (bundled ripgrep via `ZCODE_RG_BINARY`);
+image preview (native decode); PDF/Office previews open externally (the desktop uses
+pdfjs/docx-preview/pptx renderers that have no native equivalent); plan-detail pane.
+
+Landmines: Windows ConPTY quirks (startup cursor query handled; verify `Ctrl+C` and
+resize under PowerShell 7 and cmd); terminal per window vs per workspace once M6 lands.
+
+### M10: Distribution (M) - COMPLETED
+
+Installer (NSIS or MSIX) + portable zip, icon, version from the repo; self-update via
+the desktop manifest feed concept (`ManifestUpdateProvider`, stable/preview channels)
+or GitHub releases; crash and log export; macOS/Linux build matrix (Linux CI needs
+X11/Wayland dev packages). Webview spike (WebView2/wry) only if a browser pane becomes
+a requirement; otherwise "Open in ZCode desktop".
+
+### M11: Zai account / coding-plan auth (XL → spike first, lowest priority) - DEFERRED PER OWNER DECISION
+
+Deferred by the owner (2026-10-03): direct API-key providers do **not** use the
+provider-headers port ("普通 API 不进入此端口", `provider-runtime-headers.ts:25`), so
+the app works without this. Only Zai account / coding-plan users need it. Until it
+lands, P0 makes B1/B2 fail fast with "Zai account providers are not supported yet;
+configure an API-key provider".
+
+Requirements:
+- **Spike (S)**: decide between
+  - **(a) Reuse desktop credentials.** `credentials.json` values are AES-256-GCM with a key
+    = SHA-256 of `ZCODE_CREDENTIAL_SECRET` or a host/user-derived string
+    (`packages/services/src/credential/providers/credentialCipherProvider.ts:21`).
+    Same-user native read is possible. Port the header construction from
+    `accountRequestAuthService` (`zcodeAgentService.ts:2245-2296` path) to Rust.
+  - **(b) Native login.** OAuth redirect is `zcode://oauth/callback` and needs
+    `BIGMODEL_OAUTH_APP_SECRET`, which the desktop gets from its build env, not from the
+    repo. That makes native OAuth likely infeasible; API-key login (`apps/zcode-cli`
+    `auth-login.ts` key layout) is feasible.
+  - Recommended: **(a) for account tokens + (b-API-key) for direct providers**. The
+    user logs in once in the desktop app and the GPUI app reads the same store.
+- Serve B1 and B2 from the chosen store; handle `interaction/providerRuntimeHeadersCancelled`.
+- Token refresh: follow the desktop's refresh path; never log header values.
+- Minimal account UI: signed-in identity, provider list, "Sign in via ZCode desktop" when
+  no token.
+
+Acceptance: a coding-plan account that works in the desktop chats in GPUI with no extra
+steps; revoking the token in the desktop is reflected on the next request.
+
+Landmines:
+- **Credential file lock.** `credentials.json` writes use a directory lock
+  (`withFileLock`, `packages/shared/src/node/privateFilePersistence.ts:51`). Any GPUI
+  write must implement the same lock protocol or corrupt the desktop's store; prefer
+  read-only.
+- The key derivation is weak by design and slated to move to OS keychain/safeStorage
+  (comment in `credentialService.ts`). Isolate it behind one Rust trait so a keychain
+  migration is a one-file change.
+- Secrets must never reach logs, panic messages or the `%TEMP%` panic log.
+
+## 5. Dependency order
+
+```
+P0 ──► M4 (composer) ──► M7 (workflows/automations)
+  │
+  └──► M5 (shell/i18n/theme) ──► M6 (lifecycle) ──► M10 (distribution) ──► M11 (Zai auth)
+                    └──► M8 (plugins)      M9 (panes) runs alongside any of them
+```
+
+P0 first because CI is red and sessions currently get a different system prompt than
+desktop. M4 (composer) is the biggest daily-use gap. M5 precedes M6 because
+multi-window needs the shared-state refactor and persisted settings. M8 and M9 can be
+interleaved whenever capacity frees up. M11 is last by owner decision: the owner uses
+API-key providers, which work without it.
+
+## 6. Command rules (normative, unchanged)
+
+(`backend/session_cmds.rs`; spec: `zcode-protocol-v4/command.ts`)
 - Every session command goes through `send_session_command`, which registers a
   `Pending::Command` so its `CommandAck` is checked.
 - CAS commands (`COMMANDS_REQUIRING_BASE_REVISION`) take `baseRevision` from the
@@ -149,195 +316,88 @@ probed against the real backend (200-row page + paged cursor, contiguous);
   sends a guessed revision or epoch.
 - `stale` → resend once from `revisionAtDecision` with a new commandId.
   `rejected`/`failed`/second `stale`/JSON-RPC error → error banner plus a forced
-  resync of the affected topic (conversation, or sessions-index for rename/delete).
-  The backend snapshot is the only rollback path for optimistic UI updates.
-- The idle reaper keeps an agent alive while any of its sessions is `running` or
-  `prewarming` (sessions-index phase) or has a pending interaction.
+  resync of the affected topic. The backend snapshot is the only rollback path for
+  optimistic UI updates.
+- Interactions are answered **only** through V4 `resolveInteraction`; legacy
+  `interaction/requestPermission|requestUserInput` stdio requests stay unanswered (the
+  backend races them, and a stdio reply loses Allow-always/Full-access). They are
+  re-announced every second after a restore, so handling must be idempotent by
+  `requestId`.
+- Protocol timestamps are CLI-clock Unix ms; never diff them against local time.
+- The mirrored `revision` comes only from the snapshot and `state.updated` patches
+  (`revision_known` gates CAS until a snapshot arrives). Acks never advance it
+  (no `revisionAtDecision + 1`), and `rowsRange.atRevision` never overwrites it. The
+  stale retry passes `revisionAtDecision` as an explicit base; a stale ack without it
+  fails. `cas_fields` enforces both spec lists centrally, whatever the call site.
+- `resolveInteraction` is idempotent per `interactionId` (`ResolvingInteractions`):
+  re-announced cards with an answer in flight stay hidden; a failed answer releases
+  the id.
+- Reverse RPC: every `automation/*` and `offPeak/*` method (including future ones)
+  fails fast with `-32603`. Empty lists or `bound: false` would be false facts, and
+  the CLI's binding check must fail closed. Unknown methods get the desktop's
+  `-32601 "Unsupported ZCode Protocol request: <method>"`.
 
-**Acceptance**: complete "plan → approve tool → interrupt → edit & resend → queued
-follow-up" entirely in the GPUI client, matching desktop behavior. **Size: L**:
-24 golden unit tests (envelope shapes per command, ack decisions, interaction
-parsing and answer shapes, queue parsing), `cargo fmt --check` and
-`cargo clippy --all-targets -- -D warnings` clean, all source files <= 400 lines.
-The 2026-10-02 review fixes above still need a live pass against a real backend.
+### Audit invariants (2026-10-03)
 
-## M2 — Rich rendering (reading parity) — ✅ DONE (2026-10-02)
-**Goal**: assistant output reads like a document, not plain text.
+- **Secrets**: every sink (in-memory log, agent stderr echo, error banners,
+  `lastError` text, panic log, exported log bundle) goes through
+  `shared::redact::scrub` (credential keys, `Bearer`/`Basic`, `sk-`/`ghp_`/`AKIA`/JWT
+  shapes).
+- **Settings**: writes go through `update_settings` only: read-modify-write of the
+  current file, refused while the desktop's Electron single-instance lock
+  (`<userData>/lockfile` / `SingletonLock`) or process is present (re-checked
+  before the rename), refused for an unparseable file, and unset fields omitted
+  (never `null`).
+- **Attachments**: the upload params match the strict transport schemas
+  (`connectionId`, no workspace fields); a zero-byte file declares zero chunks.
+  Local absolute paths remain a valid `ref` for local workspaces.
+- **Composer chips**: mentions are atomic `ChipTable` ranges. Every edit and IME
+  composition widens to whole chips; caret moves step over them.
+- **Transcript**: history pages `splice(0..0, n)` (no reset, so measured heights are
+  kept); while following, the tail is re-pinned on every render, so a streaming last
+  row stays bottom-aligned.
+- **Agents**: kill-on-close job handles are RAII-owned and closed on every path; the
+  `taskkill` fallback runs without a console window; `on_app_quit` kills all agents.
+- **ConPTY**: the startup `ESC[6n` is reassembled across reads and only intercepted
+  in the first 4 KiB, so later program queries reach alacritty.
+- **Workspace refs**: every `plugins/*` and `mcp/list` payload sends
+  `{ workspacePath, workspaceKey }` (`plugin_payloads::workspace_ref`). The strict
+  `zcodeWorkspaceRefSchema` rejected the old path-only ref with `-32602`, so the
+  plugin store and MCP list never loaded.
+- **Launcher**: order is `ZCODE_GPUI_AGENT_PROGRAM`, then bun + branch source (only
+  when installed and built), then the installed desktop runtime. Desktop-exported
+  `GLM_BINARY_PATH` / `ZCODE_AGENT_SERVER_COMMAND` are not overrides.
 
-- Streaming Markdown renderer (pulldown-cmark → gpui elements): headings,
-  paragraphs, nested ordered/unordered lists, block quotes, rules, task
-  lists, GFM tables (with alignment), inline bold/italic/strikethrough and
-  inline code.
-- Code highlighting: syntect (`base16-ocean.dark`) mapped to per-span colors
-  with bold/italic; fenced blocks render as cards with a language label and
-  Copy button; oversized blocks (>120k chars) degrade to plain text.
-- Links: colored, underlined on hover, opened externally via `App::open_url`;
-  images render as links to their target (v1).
-- Diff view: tool outputs that look like unified patches render with the
-  theme's diff tokens (`--color-diff-added`/`-removed` backgrounds, hunk
-  strips), 2000-line cap.
-- Virtualization: the transcript renders through gpui's `list` element —
-  only the visible window (+800px overdraw) is built; cached row index;
-  follow-bottom tracking via the list scroll handler; appends splice in
-  place, history prepends reset and anchor to the old first row, session
-  switches force a full reset (row ids repeat across conversations).
-  Plan checklist / pending interactions / "Load earlier" sit in a pinned
-  strip above the list.
-- Theme engineering: diff/code/link tokens added to `shared/theme.rs` (Zai Dark as
-  the canonical surface set).
+## 7. Decisions needed from the owner
 
-**Deferred (tracked, not acceptance-blocking)**: Zai Light theme +
-follow-system light/dark, rem-based font scaling, sidebar `uniform_list`,
-math rendering, image rendering.
-**Acceptance**: a reply with code blocks/tables/long code reads the same on both
-clients; a 10k-row session scrolls at full frame rate. **Size: L — verified**:
-33 unit tests green (markdown span highlighting, diff classification,
-wire/model/command goldens), `cargo clippy --all-targets -- -D warnings` clean,
-all source files <= 400 lines, app verified live (~59 MB at startup, no panics).
+| ID | Decision | Recommendation |
+|---|---|---|
+| D1 | Is GPUI a **replacement** for the desktop or a **companion** that runs alongside it? | Companion first (read desktop settings, never write while it runs). It drives D3–D4. |
+| D2 | ~~Auth route~~ **Decided 2026-10-03**: API-key providers only; Zai account auth deferred to M11 (route (a) vs (b) chosen then). | — |
+| D3 | Who schedules automations/off-peak when both apps are installed? | Desktop owns scheduling while running; GPUI serves the reverse RPCs only when the desktop is not running. |
+| D4 | Separate deep-link scheme? | Yes, `zcode-gpui://` or none. |
+| D5 | Confirm the §1 out-of-scope list. | As listed. |
 
-## M3 — Tool panes (Git / terminal / files) — ✅ DONE (2026-10-02)
-**Goal**: the high-frequency developer motions beyond chat.
-
-- Git surface: a **right dock container** (Review / Files / Terminal tabs,
-  Ctrl+B toggle + header "Tools" pill) hosting a **Review pane** with
-  Unstaged/Staged filter, per-file +/− stats with expandable per-file diffs
-  (untracked files synthesize an all-added view), Refresh, Stage all, Commit
-  (single-line composer reuse) and Push. **Decision taken**: shell out to the
-  `git` CLI directly (a local frontend process, no backend ownership
-  involved) — commands run on the background executor with CREATE_NO_WINDOW.
-  Status auto-refreshes when a turn completes while the dock is open.
-- Terminal: `portable-pty` (ConPTY) + `alacritty_terminal` VT parsing, one
-  local PTY per workspace (PowerShell on Windows), lazily spawned when the
-  tab first opens. Reader thread → shared buffer → 60ms main-thread poll;
-  resize via a paint-phase size probe applied on the poll tick; key mapping
-  covers arrows/home/end/page/delete, Ctrl+letters, Alt-prefix, bracketless
-  paste (Ctrl+V from the OS clipboard); 256-color + truecolor cells rendered
-  as merged styled runs with inverted cursor.
-- File tree + workspace file preview: lazy per-directory loading (dotfiles
-  skipped), text preview (256KB cap, binary sniff) and Markdown files
-  rendered through the M2 renderer; local workspaces only.
-
-**Deferred (tracked)**: terminal scrollback view (live screen only in v1),
-per-file stage/unstage buttons, image previews, floating (undocked) panel
-form. The Review pane's summary doubles as the "Git tools" panel.
-**Acceptance**: "check the diff → run tests in the terminal → continue the
-conversation" without leaving the app. **Size: L — verified**: 41 unit tests
-green (porcelain/numstat parsing, badge fallback, palette + key mapping,
-plus M0–M2 suites), `cargo clippy --all-targets -- -D warnings` clean, all
-source files ≤ 400 lines, app verified live (~59 MB before opening the dock;
-PTY and git spawn lazily).
-
-## M4 — Session lifecycle and multi-window
-**Goal**: make the GPUI client a resident primary UI.
-
-- Multi-window (gpui multiple Windows, each bound to a different
-  workspace/session), single-instance + focus-on-second-launch.
-- Session search/filter (local filtering over sessions-index), export (markdown
-  dump).
-- System integration: taskbar notifications (task completion), tray (show/quit),
-  file dialogs (rfd), open-in-editor/file manager, deep links (zcode:// protocol
-  registration).
-- Login spike: verify whether CLI-side OAuth/credentials can be done standalone
-  (the `zcode` CLI ships an auth module; if yes, build a minimal login wizard,
-  otherwise keep login in the original program).
-- Packaging v1: Windows NSIS/portable zip + icon + crash logs; mac/linux build
-  matrix to follow.
-
-**Acceptance**: use it as the only UI for a full day with no mandatory trip back to
-the desktop (assuming the login spike passes). **Size: L**
-
-## M5 — Workflows / automations / usage (legacy registry dividend)
-**Goal**: replicate the desktop "project tools" surface in the standalone client
-(all reachable over stdio, low risk).
-
-- Shell integration: the left nav rail becomes real — New task (Ctrl+N) and
-  Search (Ctrl+K, sessions + commands + cross-project tasks) as first-class
-  destinations; Automations and Plugin Marketplace promote from dialogs to
-  top-level nav views.
-- Workflows: `workflows/{list,get,runs}` + V4 `workflowRunDeltas` (declare the
-  capability and render whole-key patches) + `startSavedWorkflow`/resume/amend;
-  run timeline view (node status/concurrency, read-only first).
-- Automations: `automation/{list,create,update,delete,checkTaskBinding}`;
-  offPeak: `offPeak/{list,create}`. Scheduled-task CRUD forms.
-- Usage: `usage/stats` charts (hand-drawn gpui bars/lines, no third-party chart
-  lib).
-- MCP status panel: `mcp/list` read-only + point back to the original program for
-  editing (or spike the MCP config write path).
-- Subagent panel: `session/subagents` + a read-only sub-session side pane.
-
-**Acceptance**: without opening the original program, "create an automation → watch
-a workflow run → check this month's usage". **Size: M**
-
-## M6 — Plugin store (heaviest chunk of the legacy registry)
-**Goal**: the full plugin lifecycle available in the standalone client (stdio
-already covers every method).
-
-- Store browsing: `plugins/overview` + `plugins/referenceCatalog{WithCategory}`;
-  install/update/uninstall/enable/configure/restore-builtin
-  (`plugins/{install,update,uninstall,setEnabled,configure,resetConfig,
-  restoreBuiltin,validate}`).
-- Marketplace sources: `plugins/marketplace/{add,remove,update}`; operation
-  progress (`plugins/cancelOperation` + overview polling).
-- Domain vocabulary strictly per `CONTEXT.md` (official marketplace / personal
-  sources / catalog refresh / orphaned plugins, etc.).
-- **Dependencies**: M2 rendering (rich store detail pages) + M1 interaction
-  patterns.
-
-**Acceptance**: add a personal source → install → enable → configure → uninstall,
-interoperating with the original program (same database). **Size: M**
-
-## M7 — Long-tail parity and distribution
-**Goal**: close the tail and establish a release cadence.
-
-- Keyboard shortcut system (keymap aligned with a desktop subset) + quickpick
-  (command palette).
-- Session share/whiteboard/trajectory viewer: evaluate degraded paths via the
-  host-only surface (read-only or jump to the original program).
-- Embedded browser spike: webview feasibility in the gpui ecosystem (Wry/WebView2
-  embedding); if not viable, mark the browser pane as "jump to original program".
-- Updates: app self-update (reuse the desktop manifest feed concept at
-  `/api/v1/releases` or a dedicated feed).
-- Docs: README/PARITY tied to the protocol version; version policy (follow the
-  repo minor).
-
-**Acceptance**: ship a 1.0 installer; biweekly iteration tracking upstream.
-**Size: M**
-
----
-
-## Cross-cutting workstreams (span all milestones)
+## 8. Cross-cutting
 
 | Stream | Content |
 |---|---|
-| Protocol conformance | Golden tests over captured wire samples; after each upstream pull, diff `zcode-protocol-v4` and run `pnpm typecheck`; show a clear UI notice on protocol mismatch |
-| Governance | Every file ≤400 lines, register new modules in architecture-policy, PARITY.md first (spec-first) |
-| i18n | All new UI goes through the en/zh key tables; key names aligned with the desktop en-US.ts for translation reuse |
-| Performance | Run the 10k-row session + 8-project stress test every milestone; budgets in M2 |
-| Security | No credentials in frontend logs; the -32601 fallback list shrinks as handlers land and is tracked |
+| Protocol drift | After each upstream pull: diff `packages/shared/src/zcode-protocol*`, re-run goldens; add a golden per new reverse-RPC method. Capture real traffic for new regions (workflowRuns, attachments). |
+| Reverse-RPC registry | One table (P0) is the source of truth for served / failed-fast / raced methods; CI test asserts every method in `zcodeProtocolMethods` that the agent can send to the client is listed. |
+| Performance | Per milestone: 10k-row session at full frame rate, 8 projects, idle memory budget (frontend ≤ 80 MB, one agent ≈ 120 MB). |
+| Security | No credentials or provider headers in logs or the panic log; credential access behind one trait. |
+| Governance | ≤ 400 lines/file, new modules land in the owning slice (see README "Source Layout"), this file updated before behavior. |
 
-## Risks and decision points
+## 9. Risks
 
-1. **Model catalog source** (solved but fragile): the legacy `session/create`
-   harvest depends on `mapSessionSettings` behavior; if upstream changes the
-   response shape we must follow → covered by a golden test.
-2. **Git/terminal/files implemented locally in the frontend**: this deviates from
-   the letter of "all logic lives in the backend" — but the desktop host itself is
-   a local process implementation (node-pty), so localizing in the frontend adds no
-   new remote semantics; record the decision here.
-3. **webview**: no native equivalent for BrowserView; if the spike fails, the
-   browser pane stays in the original program for good.
-4. **Login/OAuth**: the desktop host owns the oauth service; standalone CLI-side
-   login needs the M4 spike.
-5. **Process overhead**: ~~8 resident agent processes cost real memory~~ **Addressed
-   pre-M0**: lazy spawn (only the primary workspace's agent boots; others spawn on
-   click) + idle unload after 10 min (`ZCODE_GPUI_IDLE_SECS` to tune; never unloads
-   the active workspace or a running turn). Startup footprint went from ~1,026 MB
-   (8 agents) to ~267 MB (1 agent, fresh). Children are bound to a Windows job
-   object with KILL_ON_JOB_CLOSE so they die with the frontend even on crash
-   (mirrors desktop processTreeOwnership).
-
-## Suggested cadence
-
-M0 → M1 → M2 is the "daily driver" line (after that, the GPUI client can be your
-primary chat surface); M3/M4 proceed in parallel for tools + residency; M5/M6 are
-low-risk quick wins from the legacy registry and can be interleaved.
+1. **Model catalog harvest** via legacy `session/create` + `deleteSession` remains the
+   only catalog source (no V4 query); golden-tested, but upstream can break it.
+2. **Host-only surfaces grow upstream.** New desktop features often land as host
+   services, not agent methods. Track `packages/shared/src/channels.ts` in the drift check.
+3. **Credential format change** (keychain migration) would break M11a overnight; the
+   trait boundary limits the blast radius.
+4. **Local git/terminal/files** deviate from "all logic in the backend", but the desktop
+   host is itself a local implementation (node-pty, git service), so no new remote
+   semantics are introduced (v1 decision, kept).
+5. **Process overhead**: solved pre-M0 (lazy spawn, idle unload, job-object kill);
+   startup ~267 MB vs ~1 GB with eager spawn.

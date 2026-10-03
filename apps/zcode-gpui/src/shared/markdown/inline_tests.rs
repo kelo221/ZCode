@@ -35,7 +35,12 @@ fn paragraph_consumes_through_nested_ends() {
     let events = parse_events("plain **bold** and `code` tail");
     // Skip Start(Paragraph).
     let mut pos = 1;
-    let inline = render_inlines(&events, &mut pos, Some(&TagEnd::Paragraph), &Style::default());
+    let inline = render_inlines(
+        &events,
+        &mut pos,
+        Some(&TagEnd::Paragraph),
+        &Style::default(),
+    );
     assert_eq!(inline.text, "plain bold and code tail");
     assert_runs_cover(&inline);
     // Runs split per formatting change: plain / bold / plain / code / plain.
@@ -48,7 +53,12 @@ fn paragraph_consumes_through_nested_ends() {
 fn link_runs_are_clickable_and_underlined() {
     let events = parse_events("see [the docs](https://example.com/x) now");
     let mut pos = 1;
-    let inline = render_inlines(&events, &mut pos, Some(&TagEnd::Paragraph), &Style::default());
+    let inline = render_inlines(
+        &events,
+        &mut pos,
+        Some(&TagEnd::Paragraph),
+        &Style::default(),
+    );
     assert_eq!(inline.text, "see the docs now");
     assert_eq!(inline.links.len(), 1);
     let (range, url) = &inline.links[0];
@@ -63,9 +73,18 @@ fn link_runs_are_clickable_and_underlined() {
 fn inline_code_gets_mono_font_and_background() {
     let events = parse_events("run `bun run gpui` now");
     let mut pos = 1;
-    let inline = render_inlines(&events, &mut pos, Some(&TagEnd::Paragraph), &Style::default());
+    let inline = render_inlines(
+        &events,
+        &mut pos,
+        Some(&TagEnd::Paragraph),
+        &Style::default(),
+    );
     assert_eq!(inline.text, "run bun run gpui now");
-    let code_run = inline.runs.iter().find(|r| r.background_color.is_some()).unwrap();
+    let code_run = inline
+        .runs
+        .iter()
+        .find(|r| r.background_color.is_some())
+        .unwrap();
     assert_eq!(code_run.font.family.as_ref(), "Consolas");
     assert_runs_cover(&inline);
 }
@@ -76,7 +95,12 @@ fn strikethrough_does_not_merge_into_adjacent_code() {
     // strikethrough differs, so they must stay separate runs.
     let events = parse_events("~~`a`~~`b`");
     let mut pos = 1;
-    let inline = render_inlines(&events, &mut pos, Some(&TagEnd::Paragraph), &Style::default());
+    let inline = render_inlines(
+        &events,
+        &mut pos,
+        Some(&TagEnd::Paragraph),
+        &Style::default(),
+    );
     assert_eq!(inline.text, "ab");
     assert_runs_cover(&inline);
     assert_eq!(inline.runs.len(), 2);

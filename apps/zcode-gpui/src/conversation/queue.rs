@@ -183,6 +183,62 @@ pub fn render_queue_panel(
                                             });
                                         })),
                                 )
+                                .when(idx > 0, |btns| {
+                                    let i_id = item_id.clone();
+                                    let before_id = queue.items[idx - 1].queue_item_id.clone();
+                                    btns.child(
+                                        div()
+                                            .id(SharedString::from(format!("q-up-{idx}")))
+                                            .px_1()
+                                            .py_0p5()
+                                            .rounded_sm()
+                                            .bg(rgb(MUTED))
+                                            .text_size(px(10.))
+                                            .text_color(rgb(0x000000))
+                                            .cursor_pointer()
+                                            .child("↑")
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                cx.stop_propagation();
+                                                let id = i_id.clone();
+                                                let before = before_id.clone();
+                                                this.state.update(cx, |app, cx| {
+                                                    app.reorder_queue_item(&id, Some(&before), cx);
+                                                });
+                                            })),
+                                    )
+                                })
+                                .when(idx + 1 < count, |btns| {
+                                    let i_id = item_id.clone();
+                                    let before_id = if idx + 2 < count {
+                                        Some(queue.items[idx + 2].queue_item_id.clone())
+                                    } else {
+                                        None
+                                    };
+                                    btns.child(
+                                        div()
+                                            .id(SharedString::from(format!("q-down-{idx}")))
+                                            .px_1()
+                                            .py_0p5()
+                                            .rounded_sm()
+                                            .bg(rgb(MUTED))
+                                            .text_size(px(10.))
+                                            .text_color(rgb(0x000000))
+                                            .cursor_pointer()
+                                            .child("↓")
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                cx.stop_propagation();
+                                                let id = i_id.clone();
+                                                let before = before_id.clone();
+                                                this.state.update(cx, |app, cx| {
+                                                    app.reorder_queue_item(
+                                                        &id,
+                                                        before.as_deref(),
+                                                        cx,
+                                                    );
+                                                });
+                                            })),
+                                    )
+                                })
                                 .child(
                                     div()
                                         .id(SharedString::from(format!("q-del-{idx}")))

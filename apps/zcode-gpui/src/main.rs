@@ -25,10 +25,7 @@ use app::root::RootView;
 use app::store::AppState;
 use backend::launcher::resolve_candidates;
 use backend::workspace::discover_workspaces;
-use gpui::{
-    App, AppContext, Application, Bounds, KeyBinding, TitlebarOptions, WindowBounds, WindowOptions,
-    px, size,
-};
+use gpui::{App, AppContext, Application, KeyBinding, TitlebarOptions, WindowOptions};
 use std::path::PathBuf;
 use terminal::pane::ToggleTerminal;
 
@@ -46,9 +43,14 @@ fn main() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&panic_log) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&panic_log)
+        {
             let _ = writeln!(f, "=== panic at {} ===", chrono_now());
-            let _ = writeln!(f, "{info}");
+            // Panic payloads can format arbitrary state; never persist secrets.
+            let _ = writeln!(f, "{}", shared::redact::scrub(&info.to_string()));
             let _ = writeln!(f, "{:?}", std::backtrace::Backtrace::force_capture());
         }
         default_hook(info);
@@ -71,19 +73,65 @@ fn main() {
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
 
+    // M5: Load settings, locale, theme, and font size on launch
+    let settings = shared::settings::load_settings();
+    if let Some(loc_str) = settings
+        .locale_preference
+        .as_deref()
+        .or(settings.locale.as_deref())
+    {
+        let pref = shared::i18n::LocalePreference::parse(loc_str);
+        shared::i18n::set_current_locale(pref.resolve());
+    }
+    if let Some(theme_str) = settings
+        .theme_preference
+        .as_deref()
+        .or(settings.theme.as_deref())
+    {
+        let mode = shared::theme::ThemeMode::parse(theme_str);
+        shared::theme::set_theme_mode(mode);
+    }
+    if let Some(font_size) = settings.ui_font_size {
+        shared::theme::set_ui_font_size(font_size);
+    }
+
+    // M6: Single-instance guard and forward-to-first launch request
+    let instance_msg = shared::os::single_instance::InstanceMessage {
+        action: "activate".into(),
+        workspace: Some(workspace.to_string_lossy().into_owned()),
+    };
+    let _instance_guard = match shared::os::single_instance::try_acquire_single_instance(
+        "Local\\ZCodeGPUI_SingleInstance_Mutex",
+        instance_msg,
+        |_msg| {
+            // Primary instance received launch message from secondary instance
+        },
+    ) {
+        shared::os::single_instance::InstanceRole::Secondary => {
+            // Already forwarded to running primary instance, exit cleanly
+            return;
+        }
+        shared::os::single_instance::InstanceRole::Primary(guard) => guard,
+    };
+
     Application::new().run(move |cx: &mut App| {
         cx.bind_keys([
             KeyBinding::new("ctrl-b", ToggleDock, None),
             KeyBinding::new("ctrl-`", ToggleTerminal, None),
+            KeyBinding::new("ctrl-j", ToggleTerminal, None),
+            KeyBinding::new("ctrl-k", app::quickpick::ToggleQuickPick, None),
+            KeyBinding::new("ctrl-shift-p", app::quickpick::ToggleQuickPick, None),
+            KeyBinding::new("ctrl-shift-l", app::quickpick::SwitchThemeAction, None),
         ]);
         // One agent per known workspace (desktop parity: processes are keyed by
         // workspace key; the project list comes from ~/.zcode/v2/setting.json).
         let workspaces = discover_workspaces(&workspace, 8);
         let candidates = resolve_candidates(&workspace);
-        let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
+        let window_state = shared::window_state::load_window_state();
+        let initial_bounds = window_state.to_window_bounds(cx);
         cx.open_window(
             WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_bounds: Some(initial_bounds),
                 titlebar: Some(TitlebarOptions {
                     title: Some("ZCode (GPUI)".into()),
                     ..Default::default()

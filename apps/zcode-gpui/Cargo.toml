@@ -15,6 +15,7 @@ serde_json = "1"
 uuid = { version = "1", features = ["v7"] }
 futures = "0.3"
 base64 = "0.22"
+sha2 = "0.10"
 crc32fast = "1"
 pulldown-cmark = "0.13.4"
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
@@ -26,7 +27,11 @@ windows = { version = "0.62", features = [
     "Win32_System_JobObjects",
     "Win32_System_Threading",
     "Win32_Security",
+    "Win32_System_Diagnostics_ToolHelp",
 ] }
+
+[build-dependencies]
+serde_json = "1"
 
 [profile.dev]
 opt-level = 1

@@ -2,7 +2,7 @@
 //! 400-line cap): shell command, reader thread, grid sizing and the ConPTY
 //! startup cursor-query handshake.
 
-use crate::terminal::pane::{SharedWriter, TermDims, CELL_H, CELL_W};
+use crate::terminal::pane::{CELL_H, CELL_W, SharedWriter, TermDims};
 use portable_pty::CommandBuilder;
 use std::io::Read;
 use std::path::Path;
@@ -25,20 +25,51 @@ pub(crate) fn dims_for_pixels(width: f32, height: f32) -> TermDims {
     }
 }
 
-/// Answer the first ConPTY cursor-position query (`ESC[6n`) immediately and
-/// strip it, so the startup handshake is not delayed by the poll interval and
-/// alacritty does not answer it a second time. Later queries are left to
-/// alacritty, which reports the real cursor position.
-pub(crate) fn take_startup_dsr(data: &mut Vec<u8>, answered: &mut bool) -> bool {
-    if *answered {
-        return false;
+const DSR_QUERY: &[u8] = b"[6n";
+/// ConPTY sends its cursor query before any shell output; past this many
+/// bytes, queries come from programs and must reach alacritty, which
+/// reports the real cursor position.
+const STARTUP_WINDOW: usize = 4096;
+
+/// Answers ConPTY's startup cursor-position query (`ESC[6n`) immediately and
+/// strips it, so the handshake is not delayed by the poll interval and
+/// alacritty does not answer it a second time. Handles a query split across
+/// reads, and stops intercepting after the startup window.
+#[derive(Default)]
+pub(crate) struct StartupDsr {
+    done: bool,
+    seen: usize,
+    /// Trailing bytes that may begin a query split across reads.
+    carry: Vec<u8>,
+}
+
+impl StartupDsr {
+    /// Filter one read. Returns the bytes to forward to the terminal and
+    /// whether the startup query was found (the caller must answer it).
+    pub(crate) fn filter(&mut self, chunk: &[u8]) -> (Vec<u8>, bool) {
+        if self.done {
+            return (chunk.to_vec(), false);
+        }
+        let mut data = std::mem::take(&mut self.carry);
+        data.extend_from_slice(chunk);
+        if let Some(pos) = data.windows(DSR_QUERY.len()).position(|w| w == DSR_QUERY) {
+            data.drain(pos..pos + DSR_QUERY.len());
+            self.done = true;
+            return (data, true);
+        }
+        self.seen += chunk.len();
+        if self.seen >= STARTUP_WINDOW {
+            self.done = true;
+            return (data, false);
+        }
+        // Hold back a tail that is a proper prefix of the query.
+        let keep = (1..DSR_QUERY.len())
+            .rev()
+            .find(|&k| data.len() >= k && data.ends_with(&DSR_QUERY[..k]))
+            .unwrap_or(0);
+        self.carry = data.split_off(data.len() - keep);
+        (data, false)
     }
-    let Some(pos) = data.windows(4).position(|w| w == b"\x1b[6n") else {
-        return false;
-    };
-    data.drain(pos..pos + 4);
-    *answered = true;
-    true
 }
 
 /// Pump PTY output into `buffer` until EOF or a read error (the master is
@@ -51,7 +82,7 @@ pub(crate) fn spawn_reader(
 ) {
     std::thread::spawn(move || {
         let mut chunk = [0u8; 8192];
-        let mut answered_dsr = false;
+        let mut startup_dsr = StartupDsr::default();
         loop {
             // Backpressure while the UI thread has not drained the backlog;
             // stops for good once the shell is torn down (writer cleared).
@@ -65,8 +96,8 @@ pub(crate) fn spawn_reader(
                 Ok(0) | Err(_) => break,
                 Ok(n) => n,
             };
-            let mut data = chunk[..n].to_vec();
-            if take_startup_dsr(&mut data, &mut answered_dsr)
+            let (data, query) = startup_dsr.filter(&chunk[..n]);
+            if query
                 && let Ok(mut lock) = writer.lock()
                 && let Some(w) = lock.as_mut()
             {

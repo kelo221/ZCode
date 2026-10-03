@@ -121,6 +121,59 @@ fn queue_items_use_queue_item_id() {
 fn active_phases() {
     assert!(crate::conversation::model::phase_is_active("running"));
     assert!(crate::conversation::model::phase_is_active("prewarming"));
-    assert!(!crate::conversation::model::phase_is_active("completedSuccess"));
+    assert!(!crate::conversation::model::phase_is_active(
+        "completedSuccess"
+    ));
     assert!(!crate::conversation::model::phase_is_active("starting"));
+}
+
+fn pi(id: &str) -> PendingInteraction {
+    PendingInteraction {
+        interaction_id: id.into(),
+        kind: "permission".into(),
+        tool_name: "Bash".into(),
+        text: String::new(),
+        options: vec![],
+        full_access: None,
+        questions: vec![],
+        free_text: false,
+    }
+}
+
+#[test]
+fn resolving_is_idempotent_by_interaction_id() {
+    let mut r = ResolvingInteractions::default();
+    assert!(r.begin("req-1"));
+    assert!(
+        !r.begin("req-1"),
+        "second answer for the same id is dropped"
+    );
+    assert!(r.begin("req-2"));
+}
+
+#[test]
+fn reannounced_interaction_stays_hidden_while_answer_in_flight() {
+    let mut r = ResolvingInteractions::default();
+    r.begin("req-1");
+    // Backend re-announces req-1 (restore loop) alongside a new req-2.
+    let shown = r.reconcile(vec![pi("req-1"), pi("req-2"), pi("req-2")]);
+    let ids: Vec<_> = shown.iter().map(|p| p.interaction_id.as_str()).collect();
+    assert_eq!(
+        ids,
+        vec!["req-2"],
+        "answered card hidden, duplicate collapsed"
+    );
+    assert!(r.contains("req-1"));
+    // Backend settles req-1: the id is forgotten.
+    r.reconcile(vec![pi("req-2")]);
+    assert!(!r.contains("req-1"));
+}
+
+#[test]
+fn released_interaction_becomes_answerable_again() {
+    let mut r = ResolvingInteractions::default();
+    r.begin("req-1");
+    r.release("req-1");
+    assert_eq!(r.reconcile(vec![pi("req-1")]).len(), 1);
+    assert!(r.begin("req-1"));
 }

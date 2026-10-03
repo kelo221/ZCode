@@ -17,6 +17,7 @@
     "dev:web-share:mock": "node scripts/dev-web-share-env.mjs mock",
     "dev:gpui": "cargo run --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace .",
     "start:gpui": "cargo run --release --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace .",
+    "package:gpui": "node scripts/package-gpui.mjs",
     "dev:server": "pnpm --filter @zcode/server dev",
     "dev:official-mcp": "node scripts/dev-official-mcp-server.mjs",
     "prepare": "husky",
@@ -114,19 +115,24 @@
   "engines": {
     "node": ">=24.0.0"
   },
-  "packageManager": "pnpm@10.33.2",
-  "pnpm": {
-    "overrides": {
-      "react": "19.2.7",
-      "react-dom": "19.2.7"
-    },
-    "patchedDependencies": {
-      "vitest@4.1.7": "patches/vitest@4.1.7.patch",
-      "wdio-electron-service@9.2.1": "patches/wdio-electron-service@9.2.1.patch",
-      "@arms/rum-electron@0.0.3": "patches/@arms__rum-electron@0.0.3.patch",
-      "@ai-sdk/openai-compatible@2.0.60": "patches/@ai-sdk__openai-compatible@2.0.60.patch",
-      "@ai-sdk/anthropic@3.0.81": "patches/@ai-sdk__anthropic@3.0.81.patch"
-    }
+  "packageManager": "bun@1.4.2",
+  "overrides": {
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
   },
+  "patchedDependencies": {
+    "vitest@4.1.7": "patches/vitest@4.1.7.patch",
+    "wdio-electron-service@9.2.1": "patches/wdio-electron-service@9.2.1.patch",
+    "@arms/rum-electron@0.0.3": "patches/@arms__rum-electron@0.0.3.patch",
+    "@ai-sdk/openai-compatible@2.0.60": "patches/@ai-sdk__openai-compatible@2.0.60.patch",
+    "@ai-sdk/anthropic@3.0.81": "patches/@ai-sdk__anthropic@3.0.81.patch"
+  },
+  "workspaces": [
+    "apps/dev-docs",
+    "packages/*",
+    "apps/zcode-cli",
+    "apps/zcode-cli/packages/*",
+    "apps/zcode-cli/tools/*"
+  ],
   "license": "Apache-2.0"
 }

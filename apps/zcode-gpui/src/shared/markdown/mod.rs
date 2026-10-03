@@ -15,7 +15,11 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 const BASE_TEXT: f32 = 13.5;
 
 pub fn render_markdown(text: &str, id_base: u64, streaming: bool) -> AnyElement {
-    let body = if streaming { format!("{text} ▍") } else { text.to_string() };
+    let body = if streaming {
+        format!("{text} ▍")
+    } else {
+        text.to_string()
+    };
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS);
     let events: Vec<Event> = Parser::new_ext(&body, opts).collect();
@@ -59,9 +63,9 @@ fn blocks(
                     div()
                         .w_full()
                         .child(inline_element(
-                        inline,
-                        gpui::ElementId::NamedInteger("md-blk".into(), *block_ix as u64),
-                    ))
+                            inline,
+                            gpui::ElementId::NamedInteger("md-blk".into(), *block_ix as u64),
+                        ))
                         .into_any_element(),
                 );
             }
@@ -74,7 +78,10 @@ fn blocks(
                 };
                 let end = TagEnd::Heading(*level);
                 *pos += 1;
-                let heading_style = Style { bold: true, ..Style::default() };
+                let heading_style = Style {
+                    bold: true,
+                    ..Style::default()
+                };
                 let inline = render_inlines(events, pos, Some(&end), &heading_style);
                 *block_ix += 1;
                 out.push(
@@ -83,19 +90,17 @@ fn blocks(
                         .mt_1()
                         .text_size(px(size))
                         .child(inline_element(
-                        inline,
-                        gpui::ElementId::NamedInteger("md-blk".into(), *block_ix as u64),
-                    ))
+                            inline,
+                            gpui::ElementId::NamedInteger("md-blk".into(), *block_ix as u64),
+                        ))
                         .into_any_element(),
                 );
             }
             Event::Start(Tag::CodeBlock(kind)) => {
                 let lang = match kind {
-                    pulldown_cmark::CodeBlockKind::Fenced(info) => info
-                        .split([' ', ','])
-                        .next()
-                        .unwrap_or("")
-                        .to_string(),
+                    pulldown_cmark::CodeBlockKind::Fenced(info) => {
+                        info.split([' ', ',']).next().unwrap_or("").to_string()
+                    }
                     pulldown_cmark::CodeBlockKind::Indented => String::new(),
                 };
                 let mut code = String::new();
@@ -149,7 +154,13 @@ fn blocks(
             }
             Event::Rule => {
                 *pos += 1;
-                out.push(div().w_full().h(px(1.)).bg(rgb(crate::shared::theme::BORDER)).into_any_element());
+                out.push(
+                    div()
+                        .w_full()
+                        .h(px(1.))
+                        .bg(rgb(crate::shared::theme::BORDER))
+                        .into_any_element(),
+                );
             }
             Event::Start(Tag::Table(aligns)) => {
                 let aligns = aligns.clone();
@@ -189,9 +200,9 @@ fn blocks(
                     div()
                         .w_full()
                         .child(inline_element(
-                        inline,
-                        gpui::ElementId::NamedInteger("md-blk".into(), *block_ix as u64),
-                    ))
+                            inline,
+                            gpui::ElementId::NamedInteger("md-blk".into(), *block_ix as u64),
+                        ))
                         .into_any_element(),
                 );
             }
@@ -253,7 +264,13 @@ fn render_list(
             _ => *pos += 1,
         }
     }
-    div().w_full().flex().flex_col().gap_0p5().children(items).into_any_element()
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap_0p5()
+        .children(items)
+        .into_any_element()
 }
 
 fn render_table(
@@ -287,10 +304,8 @@ fn render_table(
                                 &Style::default(),
                             );
                             *block_ix += 1;
-                            let cell_id = gpui::ElementId::NamedInteger(
-                                "md-cell".into(),
-                                *block_ix as u64,
-                            );
+                            let cell_id =
+                                gpui::ElementId::NamedInteger("md-cell".into(), *block_ix as u64);
                             row.push(vec![inline_element(inline, cell_id)]);
                         }
                         Event::End(TagEnd::TableHead) | Event::End(TagEnd::TableRow) => {
@@ -326,7 +341,8 @@ fn render_table(
             .flex()
             .when(head, |l| l.bg(rgb(crate::shared::theme::CODE_HEADER)))
             .when(r + 1 < row_count, |l| {
-                l.border_b_1().border_color(rgb(crate::shared::theme::BORDER))
+                l.border_b_1()
+                    .border_color(rgb(crate::shared::theme::BORDER))
             });
         for (c, cell) in row.into_iter().enumerate() {
             let mut cell_el = div().flex_1().min_w_0().px_2().py_1();

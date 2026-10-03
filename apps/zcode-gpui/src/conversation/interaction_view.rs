@@ -1,12 +1,12 @@
 //! Interaction cards: permission requests, agent questions (single/multi
 //! question, multi-select), free-text answers taken from the message box.
 
+use crate::app::root::RootView;
 use crate::conversation::interactions::{
     FULL_ACCESS_OPTION_ID, PendingInteraction, decline_answer, free_text_answer, option_answer,
     questions_answer, toggle_pick,
 };
 use crate::shared::theme::{ACCENT, AMBER, BORDER, CARD, DANGER, MUTED, TEXT};
-use crate::app::root::RootView;
 use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Stateful, div, prelude::*, rgb};
 use serde_json::Value;
 

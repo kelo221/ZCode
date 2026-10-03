@@ -156,6 +156,45 @@ pub fn decline_answer() -> Value {
     json!({ "action": "decline" })
 }
 
+/// Interactions answered by this client whose removal the backend has not
+/// yet confirmed, keyed by `interactionId` (the request id). The backend
+/// re-announces pending interactions (every second after a restore), so
+/// without this set an answered card reappears and can be answered twice.
+#[derive(Clone, Debug, Default)]
+pub struct ResolvingInteractions(std::collections::HashSet<String>);
+
+impl ResolvingInteractions {
+    /// Claim an interaction for answering. `false` means an answer for this
+    /// id is already in flight and nothing must be sent.
+    pub fn begin(&mut self, interaction_id: &str) -> bool {
+        self.0.insert(interaction_id.to_string())
+    }
+
+    /// The answer was rejected/failed: let the user answer again.
+    pub fn release(&mut self, interaction_id: &str) {
+        self.0.remove(interaction_id);
+    }
+
+    #[cfg(test)]
+    pub fn contains(&self, interaction_id: &str) -> bool {
+        self.0.contains(interaction_id)
+    }
+
+    /// Apply an authoritative `pendingInteractions` list: drop duplicates and
+    /// cards with an answer in flight, and forget ids the backend no longer
+    /// announces (it has settled them).
+    pub fn reconcile(&mut self, incoming: Vec<PendingInteraction>) -> Vec<PendingInteraction> {
+        self.0
+            .retain(|id| incoming.iter().any(|pi| &pi.interaction_id == id));
+        let mut seen = std::collections::HashSet::new();
+        incoming
+            .into_iter()
+            .filter(|pi| !self.0.contains(&pi.interaction_id))
+            .filter(|pi| seen.insert(pi.interaction_id.clone()))
+            .collect()
+    }
+}
+
 /// Toggle a pick: single-select replaces, multi-select toggles membership.
 pub fn toggle_pick(picks: &mut Vec<String>, label: &str, multi: bool) {
     if multi {

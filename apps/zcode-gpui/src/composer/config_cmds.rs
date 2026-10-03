@@ -50,7 +50,10 @@ impl AppState {
         cx.notify();
     }
 
-    pub(crate) fn find_model_option(&self, value: &str) -> Option<crate::composer::catalog::ModelOption> {
+    pub(crate) fn find_model_option(
+        &self,
+        value: &str,
+    ) -> Option<crate::composer::catalog::ModelOption> {
         let key = self.active_ws_key()?;
         self.workspace_configs
             .get(&key)?

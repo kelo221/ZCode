@@ -4,8 +4,7 @@
 
 use crate::app::root::RootView;
 use gpui::{
-    Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Window,
-    px,
+    Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Window, px,
 };
 
 /// Deadzone radius (in pixels) around the anchor where scrolling is neutral (0 speed).
@@ -183,7 +182,8 @@ impl RootView {
         // follow flag must be maintained here or streaming appends would yank
         // the viewport back down mid-autoscroll.
         if let Some(follow) = follows_after_scroll(current, max, allowed) {
-            self.follow_bottom.store(follow, std::sync::atomic::Ordering::Relaxed);
+            self.follow_bottom
+                .store(follow, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
@@ -200,6 +200,7 @@ impl RootView {
         } else {
             return;
         };
-        self.follow_bottom.store(follow, std::sync::atomic::Ordering::Relaxed);
+        self.follow_bottom
+            .store(follow, std::sync::atomic::Ordering::Relaxed);
     }
 }
