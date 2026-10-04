@@ -218,7 +218,6 @@ impl RootView {
         div()
             .w_full()
             .max_w(px(crate::app::root::CONTENT_WIDTH))
-            .mx_auto()
             .px_6()
             .py_2()
             .child(content)

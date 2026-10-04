@@ -223,8 +223,8 @@ impl RootView {
                         .flex_row()
                         .items_center()
                         .gap_1()
-                        .child(self.mode_menu(cx))
                         .child(attach_btn)
+                        .child(self.mode_menu(cx))
                         .child(div().flex_1())
                         .child(self.composer_selectors(cx))
                         .when(running, |el| el.child(stop))
@@ -275,10 +275,33 @@ impl RootView {
     pub(crate) fn main_header(
         &self,
         title: SharedString,
+        context_tag: Option<SharedString>,
         plan: Option<&PlanState>,
         phase: &str,
         cx: &mut Context<Self>,
     ) -> Div {
+        let title_col = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1p5()
+            .min_w_0()
+            .flex_1()
+            .children(context_tag.map(|tag| {
+                div()
+                    .text_size(px(14.))
+                    .text_color(rgb(MUTED))
+                    .child(format!("{tag} ›"))
+            }))
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(rgb(TEXT))
+                    .truncate()
+                    .child(title),
+            );
+
         div()
             .h(px(46.))
             .relative()
@@ -287,14 +310,7 @@ impl RootView {
             .items_center()
             .gap_2()
             .px_5()
-            .child(
-                div()
-                    .text_size(px(14.))
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .truncate()
-                    .flex_1()
-                    .child(title),
-            )
+            .child(title_col)
             .children(plan.map(|p| {
                 let c = p.completed_count();
                 let t = p.items.len();

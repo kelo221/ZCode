@@ -17,8 +17,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-/// Reading width of the transcript and composer (desktop centers both).
-pub(crate) const CONTENT_WIDTH: f32 = 800.;
+/// Reading width of the transcript and composer (left-leaning layout).
+pub(crate) const CONTENT_WIDTH: f32 = 920.;
 
 pub struct RootView {
     pub(crate) state: Entity<AppState>,
@@ -149,6 +149,30 @@ impl Render for RootView {
                     .unwrap_or_else(|| "Session".into());
                 format_preview(&title, 60).into()
             }
+        };
+
+        let context_tag: Option<SharedString> = if is_read_only {
+            Some("Subagent".into())
+        } else if let Some(sid) = &active_sid {
+            state.workspaces.iter().find_map(|w| {
+                w.sessions
+                    .iter()
+                    .any(|s| &s.session_id == sid)
+                    .then(|| match w.purpose {
+                        crate::backend::workspace::WorkspacePurpose::Conversation => "Tasks".into(),
+                        crate::backend::workspace::WorkspacePurpose::Project => {
+                            w.display.clone().into()
+                        }
+                    })
+            })
+        } else if let Some(ws_key) = state.active_ws_key() {
+            if state.is_conversation_workspace(&ws_key) {
+                Some("Tasks".into())
+            } else {
+                state.ws(&ws_key).map(|w| w.display.clone().into())
+            }
+        } else {
+            None
         };
 
         crate::app::os_lifecycle::sync_window_state(
@@ -297,7 +321,7 @@ impl Render for RootView {
                     .border_color(rgb(BORDER))
                     .flex()
                     .flex_col()
-                    .child(self.main_header(title, plan.as_ref(), &phase, cx))
+                    .child(self.main_header(title, context_tag, plan.as_ref(), &phase, cx))
                     .child(
                         div()
                             .relative()
@@ -312,7 +336,6 @@ impl Render for RootView {
                                 div()
                                     .w_full()
                                     .max_w(px(CONTENT_WIDTH))
-                                    .mx_auto()
                                     .px_6()
                                     .pt_2()
                                     .flex()
@@ -328,7 +351,7 @@ impl Render for RootView {
                             )
                             .child(if rows_empty {
                                 div()
-                                    .flex_1()
+                                    .h_full()
                                     .flex()
                                     .items_center()
                                     .justify_center()
@@ -345,12 +368,11 @@ impl Render for RootView {
                     .child(
                         div()
                             .w_full()
-                            .max_w(px(CONTENT_WIDTH + 24.))
-                            .mx_auto()
+                            .max_w(px(CONTENT_WIDTH))
+                            .px_6()
                             .flex()
                             .flex_col()
                             .gap_1p5()
-                            .px_3()
                             .pt_1()
                             .pb_3()
                             .when(!is_read_only, |el| {

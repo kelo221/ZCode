@@ -1,72 +1,14 @@
-//! Sidebar: "New task", then all projects (from ~/.zcode/v2/setting.json +
-//! the CLI workspace) as folder rows with their sessions underneath, laid out
-//! like the desktop sidebar.
+//! Sidebar: "New task", "Search", "Tasks" (chats without a project), and
+//! "Projects" with their sessions underneath, laid out like the desktop sidebar.
 
+use crate::backend::workspace::WorkspacePurpose;
 use crate::conversation::model::{format_preview, phase_is_active};
+pub use crate::sessions::items::filter_session_indices;
+use crate::sessions::items::{ROW_GROUP, format_relative_time, nav_row};
 use crate::shared::theme::{
-    ACCENT, BG, DANGER, HOVER, I_ADD, I_CLOSE, I_EDIT, I_FOLDER, MUTED, SELECTED, TEXT, icon,
+    ACCENT, BG, DANGER, HOVER, I_ADD, I_CLOSE, I_EDIT, I_FOLDER, I_SEARCH, MUTED, TEXT, icon,
 };
 use gpui::{AnyElement, ClickEvent, Context, CursorStyle, SharedString, div, prelude::*, px, rgb};
-
-const ROW_GROUP: &str = "session-row";
-
-fn format_relative_time(last_activity_ms: Option<i64>) -> String {
-    let Some(ts) = last_activity_ms else {
-        return String::new();
-    };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
-    let diff_secs = (now - ts).max(0) / 1000;
-    if diff_secs < 60 {
-        "now".to_string()
-    } else if diff_secs < 3600 {
-        format!("{}m", diff_secs / 60)
-    } else if diff_secs < 86400 {
-        format!("{}h", diff_secs / 3600)
-    } else {
-        format!("{}d", diff_secs / 86400)
-    }
-}
-
-/// One sidebar row: rounded, hover/selected background.
-fn nav_row(id: SharedString, selected: bool) -> gpui::Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .mx_2()
-        .px_2()
-        .h(px(32.))
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .rounded_md()
-        .text_size(px(13.))
-        .cursor(CursorStyle::PointingHand)
-        .when(selected, |el| el.bg(rgb(SELECTED)))
-        .when(!selected, |el| el.hover(|s| s.bg(rgb(HOVER))))
-}
-
-/// Filter session indices for workspace list, omitting child subagent sessions
-/// and applying search filtering.
-pub fn filter_session_indices(
-    sessions: &[crate::conversation::model::SessionEntry],
-    child_sids: &std::collections::HashSet<&str>,
-    search: &str,
-) -> Vec<usize> {
-    (0..sessions.len())
-        .filter(|&i| {
-            let s = &sessions[i];
-            if child_sids.contains(s.session_id.as_str()) {
-                return false;
-            }
-            search.is_empty()
-                || s.title.to_lowercase().contains(search)
-                || s.preview.to_lowercase().contains(search)
-        })
-        .collect()
-}
 
 impl crate::app::root::RootView {
     fn session_row(
@@ -279,26 +221,60 @@ impl crate::app::root::RootView {
             .into_any_element()
     }
 
-    /// Snapshot of all workspaces + their session rows, grouped per project.
+    /// Snapshot of all workspaces + their session rows, grouped by Tasks & Projects.
     pub(crate) fn sidebar(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let state = self.state.read(cx);
-        let active_workspace = state.active_ws_key();
-        let search = self.session_search.to_lowercase();
-        let child_sids = state.all_child_session_ids();
-        let projects: Vec<(String, String, String, Vec<usize>)> = state
-            .workspaces
-            .iter()
-            .map(|w| {
+        let (active_workspace, tasks, projects) = {
+            let state = self.state.read(cx);
+            let active = state.active_ws_key();
+            let search = self.session_search.to_lowercase();
+            let child_sids = state.all_child_session_ids();
+            let mut tasks: Vec<(String, Vec<usize>)> = Vec::new();
+            let mut projects: Vec<(String, String, String, Vec<usize>)> = Vec::new();
+
+            for w in &state.workspaces {
                 let indices = filter_session_indices(&w.sessions, &child_sids, &search);
-                (w.key.clone(), w.display.clone(), w.status.clone(), indices)
-            })
-            .collect();
-        let mut list: Vec<AnyElement> = Vec::new();
+                match w.purpose {
+                    WorkspacePurpose::Conversation => {
+                        tasks.push((w.key.clone(), indices));
+                    }
+                    WorkspacePurpose::Project => {
+                        projects.push((
+                            w.key.clone(),
+                            w.display.clone(),
+                            w.status.clone(),
+                            indices,
+                        ));
+                    }
+                }
+            }
+            (active, tasks, projects)
+        };
+
+        let mut tasks_list: Vec<AnyElement> = Vec::new();
+        let total_task_sessions: usize = tasks.iter().map(|(_, idxs)| idxs.len()).sum();
+        if total_task_sessions == 0 {
+            tasks_list.push(
+                div()
+                    .px_4()
+                    .py_1p5()
+                    .text_size(px(12.))
+                    .text_color(rgb(MUTED))
+                    .child("No tasks yet")
+                    .into_any_element(),
+            );
+        } else {
+            for (key, indices) in &tasks {
+                tasks_list.extend(indices.iter().filter_map(|i| self.session_row(key, *i, cx)));
+            }
+        }
+
+        let mut projects_list: Vec<AnyElement> = Vec::new();
         for (key, display, status, indices) in &projects {
             let active = active_workspace.as_deref() == Some(key.as_str());
-            list.push(self.project_row(key, display, status, active, cx));
-            list.extend(indices.iter().filter_map(|i| self.session_row(key, *i, cx)));
+            projects_list.push(self.project_row(key, display, status, active, cx));
+            projects_list.extend(indices.iter().filter_map(|i| self.session_row(key, *i, cx)));
         }
+
         let footer: SharedString = {
             let state = self.state.read(cx);
             state
@@ -308,6 +284,33 @@ impl crate::app::root::RootView {
                 .unwrap_or_else(|| "no workspace".into())
                 .into()
         };
+
+        let tasks_header = div()
+            .px_4()
+            .pt_3()
+            .pb_1()
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            .child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(rgb(MUTED))
+                    .child("Tasks"),
+            )
+            .child(
+                div()
+                    .id("new-conversation-task")
+                    .cursor(CursorStyle::PointingHand)
+                    .hover(|s| s.bg(rgb(HOVER)))
+                    .rounded_sm()
+                    .p_1()
+                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                        this.state.update(cx, |s, cx| s.new_conversation_chat(cx));
+                    }))
+                    .child(icon(I_ADD, 12., MUTED)),
+            );
 
         div()
             .w(px(264.))
@@ -319,19 +322,27 @@ impl crate::app::root::RootView {
             .child(
                 nav_row("new-chat".into(), false)
                     .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                        this.state.update(cx, |s, cx| s.new_chat(cx));
+                        this.state.update(cx, |s, cx| s.new_conversation_chat(cx));
                     }))
                     .child(icon(I_ADD, 13., TEXT))
                     .child(div().text_color(rgb(TEXT)).child("New task")),
             )
             .child(
-                div()
-                    .px_4()
-                    .pt_4()
-                    .pb_1()
-                    .text_size(px(12.))
-                    .text_color(rgb(MUTED))
-                    .child("Projects"),
+                nav_row("search-cmd".into(), false)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                        this.quickpick_open = true;
+                        this.quickpick_query.clear();
+                        this.quickpick_selected = 0;
+                        cx.notify();
+                    }))
+                    .child(icon(I_SEARCH, 13., MUTED))
+                    .child(div().flex_1().text_color(rgb(MUTED)).child("Search"))
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(rgb(MUTED))
+                            .child("Ctrl+K"),
+                    ),
             )
             .child(
                 div()
@@ -342,7 +353,18 @@ impl crate::app::root::RootView {
                     .flex()
                     .flex_col()
                     .pb_2()
-                    .children(list),
+                    .child(tasks_header)
+                    .children(tasks_list)
+                    .child(
+                        div()
+                            .px_4()
+                            .pt_4()
+                            .pb_1()
+                            .text_size(px(12.))
+                            .text_color(rgb(MUTED))
+                            .child("Projects"),
+                    )
+                    .children(projects_list),
             )
             .child(
                 div()

@@ -6,7 +6,7 @@
 //! Connection event handling lives in backend/events.rs, outbound actions in
 //! backend/commands.rs / composer/config_cmds.rs.
 
-use crate::backend::workspace::WorkspaceHandle;
+use crate::backend::workspace::{WorkspaceHandle, WorkspacePurpose};
 use crate::conversation::model::ConversationState;
 use gpui::{AppContext, Context, Entity};
 use std::collections::{HashMap, VecDeque};
@@ -88,15 +88,16 @@ impl AppState {
             mcp_servers: Vec::new(),
             plugins_overview: None,
         };
-        state.active_workspace = state.workspaces.first().map(|w| w.key.clone());
-        let keys: Vec<String> = state.workspaces.iter().map(|w| w.key.clone()).collect();
-        // Lazy spawn: only the primary workspace boots its agent up front; the
-        // rest stay idle (~123 MB each) until clicked, and get unloaded after
-        // an idle timeout. See PARITY.md risk #5.
-        for (i, key) in keys.iter().enumerate() {
-            if i == 0 {
-                state.spawn_workspace(key, cx);
-            }
+        state.register_conversation_workspace(candidates);
+        let primary = state
+            .workspaces
+            .iter()
+            .find(|w| w.purpose == crate::backend::workspace::WorkspacePurpose::Project)
+            .map(|w| w.key.clone());
+        state.active_workspace =
+            primary.or_else(|| state.workspaces.first().map(|w| w.key.clone()));
+        if let Some(key) = state.active_workspace.clone() {
+            state.spawn_workspace(&key, cx);
         }
         state.start_maintenance(cx);
         crate::backend::flow_cmds::start_tail_poll(cx);
@@ -156,10 +157,10 @@ impl AppState {
 
     /// Workspace key that owns a topic (for targeted resyncs).
     pub(crate) fn ws_for_topic(&self, topic: &str) -> Option<String> {
-        if let Some(k) = topic.strip_prefix("sessions-index/") {
-            return Some(k.to_string());
-        }
-        if let Some(k) = topic.strip_prefix("workspace-config/") {
+        if let Some(k) = topic
+            .strip_prefix("sessions-index/")
+            .or_else(|| topic.strip_prefix("workspace-config/"))
+        {
             return Some(k.to_string());
         }
         if let Some(ws_key) =
@@ -167,14 +168,12 @@ impl AppState {
         {
             return Some(ws_key);
         }
-        if let Some(sid) = topic.strip_prefix("conversation/") {
-            return self
-                .workspaces
+        topic.strip_prefix("conversation/").and_then(|sid| {
+            self.workspaces
                 .iter()
                 .find(|w| w.sessions.iter().any(|s| s.session_id == sid))
-                .map(|w| w.key.clone());
-        }
-        None
+                .map(|w| w.key.clone())
+        })
     }
 
     pub(crate) fn push_error(&mut self, line: String) {
@@ -232,14 +231,11 @@ impl AppState {
                         .get(&s.session_id)
                         .is_some_and(|c| c.phase_running() || !c.pending_interactions.is_empty())
             });
-            if running {
-                continue;
-            }
-            let idle = ws
-                .last_activity
-                .map(|t| t.elapsed() >= std::time::Duration::from_secs(idle_secs))
-                .unwrap_or(true);
-            if !idle {
+            if running
+                || ws
+                    .last_activity
+                    .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(idle_secs))
+            {
                 continue;
             }
             let sids: Vec<String> = ws.sessions.iter().map(|s| s.session_id.clone()).collect();
@@ -292,22 +288,20 @@ impl AppState {
     /// Filesystem path of the active workspace (git + terminal + file tree).
     pub(crate) fn active_workspace_path(&self) -> Option<std::path::PathBuf> {
         let key = self.active_ws_key()?;
-        self.workspaces
-            .iter()
-            .find(|w| w.key == key)
-            .map(|w| w.path.clone())
+        self.ws(&key).map(|w| w.path.clone())
     }
 
     /// Workspace of the active session if known, else the last active one.
     pub(crate) fn active_ws_key(&self) -> Option<String> {
-        if let Some(sid) = &self.active {
-            for w in &self.workspaces {
-                if w.sessions.iter().any(|s| &s.session_id == sid) {
-                    return Some(w.key.clone());
-                }
-            }
-        }
-        self.active_workspace.clone()
+        self.active
+            .as_ref()
+            .and_then(|sid| {
+                self.workspaces
+                    .iter()
+                    .find(|w| w.sessions.iter().any(|s| &s.session_id == sid))
+                    .map(|w| w.key.clone())
+            })
+            .or_else(|| self.active_workspace.clone())
     }
 
     pub(crate) fn active_ws_mut(&mut self) -> Option<&mut WorkspaceHandle> {
@@ -318,26 +312,25 @@ impl AppState {
     pub(crate) fn active_workspace_config(
         &self,
     ) -> Option<&crate::composer::catalog::WorkspaceConfig> {
-        let key = self.active_ws_key()?;
-        self.workspace_configs.get(&key)
+        self.workspace_configs.get(&self.active_ws_key()?)
     }
 
     pub(crate) fn active_sessions(&self) -> Vec<(String, String)> {
         let key = self.active_ws_key();
-        let mut list = Vec::new();
-        for w in &self.workspaces {
-            if key.as_ref() == Some(&w.key) {
-                for s in &w.sessions {
-                    let title = if s.title.trim().is_empty() {
-                        s.session_id.clone()
-                    } else {
-                        s.title.clone()
-                    };
-                    list.push((s.session_id.clone(), title));
-                }
-            }
-        }
-        list
+        self.workspaces
+            .iter()
+            .find(|w| key.as_ref() == Some(&w.key))
+            .map(|w| {
+                w.sessions
+                    .iter()
+                    .map(|s| {
+                        let t = s.title.trim();
+                        let title = if t.is_empty() { &s.session_id } else { t };
+                        (s.session_id.clone(), title.to_string())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub(crate) fn active_conversation(&self) -> Option<&ConversationState> {
@@ -349,7 +342,6 @@ impl AppState {
     }
 
     pub(crate) fn push_log(&mut self, line: String) {
-        // The in-memory log feeds the diagnostic export; scrub at the sink.
         let line = crate::shared::redact::scrub(&line);
         if std::env::var("ZCODE_GPUI_LOG_STDOUT").is_ok() {
             eprintln!("[zcode-gpui] {line}");
@@ -358,6 +350,36 @@ impl AppState {
         while self.log.len() > 200 {
             self.log.pop_front();
         }
+    }
+
+    pub(crate) fn register_conversation_workspace(
+        &mut self,
+        candidates: Vec<crate::backend::launcher::BackendLaunch>,
+    ) {
+        use crate::backend::workspace::{
+            canonical_workspace_string, ensure_conversation_workspace_dir,
+        };
+        let p = ensure_conversation_workspace_dir();
+        let key = canonical_workspace_string(&p);
+        let mut h = WorkspaceHandle::new(p, candidates);
+        h.purpose = WorkspacePurpose::Conversation;
+        h.display = "Tasks".into();
+        match self.workspaces.iter_mut().find(|w| w.key == key) {
+            Some(ws) => *ws = h,
+            None => self.workspaces.insert(0, h),
+        }
+    }
+
+    pub fn conversation_workspace_key(&self) -> Option<String> {
+        self.workspaces
+            .iter()
+            .find(|w| w.purpose == WorkspacePurpose::Conversation)
+            .map(|w| w.key.clone())
+    }
+
+    pub fn is_conversation_workspace(&self, ws_key: &str) -> bool {
+        self.ws(ws_key)
+            .is_some_and(|w| w.purpose == WorkspacePurpose::Conversation)
     }
 
     pub(crate) fn status_error(&mut self, msg: &str) {
