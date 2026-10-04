@@ -189,7 +189,7 @@ pub fn execute_quickpick_action(
                 cx.notify();
             });
         }
-        QuickPickItemAction::Command(QuickPickAction::ToggleSidebar) => {
+        QuickPickItemAction::Command(QuickPickAction::ToggleSidePane) => {
             this.dock_open = !this.dock_open;
             cx.notify();
         }

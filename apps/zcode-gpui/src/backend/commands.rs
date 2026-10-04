@@ -214,6 +214,25 @@ impl AppState {
         cx.notify();
     }
 
+    /// Start a new chat in the dedicated Tasks (conversation) workspace,
+    /// creating chats without a project context.
+    /// Desktop parity: packages/ui/src/root/useConversationWorkspaceActions.ts
+    /// `handleCreateConversationTask`.
+    pub fn new_conversation_chat(&mut self, cx: &mut Context<Self>) {
+        self.save_current_draft(cx);
+        self.clear_subagent_view();
+        if let Some(key) = self.conversation_workspace_key() {
+            self.ensure_spawned(&key, cx);
+            self.active_workspace = Some(key.clone());
+            self.active = None;
+            self.draft = true;
+            self.ui_model_value = None;
+            self.ui_mode = None;
+            self.restore_draft(&format!("draft:{key}"), cx);
+            cx.notify();
+        }
+    }
+
     pub fn new_chat(&mut self, cx: &mut Context<Self>) {
         self.save_current_draft(cx);
         self.clear_subagent_view();

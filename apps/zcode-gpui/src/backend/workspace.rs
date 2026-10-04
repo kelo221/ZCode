@@ -85,10 +85,20 @@ impl CommandCtx {
     }
 }
 
+/// Purpose classification for a workspace: projects belong to a directory or
+/// repository, while conversations (tasks) use the app-managed default workspace.
+/// Desktop parity: packages/shared/src/workspacePurpose.ts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkspacePurpose {
+    Project,
+    Conversation,
+}
+
 pub struct WorkspaceHandle {
     pub key: String,
     pub path: PathBuf,
     pub display: String,
+    pub purpose: WorkspacePurpose,
     pub conn_desc: String,
     pub status: String,
     pub sessions: Vec<SessionEntry>,
@@ -129,6 +139,7 @@ impl WorkspaceHandle {
             key,
             path,
             display,
+            purpose: WorkspacePurpose::Project,
             conn_desc: String::new(),
             status: "idle — click to connect".into(),
             sessions: Vec::new(),
@@ -242,13 +253,46 @@ pub fn canonical_workspace_string(path: &Path) -> String {
         .unwrap_or(s)
 }
 
+/// The dedicated directory used for chats without a project (Tasks section).
+/// Desktop parity: packages/services/src/paths.ts `getConversationWorkspaceDir()`
+/// (`~/.zcode/workspace/default`).
+pub fn conversation_workspace_dir() -> PathBuf {
+    let base = std::env::var("ZCODE_DATA_BASE_DIR")
+        .ok()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let home = std::env::var("ZCODE_DESKTOP_HOME_DIR")
+                .or_else(|_| std::env::var("USERPROFILE"))
+                .or_else(|_| std::env::var("HOME"))
+                .unwrap_or_default();
+            PathBuf::from(home).join(".zcode")
+        });
+    base.join("workspace").join("default")
+}
+
+/// Ensures the default conversation workspace directory exists on disk.
+pub fn ensure_conversation_workspace_dir() -> PathBuf {
+    let dir = conversation_workspace_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
 /// The user's known projects: the desktop persists them in
 /// `~/.zcode/v2/setting.json` (`recentProjects` + `lastWorkspaceSession`,
 /// see packages/ui/src/hooks/useTabPersistence.ts). There is no RPC for this,
 /// so we read the same file. Remote workspaces (ssh/wsl/docker) are skipped —
 /// they need connection infrastructure the minimal client doesn't have.
 pub fn discover_workspaces(primary: &Path, max: usize) -> Vec<PathBuf> {
-    let mut ordered: Vec<PathBuf> = vec![primary.to_path_buf()];
+    let conv_dir = conversation_workspace_dir();
+    let conv_key = canonical_workspace_string(&conv_dir);
+    let primary_key = canonical_workspace_string(primary);
+
+    let mut ordered: Vec<PathBuf> = if primary_key == conv_key {
+        Vec::new()
+    } else {
+        vec![primary.to_path_buf()]
+    };
+
     let Ok(raw) = std::fs::read_to_string(settings_path()) else {
         return ordered;
     };
@@ -257,17 +301,19 @@ pub fn discover_workspaces(primary: &Path, max: usize) -> Vec<PathBuf> {
     };
     let mut push = |p: &str| {
         let path = PathBuf::from(p);
-        if path.is_dir()
-            && !ordered
-                .iter()
-                .any(|w| canonical_workspace_string(w) == canonical_workspace_string(&path))
-        {
-            ordered.push(path);
+        if path.is_dir() {
+            let key = canonical_workspace_string(&path);
+            if key != conv_key && !ordered.iter().any(|w| canonical_workspace_string(w) == key) {
+                ordered.push(path);
+            }
         }
     };
     if let Some(entries) = v.get("lastWorkspaceSession").and_then(Value::as_array) {
         for e in entries {
             if e.get("kind").and_then(Value::as_str) != Some("local") {
+                continue;
+            }
+            if e.get("workspacePurpose").and_then(Value::as_str) == Some("conversation") {
                 continue;
             }
             if let Some(p) = e.get("workspacePath").and_then(Value::as_str) {

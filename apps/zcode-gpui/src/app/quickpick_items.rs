@@ -10,7 +10,7 @@ use crate::shared::theme::{ThemeMode, theme_mode};
 pub enum QuickPickAction {
     NewTask,
     OpenWorkspace,
-    ToggleSidebar,
+    ToggleSidePane,
     ToggleTerminal,
     SwitchTheme,
     OpenSettings,
@@ -72,11 +72,11 @@ pub fn get_quickpick_items(workspaces: &[WorkspaceHandle], query: &str) -> Vec<Q
             QuickPickAction::OpenWorkspace,
         ),
         cmd_item(
-            "toggle-sidebar",
-            t("quickPick.command.toggleSidebar"),
+            "toggle-sidepane",
+            t("quickPick.command.toggleSidePane"),
             "Panels",
             Some("Ctrl+B"),
-            QuickPickAction::ToggleSidebar,
+            QuickPickAction::ToggleSidePane,
         ),
         cmd_item(
             "toggle-terminal",

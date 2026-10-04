@@ -44,3 +44,19 @@ fn filter_session_indices_with_search_and_subagents() {
     let indices = filter_session_indices(&sessions, &child_sids, "auth");
     assert_eq!(indices, vec![0, 2]);
 }
+
+#[test]
+fn test_conversation_workspace_dir_resolution() {
+    let conv_dir = crate::backend::workspace::conversation_workspace_dir();
+    assert!(
+        conv_dir.ends_with(
+            std::path::Path::new(".zcode")
+                .join("workspace")
+                .join("default")
+        )
+    );
+    assert_eq!(
+        crate::backend::workspace::WorkspacePurpose::Conversation,
+        crate::backend::workspace::WorkspacePurpose::Conversation
+    );
+}

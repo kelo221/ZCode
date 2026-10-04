@@ -4,7 +4,7 @@ use crate::app::root::RootView;
 use crate::composer::attachment::{
     ATTACHMENT_MAX_BYTES, AttachmentRef, detect_mime_type, format_bytes,
 };
-use crate::shared::theme::{ACCENT, BORDER, CARD_HOVER, DANGER, MUTED, TEXT};
+use crate::shared::theme::{ACCENT, BORDER, CARD_HOVER, DANGER, I_ADD, MUTED, TEXT, icon};
 use gpui::{
     AnyElement, ClickEvent, Context, CursorStyle, Div, IntoElement, ParentElement,
     PathPromptOptions, SharedString, Styled, div, prelude::*, px, rgb,
@@ -86,24 +86,18 @@ impl RootView {
         )
     }
 
-    /// Attach button with paperclip icon triggering native file prompt.
+    /// Attach button with "+" icon triggering native file prompt (desktop parity).
     pub(crate) fn render_attach_button(cx: &mut Context<Self>) -> gpui::Stateful<Div> {
         div()
             .id("attach-btn")
-            .size(px(24.))
+            .size(px(26.))
             .flex()
             .items_center()
             .justify_center()
-            .rounded_sm()
+            .rounded_md()
             .cursor(CursorStyle::PointingHand)
-            .hover(|s| s.bg(rgb(BORDER)))
-            .child(
-                div()
-                    .text_size(px(13.))
-                    .text_color(rgb(MUTED))
-                    .hover(|s| s.text_color(rgb(TEXT)))
-                    .child("📎"),
-            )
+            .hover(|s| s.bg(rgb(CARD_HOVER)))
+            .child(icon(I_ADD, 13., MUTED))
             .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                 this.prompt_attach_files(cx);
             }))

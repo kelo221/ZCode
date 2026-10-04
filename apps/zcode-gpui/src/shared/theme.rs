@@ -226,6 +226,7 @@ pub fn font_size_2xs() -> f32 {
 /// Windows icon font (ships with Windows 10+); glyph code points below.
 const ICON_FONT: &str = "Segoe MDL2 Assets";
 pub const I_ADD: char = '\u{E710}';
+pub const I_SEARCH: char = '\u{E721}';
 pub const I_FOLDER: char = '\u{F12B}';
 pub const I_CHEVRON_DOWN: char = '\u{E70D}';
 pub const I_ARROW_UP: char = '\u{E74A}';

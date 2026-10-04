@@ -204,10 +204,21 @@ impl EffectiveConfig {
     }
 
     pub fn thought_display(&self) -> String {
-        if self.thought.is_empty() {
-            "Default".into()
-        } else {
-            title_case(&self.thought)
+        let v = self.thought.trim().to_lowercase();
+        match v.as_str() {
+            "disabled" | "false" | "no" | "none" | "off" | "nothink" | "no-think" | "no_think" => {
+                "Off".into()
+            }
+            "enable" | "enabled" | "on" | "true" => "On".into(),
+            "low" => "Low".into(),
+            "minimal" => "Minimal".into(),
+            "medium" => "Medium".into(),
+            "high" => "High".into(),
+            "max" => "Max".into(),
+            "ultra" => "Ultra".into(),
+            "extra-high" | "extra_high" | "xhigh" => "X-High".into(),
+            "" => "Off".into(),
+            _ => title_case(&self.thought),
         }
     }
 }
@@ -218,5 +229,29 @@ pub fn title_case(s: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_thought_display_mapping() {
+        let display = |t: &str| {
+            EffectiveConfig {
+                thought: t.into(),
+                ..Default::default()
+            }
+            .thought_display()
+        };
+
+        assert_eq!(display("enabled"), "On");
+        assert_eq!(display("on"), "On");
+        assert_eq!(display("disabled"), "Off");
+        assert_eq!(display("off"), "Off");
+        assert_eq!(display(""), "Off");
+        assert_eq!(display("high"), "High");
+        assert_eq!(display("xhigh"), "X-High");
     }
 }
