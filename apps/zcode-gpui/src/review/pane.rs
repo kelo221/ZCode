@@ -13,6 +13,11 @@ use gpui::{
 #[derive(Clone)]
 pub(crate) enum GitAction {
     ThenRefresh(&'static str),
+    /// Refresh like ThenRefresh, but additionally clear the commit-message
+    /// input — only on success. A failed commit keeps the user's draft
+    /// (2026-10-05 audit: the draft used to be dropped before the result
+    /// arrived).
+    CommitThenRefresh(&'static str),
 }
 
 impl RootView {
@@ -116,6 +121,20 @@ impl RootView {
                         });
                         v.refresh_git(cx);
                     }
+                    GitAction::CommitThenRefresh(label) => match res {
+                        Ok(_) => {
+                            v.git.notice = Some((true, format!("{label} succeeded")));
+                            v.commit_input.update(cx, |c, _| {
+                                c.take_text();
+                            });
+                            v.refresh_git(cx);
+                        }
+                        Err(e) => {
+                            // Keep the draft so the user can retry.
+                            v.git.notice = Some((false, format!("{label} failed: {e}")));
+                            v.refresh_git(cx);
+                        }
+                    },
                 }
                 cx.notify();
             })
@@ -185,7 +204,8 @@ impl RootView {
         .detach();
     }
 
-    /// Commit staged changes using the single-line composer's content.
+    /// Commit staged changes using the single-line composer's content. The
+    /// draft is only consumed after git reports success.
     pub(crate) fn do_commit(&mut self, cx: &mut Context<Self>) {
         let msg = self.commit_input.read(cx).text().trim().to_string();
         if msg.is_empty() {
@@ -193,10 +213,9 @@ impl RootView {
             cx.notify();
             return;
         }
-        self.commit_input.update(cx, |c, _ccx| c.take_text());
         self.run_git_action(
             vec!["commit".into(), "-m".into(), msg],
-            GitAction::ThenRefresh("Commit"),
+            GitAction::CommitThenRefresh("Commit"),
             cx,
         );
     }
@@ -230,13 +249,29 @@ impl RootView {
         );
     }
 
+    /// Discard is destructive (`git clean -f` / `git restore`), so the first
+    /// click only arms a confirmation; the second click on the same path
+    /// actually runs it (2026-10-05 audit: no confirmation before).
     pub(crate) fn discard_file(&mut self, path: &str, untracked: bool, cx: &mut Context<Self>) {
+        if self.git.confirm_discard.as_deref() != Some(path) {
+            self.git.confirm_discard = Some(path.to_string());
+            cx.notify();
+            return;
+        }
+        self.git.confirm_discard = None;
         let args = if untracked {
             vec!["clean".into(), "-f".into(), "--".into(), path.to_string()]
         } else {
             vec!["restore".into(), "--".into(), path.to_string()]
         };
         self.run_git_action(args, GitAction::ThenRefresh("Discard file"), cx);
+    }
+
+    /// Disarm a pending discard confirmation.
+    pub(crate) fn cancel_discard(&mut self, cx: &mut Context<Self>) {
+        if self.git.confirm_discard.take().is_some() {
+            cx.notify();
+        }
     }
 
     pub(crate) fn checkout_branch(&mut self, branch: &str, cx: &mut Context<Self>) {

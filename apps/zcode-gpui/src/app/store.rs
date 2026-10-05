@@ -12,6 +12,17 @@ use gpui::{AppContext, Context, Entity};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
+/// The route cursor of the last frame applied on a topic: subscription
+/// generation, host log epoch and the applied seq. Continuity is judged
+/// against this exact triple — never against a topic-only seq (2026-10-05
+/// audit P0.1; canonical rule: controller.ts `isWindowHostControllerFrameGap`).
+#[derive(Clone, Debug)]
+pub(crate) struct RouteCursor {
+    pub(crate) subscription_id: String,
+    pub(crate) log_epoch: String,
+    pub(crate) seq: u64,
+}
+
 pub struct AppState {
     pub workspaces: Vec<WorkspaceHandle>,
     /// Workspace key of the context used for "New chat" (last selected).
@@ -29,19 +40,19 @@ pub struct AppState {
     pub session_drafts: HashMap<String, String>,
     /// What Enter in the composer does (send / edit message / rename).
     pub composer_intent: crate::conversation::msg_actions::ComposerIntent,
-    /// Stable per-install client identity for command envelopes.
+    /// Stable per-install client identity for command envelopes (persisted
+    /// once under the data dir; shared::identity owns the file lifecycle).
     pub(crate) client_id: String,
     pub(crate) log: VecDeque<String>,
     /// Dismissable error banners (most recent last, newest shown first).
-    pub errors: VecDeque<String>,
-    /// Event-pump backlog shared with the pump tasks (backpressure).
-    pub(crate) inflight_events: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub(crate) errors: VecDeque<String>,
     /// Per-workspace flow latch (true = we told the CLI to pause).
     flow_saturated: HashMap<String, bool>,
     pub(crate) assembler: crate::backend::wire::FrameAssembler,
-    /// Last applied `toSeq` per topic; a `(fromSeq, toSeq]` gap means the
-    /// client missed frames (deltas are then unreliable until re-subscribe).
-    pub(crate) last_seq: HashMap<String, u64>,
+    /// Last applied route cursor per topic (`(fromSeq, toSeq]` continuity +
+    /// subscription generation). Cleared together with fragment state on
+    /// reconnect/unsubscribe.
+    pub(crate) route_cursors: HashMap<String, RouteCursor>,
     /// Usage statistics snapshot (`v4/usage/stats`).
     pub usage_stats: Option<crate::shared::usage_stats::AppUsageSnapshot>,
     /// Connected MCP server snapshots (`mcp/list`).
@@ -52,6 +63,9 @@ pub struct AppState {
     pub child_owner: HashMap<String, (String, String)>,
     /// Active child subagent session being viewed (read-only)
     pub viewing_child: Option<String>,
+    /// Temp files from submitted pasted images: kept until quit (the backend
+    /// may still read the reference), deleted on app exit.
+    pub(crate) retired_temp_files: Vec<PathBuf>,
 }
 
 impl AppState {
@@ -70,6 +84,7 @@ impl AppState {
             active: None,
             child_owner: HashMap::new(),
             viewing_child: None,
+            retired_temp_files: Vec::new(),
             draft: false,
             workspace_configs: HashMap::new(),
             ui_model_value: None,
@@ -77,13 +92,12 @@ impl AppState {
             composer: cx.new(crate::composer::input::Composer::new),
             session_drafts: HashMap::new(),
             composer_intent: Default::default(),
-            client_id: format!("client-{}", uuid::Uuid::now_v7()),
+            client_id: crate::shared::identity::install_client_id(),
             log: VecDeque::new(),
             errors: VecDeque::new(),
-            inflight_events: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             flow_saturated: HashMap::new(),
             assembler: crate::backend::wire::FrameAssembler::new(),
-            last_seq: HashMap::new(),
+            route_cursors: HashMap::new(),
             usage_stats: None,
             mcp_servers: Vec::new(),
             plugins_overview: None,
@@ -101,44 +115,22 @@ impl AppState {
         }
         state.start_maintenance(cx);
         crate::backend::flow_cmds::start_tail_poll(cx);
+        // Startup sweep: paste temp files left behind by a crashed session.
+        crate::shared::temp_attachments::scavenge_stale();
         // gpui does not guarantee entity drops at process exit, so `Drop`
         // alone can leave agents running where no kill-on-close job object
         // exists (non-Windows, or a failed job assignment).
         cx.on_app_quit(|this, _cx| {
             this.shutdown_all_workspaces();
+            // Submitted pasted images may still be referenced by the backend
+            // until now; quit is the point where they can finally go.
+            for path in this.retired_temp_files.drain(..) {
+                crate::shared::temp_attachments::delete_owned(&path);
+            }
             async {}
         })
         .detach();
         state
-    }
-
-    /// Periodic sweep that unloads agents idle for too long.
-    fn start_maintenance(&self, cx: &mut Context<Self>) {
-        cx.spawn(async move |this, cx| {
-            loop {
-                cx.background_spawn(async {
-                    std::thread::sleep(std::time::Duration::from_secs(30));
-                })
-                .await;
-                let alive = this
-                    .update(cx, |state, cx| {
-                        state.reap_idle_agents();
-                        // Resync routes whose frame assembly got stuck >30s.
-                        for topic in state.assembler.sweep_timeouts() {
-                            if let Some(ws_key) = state.ws_for_topic(&topic) {
-                                state.resync_topic(&ws_key, &topic);
-                            }
-                        }
-                        cx.notify();
-                        true
-                    })
-                    .unwrap_or(false);
-                if !alive {
-                    break;
-                }
-            }
-        })
-        .detach();
     }
 
     /// Latch the per-workspace flow signal; sends only on state change.
@@ -199,59 +191,6 @@ impl AppState {
         }
     }
 
-    /// Kill agents with no open conversation that the user hasn't touched for
-    /// a while. The active workspace and any workspace with a running turn are
-    /// never unloaded.
-    fn reap_idle_agents(&mut self) {
-        let idle_secs: u64 = std::env::var("ZCODE_GPUI_IDLE_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(600);
-        let active_ws = self.active_ws_key();
-        let keys: Vec<String> = self.workspaces.iter().map(|w| w.key.clone()).collect();
-        for key in keys {
-            let Some(ws) = self.ws(&key) else { continue };
-            let spawned = ws.started || ws.inbound.is_some();
-            if !spawned {
-                continue;
-            }
-            if Some(&key) == active_ws.as_ref() {
-                continue;
-            }
-            if !ws.pending.is_empty() {
-                continue; // startup/handshake in flight
-            }
-            // The sessions-index phase covers sessions this client never
-            // opened (e.g. automations); a waiting interaction also pins the
-            // agent, since unloading it would abort the blocked turn.
-            let running = ws.sessions.iter().any(|s| {
-                crate::conversation::model::phase_is_active(&s.phase)
-                    || self
-                        .conversations
-                        .get(&s.session_id)
-                        .is_some_and(|c| c.phase_running() || !c.pending_interactions.is_empty())
-            });
-            if running
-                || ws
-                    .last_activity
-                    .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(idle_secs))
-            {
-                continue;
-            }
-            let sids: Vec<String> = ws.sessions.iter().map(|s| s.session_id.clone()).collect();
-            self.ws_mut(&key).unwrap().unload();
-            for sid in sids {
-                if let Some(c) = self.conversations.get_mut(&sid) {
-                    c.subscribed = false;
-                }
-            }
-            self.push_log(format!(
-                "unloaded idle agent for {}",
-                self.ws(&key).map(|w| w.display.clone()).unwrap_or(key)
-            ));
-        }
-    }
-
     /// Spawn the agent for a workspace if it isn't running (lazy start).
     pub(crate) fn spawn_workspace(&mut self, key: &str, cx: &mut Context<Self>) {
         let Some(ws) = self.ws_mut(key) else {
@@ -272,8 +211,9 @@ impl AppState {
             ));
             return;
         };
-        let pending = self.inflight_events.clone();
-        crate::backend::events::attach_pump(cx, key.to_string(), pending, events);
+        if let Some(backlog) = ws.backlog.clone() {
+            crate::backend::events::attach_pump(cx, key.to_string(), backlog, events);
+        }
         cx.notify();
     }
 
@@ -393,5 +333,8 @@ impl AppState {
 impl Drop for AppState {
     fn drop(&mut self) {
         self.shutdown_all_workspaces();
+        for path in &self.retired_temp_files {
+            crate::shared::temp_attachments::delete_owned(path);
+        }
     }
 }

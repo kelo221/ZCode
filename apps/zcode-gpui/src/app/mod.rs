@@ -2,6 +2,7 @@
 //! container, and `AppState` (per-workspace agents + mirrored conversations).
 
 pub(crate) mod dock;
+pub(crate) mod maintenance;
 pub(crate) mod mcp_pane;
 pub(crate) mod os_lifecycle;
 pub(crate) mod parts;

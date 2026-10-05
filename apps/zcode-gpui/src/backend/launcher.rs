@@ -235,8 +235,45 @@ fn find_installed_bundle() -> Option<(PathBuf, PathBuf)> {
     }
 }
 
+/// System variables the backend child may inherit from the GPUI process.
+/// Everything else is dropped (conn.rs spawns with `env_clear()`): the GPUI
+/// process env can carry provider secrets or override variables from whatever
+/// shell launched the app, and inheriting them made backend behavior depend
+/// on the launch context (2026-10-05 audit P0.4; the desktop sanitizes the
+/// same way, see packages/desktop/src/main/desktopRuntimeEnv.ts).
+fn system_env_passthrough() -> Vec<(String, String)> {
+    let keep: &[&str] = if cfg!(windows) {
+        &[
+            "PATH",
+            "SystemRoot",
+            "SYSTEMDRIVE",
+            "COMSPEC",
+            "PATHEXT",
+            "TEMP",
+            "TMP",
+            "WINDIR",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "PROGRAMDATA",
+            "USERPROFILE",
+            "HOMEDRIVE",
+            "HOMEPATH",
+        ]
+    } else {
+        &["PATH", "HOME", "USER", "SHELL", "TMPDIR", "LANG", "LC_ALL"]
+    };
+    keep.iter()
+        .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
+        .collect()
+}
+
+/// Explicit allowlist for the backend agent process. Deliberately NOT
+/// honored: `GLM_BINARY_PATH`, `ZCODE_AGENT_SERVER_COMMAND` (desktop exports
+/// them to every child; see resolve_candidates), `NODE_OPTIONS`,
+/// `RUST_*`, and any other unlisted variable.
 fn common_backend_envs() -> Vec<(String, String)> {
-    let mut envs = vec![("ZCODE_RUNTIME_ENV".into(), "desktop".into())];
+    let mut envs = system_env_passthrough();
+    envs.push(("ZCODE_RUNTIME_ENV".into(), "desktop".into()));
     for key in [
         "HTTP_PROXY",
         "HTTPS_PROXY",

@@ -187,6 +187,9 @@ pub struct GitState {
     /// Bumped per refresh; async results from older generations are dropped
     /// so a slow, superseded refresh cannot overwrite newer state.
     pub generation: u64,
+    /// Destructive ops (discard) arm first: the path awaiting its second
+    /// click, if any.
+    pub confirm_discard: Option<String>,
 }
 
 impl GitState {
@@ -249,21 +252,70 @@ impl GitState {
     }
 }
 
+/// Wait budget for one git invocation. Pushes of sizeable packs can be slow,
+/// but an infinite hang (credential prompt, wedged helper) must never freeze
+/// the Review pane's background executor slot.
+const GIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// Read cap per stream: display-only output never needs more than this.
+const MAX_GIT_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
+
 /// Run git in `cwd` and return stdout (stderr is folded in on failure).
 /// Blocking — call from the background executor only.
+///
+/// Hardened against the failure modes the 2026-10-05 audit listed: credential
+/// prompts fail fast (GIT_TERMINAL_PROMPT=0 / GCM_INTERACTIVE=Never), every
+/// invocation has a deadline, and both pipes are drained on threads so a
+/// large diff cannot deadlock a full pipe buffer.
 pub fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
+    use std::process::Stdio;
     let mut cmd = Command::new("git");
-    cmd.args(args).current_dir(cwd);
+    cmd.args(args)
+        .current_dir(cwd)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "Never")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     #[cfg(windows)]
     {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let out = cmd.output().map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    fn drain<R: std::io::Read + Send + 'static>(
+        pipe: Option<R>,
+    ) -> std::thread::JoinHandle<Vec<u8>> {
+        use std::io::Read;
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(pipe) = pipe {
+                let _ = pipe.take(MAX_GIT_OUTPUT_BYTES).read_to_end(&mut buf);
+            }
+            buf
+        })
+    }
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+    let deadline = std::time::Instant::now() + GIT_TIMEOUT;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break Ok(st),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break Err(format!("git timed out after {}s", GIT_TIMEOUT.as_secs()));
+            }
+            Err(e) => break Err(e.to_string()),
+        }
+    };
+    let out = stdout.join().unwrap_or_default();
+    let err = stderr.join().unwrap_or_default();
+    match status {
+        Ok(st) if st.success() => Ok(String::from_utf8_lossy(&out).into_owned()),
+        Ok(_) => Err(String::from_utf8_lossy(&err).trim().to_string()),
+        Err(e) => Err(e),
     }
 }
 

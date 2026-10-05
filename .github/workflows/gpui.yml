@@ -1,10 +1,25 @@
 name: gpui-frontend
 
+# The GPUI app mirrors shared protocol/services behavior and launches the CLI:
+# any change there can break parity, so it must run this matrix (2026-10-05
+# audit — the old filter only watched apps/zcode-gpui/**).
 on:
   push:
-    paths: ["apps/zcode-gpui/**", ".github/workflows/gpui.yml"]
+    paths:
+      - "apps/zcode-gpui/**"
+      - "packages/shared/**"
+      - "packages/services/**"
+      - "apps/zcode-cli/**"
+      - "scripts/package-gpui.mjs"
+      - ".github/workflows/gpui.yml"
   pull_request:
-    paths: ["apps/zcode-gpui/**", ".github/workflows/gpui.yml"]
+    paths:
+      - "apps/zcode-gpui/**"
+      - "packages/shared/**"
+      - "packages/services/**"
+      - "apps/zcode-cli/**"
+      - "scripts/package-gpui.mjs"
+      - ".github/workflows/gpui.yml"
 
 jobs:
   check:

@@ -16,7 +16,7 @@ impl AppState {
         if !ws.started {
             return;
         }
-        let Some(sub) = ws.subscriptions.get(topic).cloned() else {
+        let Some(sub) = ws.subscriptions.get(topic).map(|s| s.id.clone()) else {
             return;
         };
         let id = ws.next_id();
@@ -36,6 +36,18 @@ impl AppState {
             }),
             id,
         );
+    }
+
+    /// Resync every subscribed topic of a workspace (backlog-overflow
+    /// recovery: dropped data lines leave holes no delta can fill).
+    pub(crate) fn resync_all(&mut self, ws_key: &str) {
+        let topics: Vec<String> = self
+            .ws(ws_key)
+            .map(|w| w.subscriptions.keys().cloned().collect())
+            .unwrap_or_default();
+        for topic in topics {
+            self.resync_topic(ws_key, &topic);
+        }
     }
 
     /// Background freshness probe for the open conversation (cursorless

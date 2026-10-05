@@ -128,7 +128,7 @@ impl AppState {
             return;
         };
         let sub = self.ws_mut(&ws_key).and_then(|ws| {
-            let sub_id = ws.subscriptions.remove(&topic)?;
+            let sub_id = ws.subscriptions.remove(&topic).map(|s| s.id)?;
             Some((sub_id, ws.connection_id.clone(), ws.next_id()))
         });
         if let Some((sub_id, conn_id, id)) = sub {
@@ -139,7 +139,8 @@ impl AppState {
                 id,
             );
         }
-        self.last_seq.remove(&topic);
+        self.route_cursors.remove(&topic);
+        self.assembler.forget_topics(&[topic]);
         self.conversations.remove(child_sid);
     }
 }
