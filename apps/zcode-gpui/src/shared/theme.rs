@@ -229,6 +229,7 @@ pub const I_ADD: char = '\u{E710}';
 pub const I_SEARCH: char = '\u{E721}';
 pub const I_FOLDER: char = '\u{F12B}';
 pub const I_CHEVRON_DOWN: char = '\u{E70D}';
+pub const I_CHEVRON_RIGHT: char = '\u{E70E}';
 pub const I_ARROW_UP: char = '\u{E74A}';
 pub const I_STOP: char = '\u{E71A}';
 pub const I_EDIT: char = '\u{E70F}';

@@ -400,6 +400,12 @@ API-key providers, which work without it.
   like `GLM_BINARY_PATH` or `NODE_OPTIONS` can no longer leak into the agent.
 - **Client identity (P1.10)**: `client_id` is created once under
   `<data>/v2/gpui-client-id` and reused across processes.
+- **Sidebar lists (2026-10-05)**: the plain sidebar rows (unlike the desktop's
+  virtualized list) render progressively per workspace — the 3 latest
+  threads, "Load more" extends, the second click shows everything; searching
+  always shows all matches. Project folders toggle open/closed on the header
+  chevron (desktop `group-item.tsx handleHeaderClick` parity); expansion and
+  load-more steps are pure `RootView` view state, never server facts.
 - **Secrets**: every sink (in-memory log, agent stderr echo, error banners,
   `lastError` text, panic log, exported log bundle) goes through
   `shared::redact::scrub` (credential keys, `Bearer`/`Basic`, `sk-`/`ghp_`/`AKIA`/JWT

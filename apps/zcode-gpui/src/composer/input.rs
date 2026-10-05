@@ -301,6 +301,30 @@ impl Composer {
 
 impl EventEmitter<ComposerEvent> for Composer {}
 
+impl crate::app::root::RootView {
+    /// Submit plumbing (split from app/root.rs for the 400-line cap): both
+    /// composer entities bubble `Submitted` into the root's submit/commit
+    /// actions.
+    pub(crate) fn wire_submit_events(
+        composer: &gpui::Entity<Composer>,
+        commit_input: &gpui::Entity<Composer>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.subscribe(composer, |this, _composer, ev: &ComposerEvent, cx| {
+            if matches!(ev, ComposerEvent::Submitted) {
+                this.submit(cx);
+            }
+        })
+        .detach();
+        cx.subscribe(commit_input, |this, _composer, ev: &ComposerEvent, cx| {
+            if matches!(ev, ComposerEvent::Submitted) {
+                this.do_commit(cx);
+            }
+        })
+        .detach();
+    }
+}
+
 impl Render for Composer {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let empty = self.content.is_empty();

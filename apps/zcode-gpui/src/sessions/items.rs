@@ -62,3 +62,46 @@ pub fn filter_session_indices(
         })
         .collect()
 }
+
+// --- Progressive session-list loading ---------------------------------------
+//
+// Every workspace renders its whole session list each frame, which stutters
+// with hundreds of threads. The sidebar therefore shows the 3 latest rows per
+// workspace and lets the user load more twice: 3 → 20 → all (the desktop
+// virtualizes its list instead, so it has no such cap).
+
+/// Rows shown before the first "Load more" click.
+pub const SESSION_PREVIEW_ROWS: usize = 3;
+/// Rows shown after the first "Load more" click; the second click shows all.
+pub const SESSION_EXTENDED_ROWS: usize = 25;
+/// Limit steps: 0 = preview, 1 = extended, ≥2 = everything.
+pub const SESSION_LIMIT_ALL: u8 = 2;
+
+/// How many of `total` filtered rows to render at `step`. While searching,
+/// all matches are shown — the query is explicit intent and result sets are
+/// small.
+pub(crate) fn visible_session_count(step: u8, total: usize, searching: bool) -> usize {
+    if searching || step >= SESSION_LIMIT_ALL {
+        return total;
+    }
+    let cap = if step == 0 {
+        SESSION_PREVIEW_ROWS
+    } else {
+        SESSION_EXTENDED_ROWS
+    };
+    cap.min(total)
+}
+
+/// The step after one "Load more" click.
+pub(crate) fn next_limit_step(step: u8) -> u8 {
+    (step + 1).min(SESSION_LIMIT_ALL)
+}
+
+/// Label of the load-more row: the second (final) click says "all".
+pub(crate) fn load_more_label(step: u8, hidden: usize) -> String {
+    if next_limit_step(step) >= SESSION_LIMIT_ALL {
+        format!("Load all ({hidden} more)")
+    } else {
+        format!("Load more ({hidden} more)")
+    }
+}
