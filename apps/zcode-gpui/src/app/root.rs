@@ -3,7 +3,7 @@
 
 use crate::app::dock::{DockTab, ToggleDock};
 use crate::app::store::AppState;
-use crate::composer::input::{Composer, ComposerEvent};
+use crate::composer::input::Composer;
 use crate::conversation::model::format_preview;
 use crate::files::pane::FilesState;
 use crate::review::git::GitState;
@@ -62,25 +62,20 @@ pub struct RootView {
     pub(crate) quickpick_selected: usize,
     pub(crate) os_lifecycle: crate::app::os_lifecycle::OsLifecycleState,
     pub(crate) plugin_segment: crate::app::plugin_pane::PluginSegment,
+    /// Projects the user explicitly closed (the active folder toggles, see
+    /// sessions/sidebar.rs). Pure view state — never a server fact.
+    pub(crate) ws_collapsed: HashSet<String>,
+    /// Per-workspace progressive-loading step for session rows
+    /// (0 = 3 latest, 1 = extended, 2 = all; sessions/items.rs).
+    pub(crate) session_limit_step: HashMap<String, u8>,
 }
 
 impl RootView {
     pub fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         let composer = state.read(cx).composer.clone();
-        cx.subscribe(&composer, |this, _composer, ev: &ComposerEvent, cx| {
-            if matches!(ev, ComposerEvent::Submitted) {
-                this.submit(cx);
-            }
-        })
-        .detach();
         let (list_state, follow_bottom) = crate::transcript::list::new_list_state();
         let commit_input = cx.new(|cx| Composer::new_single_line("Commit message", cx));
-        cx.subscribe(&commit_input, |this, _composer, ev: &ComposerEvent, cx| {
-            if matches!(ev, ComposerEvent::Submitted) {
-                this.do_commit(cx);
-            }
-        })
-        .detach();
+        Self::wire_submit_events(&composer, &commit_input, cx);
         Self {
             state,
             list_state,
@@ -114,6 +109,8 @@ impl RootView {
             quickpick_selected: 0,
             os_lifecycle: crate::app::os_lifecycle::OsLifecycleState::default(),
             plugin_segment: crate::app::plugin_pane::PluginSegment::Public,
+            ws_collapsed: HashSet::new(),
+            session_limit_step: HashMap::new(),
         }
     }
 }
