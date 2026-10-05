@@ -4,6 +4,8 @@ use crate::backend::launcher::BackendLaunch;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 
 pub enum ConnEvent {
@@ -15,6 +17,81 @@ pub enum ConnEvent {
     Exited,
 }
 
+/// Hard per-connection backlog bound in queued bytes (protocol lines + stderr
+/// lines). The `v4/connection/flow` signal asks the CLI to pause long before
+/// this; hitting the bound means the CLI ignored the pause, so the producer
+/// drops further data lines and latches `overflow` — the pump then resyncs
+/// every route on drain (2026-10-05 audit P0.3).
+pub(crate) const MAX_BACKLOG_BYTES: usize = 64 * 1024 * 1024;
+
+/// Producer/consumer backlog accounting for one connection. The stdout/stderr
+/// producer threads admit events; the pump releases them after processing.
+/// Counting on the producer side is what makes the depth real: the old
+/// counter only observed the serial consumer and never exceeded ~1.
+#[derive(Clone, Default)]
+pub(crate) struct EventBacklog(Arc<Backlog>);
+
+#[derive(Default)]
+struct Backlog {
+    events: AtomicUsize,
+    bytes: AtomicUsize,
+    overflow: AtomicBool,
+}
+
+impl EventBacklog {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Queued events (producer-side; includes the event being processed).
+    pub(crate) fn depth(&self) -> usize {
+        self.0.events.load(Ordering::Relaxed)
+    }
+
+    /// Take and clear the overflow flag: true when lines were dropped.
+    pub(crate) fn take_overflow(&self) -> bool {
+        self.0.overflow.swap(false, Ordering::Relaxed)
+    }
+
+    /// Admit one event of `len` bytes. Returns false (and latches overflow)
+    /// when the hard byte bound would be exceeded: the caller must drop the
+    /// event instead of enqueueing it.
+    fn admit(&self, len: usize) -> bool {
+        if self.0.bytes.load(Ordering::Relaxed) + len > MAX_BACKLOG_BYTES {
+            self.0.overflow.store(true, Ordering::Relaxed);
+            return false;
+        }
+        self.0.events.fetch_add(1, Ordering::Relaxed);
+        self.0.bytes.fetch_add(len, Ordering::Relaxed);
+        true
+    }
+
+    /// Release one admitted event; returns the remaining depth.
+    pub(crate) fn release(&self, len: usize) -> usize {
+        self.0.bytes.fetch_sub(len, Ordering::Relaxed);
+        self.0.events.fetch_sub(1, Ordering::Relaxed) - 1
+    }
+}
+
+/// Admit one event onto the queue unless the hard byte bound is hit (then the
+/// event is dropped and overflow is latched). When the receiver is gone the
+/// count is rolled back so the backlog stays truthful for late observers.
+fn push_event(
+    backlog: &EventBacklog,
+    tx: &futures::channel::mpsc::UnboundedSender<ConnEvent>,
+    ev: ConnEvent,
+    len: usize,
+) -> bool {
+    if !backlog.admit(len) {
+        return true; // overflow: drop the event, keep draining the pipe
+    }
+    if tx.unbounded_send(ev).is_err() {
+        backlog.release(len);
+        return false;
+    }
+    true
+}
+
 pub struct Connection {
     pub events: futures::channel::mpsc::UnboundedReceiver<ConnEvent>,
     /// Protocol lines to write to child stdin (LF-terminated).
@@ -22,6 +99,8 @@ pub struct Connection {
     /// Force-kills the child (and its tree on Windows). Called on idle unload;
     /// on Windows the job object also guarantees death on frontend crash.
     pub kill: Box<dyn FnOnce() + Send>,
+    /// Backlog accounting shared with the pump (see EventBacklog).
+    pub backlog: EventBacklog,
 }
 
 /// Owned job object handle. Dropping it closes the handle, which (with
@@ -111,8 +190,13 @@ fn make_kill(child: &std::sync::Arc<std::sync::Mutex<Option<Child>>>) -> Box<dyn
 }
 
 pub fn spawn_connection(launch: &BackendLaunch, workspace: &Path) -> std::io::Result<Connection> {
+    // Sanitized environment: the launcher builds an explicit allowlist, and
+    // env_clear() guarantees nothing else leaks through (audit P0.4 — the
+    // GPUI process env can carry provider secrets or override variables from
+    // whatever shell launched the app).
     let mut child = Command::new(&launch.program)
         .args(&launch.args)
+        .env_clear()
         .envs(launch.envs.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .current_dir(workspace)
         .stdin(Stdio::piped())
@@ -130,6 +214,7 @@ pub fn spawn_connection(launch: &BackendLaunch, workspace: &Path) -> std::io::Re
 
     let (in_tx, in_rx) = std::sync::mpsc::channel::<String>();
     let (ev_tx, ev_rx) = futures::channel::mpsc::unbounded::<ConnEvent>();
+    let backlog = EventBacklog::new();
 
     std::thread::spawn(move || {
         for line in in_rx {
@@ -142,6 +227,7 @@ pub fn spawn_connection(launch: &BackendLaunch, workspace: &Path) -> std::io::Re
     });
 
     let out_tx = ev_tx.clone();
+    let out_backlog = backlog.clone();
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line in reader.lines() {
@@ -151,10 +237,12 @@ pub fn spawn_connection(launch: &BackendLaunch, workspace: &Path) -> std::io::Re
                     if l.is_empty() {
                         continue;
                     }
-                    if out_tx
-                        .unbounded_send(ConnEvent::Line(l.to_string()))
-                        .is_err()
-                    {
+                    let ev = ConnEvent::Line(l.to_string());
+                    let len = match &ev {
+                        ConnEvent::Line(s) => s.len(),
+                        _ => 0,
+                    };
+                    if !push_event(&out_backlog, &out_tx, ev, len) {
                         break;
                     }
                 }
@@ -165,18 +253,21 @@ pub fn spawn_connection(launch: &BackendLaunch, workspace: &Path) -> std::io::Re
     });
 
     let err_tx = ev_tx.clone();
+    let err_backlog = backlog.clone();
     std::thread::spawn(move || {
         let reader = BufReader::new(stderr);
         for line in reader.lines() {
             match line {
                 Ok(l) => {
-                    if err_tx.unbounded_send(ConnEvent::Log(l)).is_err() {
+                    let len = l.len();
+                    if !push_event(&err_backlog, &err_tx, ConnEvent::Log(l), len) {
                         break;
                     }
                 }
                 Err(_) => break,
             }
         }
+        // stderr EOF is not death; stdout's Exited event owns that signal.
     });
 
     #[cfg(windows)]
@@ -187,7 +278,7 @@ pub fn spawn_connection(launch: &BackendLaunch, workspace: &Path) -> std::io::Re
         let _ = child.wait();
     });
     #[cfg(not(windows))]
-    let child = std::sync::Arc::new(std::sync::Mutex::new(Some(child)));
+    let child = Arc::new(std::sync::Mutex::new(Some(child)));
     #[cfg(not(windows))]
     let kill = make_kill(&child);
     #[cfg(not(windows))]
@@ -211,6 +302,7 @@ pub fn spawn_connection(launch: &BackendLaunch, workspace: &Path) -> std::io::Re
         events: ev_rx,
         inbound: in_tx,
         kill,
+        backlog,
     })
 }
 

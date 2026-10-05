@@ -225,15 +225,21 @@ impl AppState {
         cx.notify();
     }
 
-    /// Subscribe acks carry the subscriptionId; resync needs it per topic.
+    /// Subscribe acks carry the subscriptionId + logEpoch (subscribeAckSchema);
+    /// resync needs the id per topic and route validation compares
+    /// generations by it.
     fn capture_subscription(&mut self, ws_key: &str, topic: &str, result: &Option<Value>) {
-        let sub = result
-            .as_ref()
-            .and_then(|r| r.get("ack"))
+        let ack = result.as_ref().and_then(|r| r.get("ack"));
+        let sub = ack
             .and_then(|a| a.get("subscriptionId"))
             .and_then(Value::as_str)
             .map(str::to_string);
-        if let Some(sub) = sub {
+        let epoch = ack
+            .and_then(|a| a.get("logEpoch"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        if let Some(sub) = sub.filter(|s| !s.is_empty()) {
             let full_topic = match topic {
                 "sessions-index" | "workspace-config" => {
                     let key = self.ws(ws_key).map(|w| w.key.clone()).unwrap_or_default();
@@ -242,7 +248,13 @@ impl AppState {
                 other => other.to_string(),
             };
             if let Some(ws) = self.ws_mut(ws_key) {
-                ws.subscriptions.insert(full_topic, sub);
+                ws.subscriptions.insert(
+                    full_topic,
+                    crate::backend::workspace::RouteSubscription {
+                        id: sub,
+                        log_epoch: epoch,
+                    },
+                );
             }
         }
     }

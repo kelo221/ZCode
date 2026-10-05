@@ -219,25 +219,62 @@ impl RootView {
                         }))
                         .child("+"),
                 )
-                .child(
-                    div()
-                        .id(SharedString::from(format!("discard-btn-{act_path}")))
-                        .px_1p5()
-                        .py_0p5()
-                        .rounded_sm()
-                        .bg(rgb(CARD))
-                        .hover(|h| h.bg(rgb(HOVER)))
-                        .opacity(0.)
-                        .group_hover("file-row", |s| s.opacity(1.))
-                        .text_size(px(10.))
-                        .text_color(rgb(DANGER))
-                        .cursor(CursorStyle::PointingHand)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.discard_file(&p2, is_untracked, cx);
-                        }))
-                        .child("✕"),
-                )
+                .children(if self.git.confirm_discard.as_deref() == Some(path) {
+                    // Armed confirmation (destructive op, 2026-10-05 audit):
+                    // second click discards; the "keep" chip disarms.
+                    vec![
+                        div()
+                            .id(SharedString::from(format!("discard-confirm-{act_path}")))
+                            .px_1p5()
+                            .py_0p5()
+                            .rounded_sm()
+                            .bg(rgb(DANGER))
+                            .opacity(1.)
+                            .text_size(px(10.))
+                            .text_color(rgb(crate::shared::theme::BG))
+                            .cursor(CursorStyle::PointingHand)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.discard_file(&p2, is_untracked, cx);
+                            }))
+                            .child("discard?"),
+                        div()
+                            .id(SharedString::from(format!("discard-keep-{act_path}")))
+                            .px_1p5()
+                            .py_0p5()
+                            .rounded_sm()
+                            .bg(rgb(CARD))
+                            .opacity(1.)
+                            .text_size(px(10.))
+                            .text_color(rgb(MUTED))
+                            .cursor(CursorStyle::PointingHand)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.cancel_discard(cx);
+                            }))
+                            .child("keep"),
+                    ]
+                } else {
+                    vec![
+                        div()
+                            .id(SharedString::from(format!("discard-btn-{act_path}")))
+                            .px_1p5()
+                            .py_0p5()
+                            .rounded_sm()
+                            .bg(rgb(CARD))
+                            .hover(|h| h.bg(rgb(HOVER)))
+                            .opacity(0.)
+                            .group_hover("file-row", |s| s.opacity(1.))
+                            .text_size(px(10.))
+                            .text_color(rgb(DANGER))
+                            .cursor(CursorStyle::PointingHand)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.discard_file(&p2, is_untracked, cx);
+                            }))
+                            .child("✕"),
+                    ]
+                })
             })
             .when(side == DiffSide::Staged, |el| {
                 let p1 = act_path.clone();

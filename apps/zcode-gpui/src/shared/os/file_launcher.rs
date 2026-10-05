@@ -61,11 +61,37 @@ pub fn reveal_in_file_manager(path: &Path) -> Result<(), std::io::Error> {
 pub fn open_with_system_default(path: &Path) -> Result<(), std::io::Error> {
     #[cfg(windows)]
     {
-        let mut cmd = Command::new("cmd.exe");
-        cmd.args(["/C", "start", "", &path.display().to_string()]);
-        cmd.creation_flags(0x08000000);
-        cmd.spawn()?;
-        Ok(())
+        // Direct ShellExecuteW — never `cmd.exe /C start`: workspace paths can
+        // contain shell metacharacters, and quoting rules around `start` are
+        // notoriously lossy (2026-10-05 audit P0.7).
+        use std::os::windows::ffi::OsStrExt;
+        use windows::Win32::UI::Shell::ShellExecuteW;
+        use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+        use windows::core::w;
+        let wide: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let hinstance = unsafe {
+            ShellExecuteW(
+                None,
+                w!("open"),
+                windows::core::PCWSTR(wide.as_ptr()),
+                None,
+                None,
+                SW_SHOWNORMAL,
+            )
+        };
+        // ShellExecuteW returns a value > 32 on success.
+        let code = hinstance.0 as isize;
+        if code > 32 {
+            Ok(())
+        } else {
+            Err(std::io::Error::other(format!(
+                "ShellExecuteW failed with code {code}"
+            )))
+        }
     }
 
     #[cfg(target_os = "macos")]

@@ -3,11 +3,28 @@
 //! Spec source: packages/shared/src/zcode-protocol-v4/ (wire.ts, wire-codec.ts,
 //! wire-binary.ts) and packages/services/src/zcode-agent/zcodeStdioTransport.ts
 //! (LF-delimited JSON lines, one object per line, UTF-8).
+//!
+//! The assembler mirrors the canonical TypeScript `TopicWireFrameAssembler`
+//! (packages/shared/src/zcode-protocol-v4/wire-assembler.ts): ordinal
+//! tombstones, per-route metadata equality, and the `PROTOCOL_V4_LIMITS`
+//! budgets are enforced before any logical frame is produced. Divergences are
+//! limited to what the route layer already tolerates (unknown payload kinds
+//! pass through; PARITY.md §6 keeps unknown enum values non-fatal).
 
-use base64::Engine;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+
+/// `PROTOCOL_V4_LIMITS.maxFrameBytes`: one NDJSON envelope (complete or
+/// fragment) must not exceed 1 MiB. Enforced on the re-serialized params in
+/// `ingest`, plus a cheaper raw-line guard in the event pump.
+pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_ASSEMBLY_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_FRAGMENTS: usize = 1024;
+pub(crate) const MAX_CONCURRENT_ASSEMBLIES: usize = 32;
+pub(crate) const MAX_STAGED_DECODED_BYTES: usize = 32 * 1024 * 1024;
+const ASSEMBLY_TIMEOUT: Duration = Duration::from_secs(30);
+const WIRE_VERSION: u64 = 3;
 
 /// One parsed inbound NDJSON message.
 pub enum Incoming {
@@ -60,34 +77,44 @@ pub fn parse_line(line: &str) -> Option<Incoming> {
 #[derive(Debug)]
 pub struct LogicalFrame {
     pub topic: String,
-    /// Routing is by topic prefix today; the id matters for multi-subscription
-    /// clients and frame buffering until the subscribe ack.
-    #[allow(dead_code)]
+    /// Generation identity of the subscription that delivered this frame; the
+    /// route layer refuses frames whose generation differs from the applied
+    /// cursor's (transport.ts: “代际标识，防旧流交错”).
     pub subscription_id: String,
     pub from_seq: u64,
     pub to_seq: u64,
     pub payload: Value,
 }
 
-fn logical_from_value(frame: &Value) -> Option<LogicalFrame> {
+/// Strict inner logical-frame parse: every field the route layer needs must be
+/// present with the right type — missing fields are faults, not defaults.
+pub(crate) fn logical_from_value(frame: &Value) -> Option<LogicalFrame> {
+    let topic = frame.get("topic")?.as_str()?.to_string();
+    let subscription_id = frame.get("subscriptionId")?.as_str()?.to_string();
+    let from_seq = frame.get("fromSeq")?.as_u64()?;
+    let to_seq = frame.get("toSeq")?.as_u64()?;
+    let payload = frame.get("payload")?;
+    payload.get("kind")?.as_str()?;
     Some(LogicalFrame {
-        topic: frame.get("topic")?.as_str()?.to_string(),
-        subscription_id: frame
-            .get("subscriptionId")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string(),
-        from_seq: frame.get("fromSeq").and_then(Value::as_u64).unwrap_or(0),
-        to_seq: frame.get("toSeq").and_then(Value::as_u64).unwrap_or(0),
-        payload: frame.get("payload").cloned().unwrap_or(Value::Null),
+        topic,
+        subscription_id,
+        from_seq,
+        to_seq,
+        payload: payload.clone(),
     })
 }
 
-struct Assembly {
+pub(crate) struct Assembly {
     ordinal: u64,
-    count: u32,
-    parts: Vec<Option<Vec<u8>>>,
-    crc: Option<u32>,
+    logical_frame_id: String,
+    delivery_kind: &'static str,
+    fragment_count: usize,
+    logical_bytes: usize,
+    /// 8 lowercase hex chars (crc32 of the whole logical JSON).
+    checksum: String,
+    fragments: Vec<Option<Vec<u8>>>,
+    received: usize,
+    decoded_bytes: usize,
     started: Instant,
 }
 
@@ -95,140 +122,55 @@ struct Assembly {
 ///
 /// Fragmentation is real over stdio (the encoder budget is dominated by the
 /// mobile-relay transport), so this is not optional. CRC-32 (IEEE, reflected)
-/// covers the whole logical JSON; fragments carry base64 slices.
+/// covers the whole logical JSON; fragments carry padded standard base64.
 pub struct FrameAssembler {
-    assemblies: HashMap<(String, String), Assembly>,
-    last_ordinal: HashMap<(String, String), u64>,
+    pub(super) assemblies: HashMap<(String, String), Assembly>,
+    /// Per-route tombstone of the last settled (ordinal, logicalFrameId).
+    /// Late arrivals below it are dropped; a conflicting id at the same
+    /// ordinal is a fault — a settled frame can never be resurrected.
+    settled: HashMap<(String, String), (u64, String)>,
+    pub(super) staged_decoded_bytes: usize,
+}
+
+fn req_str<'a>(obj: &'a serde_json::Map<String, Value>, key: &str) -> Result<&'a str, String> {
+    obj.get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("proto.frameAssemblyMetadataMismatch: missing string {key}"))
+}
+
+fn req_u64(obj: &serde_json::Map<String, Value>, key: &str) -> Result<u64, String> {
+    obj.get(key)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("proto.frameAssemblyMetadataMismatch: missing integer {key}"))
+}
+
+fn req_nonempty(obj: &serde_json::Map<String, Value>, key: &str) -> Result<String, String> {
+    let s = req_str(obj, key)?;
+    if s.is_empty() {
+        return Err(format!("proto.frameAssemblyMetadataMismatch: empty {key}"));
+    }
+    Ok(s.to_string())
 }
 
 impl FrameAssembler {
     pub fn new() -> Self {
         Self {
             assemblies: HashMap::new(),
-            last_ordinal: HashMap::new(),
+            settled: HashMap::new(),
+            staged_decoded_bytes: 0,
         }
     }
 
-    /// Ingest the params of a `v4/conversation/frame` notification.
-    /// Returns a logical frame when one fully arrived; Ok(None) for tombstoned
-    /// ordinals or incomplete fragment groups.
-    pub fn ingest(&mut self, params: &Value) -> Result<Option<LogicalFrame>, String> {
-        self.sweep_timeouts();
-        let kind = params
-            .get("kind")
-            .and_then(Value::as_str)
-            .ok_or("frame missing kind")?;
-        let topic = params
-            .get("topic")
-            .and_then(Value::as_str)
-            .ok_or("frame missing topic")?
-            .to_string();
-        let sub = params
-            .get("subscriptionId")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let ordinal = params
-            .get("logicalFrameOrdinal")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        let key = (topic.clone(), sub.clone());
+    pub(super) fn settle(&mut self, key: &(String, String), ordinal: u64, id: &str) {
+        self.settled.insert(key.clone(), (ordinal, id.to_string()));
+    }
 
-        // Ordinal is a tombstone: anything below the last settled ordinal is dropped.
-        if let Some(last) = self.last_ordinal.get(&key)
-            && ordinal < *last
-        {
-            return Ok(None);
-        }
-
-        match kind {
-            "complete" => {
-                let frame = params.get("frame").ok_or("complete frame missing frame")?;
-                let logical = logical_from_value(frame).ok_or("bad logical frame")?;
-                self.last_ordinal.insert(key, ordinal);
-                Ok(Some(logical))
-            }
-            "fragment" => {
-                let logical_id = params
-                    .get("logicalFrameId")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .to_string();
-                let index = params
-                    .get("fragmentIndex")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(0) as u32;
-                let count = params
-                    .get("fragmentCount")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(1) as u32;
-                let data_b64 = params
-                    .get("dataBase64")
-                    .and_then(Value::as_str)
-                    .unwrap_or("");
-                let crc = params
-                    .get("checksum")
-                    .and_then(|c| c.get("value"))
-                    .and_then(Value::as_str)
-                    .and_then(|hex| u32::from_str_radix(hex, 16).ok());
-
-                let chunk = base64::engine::general_purpose::STANDARD
-                    .decode(data_b64)
-                    .map_err(|e| format!("fragment base64 decode failed: {e}"))?;
-
-                let stale = match self.assemblies.get(&key) {
-                    Some(a) => a.ordinal != ordinal || a.count != count,
-                    None => true,
-                };
-                if stale {
-                    self.assemblies.insert(
-                        key.clone(),
-                        Assembly {
-                            ordinal,
-                            count,
-                            parts: vec![None; count as usize],
-                            crc,
-                            started: Instant::now(),
-                        },
-                    );
-                }
-                let assembly = self.assemblies.get_mut(&key).expect("just inserted");
-                if (index as usize) < assembly.parts.len() {
-                    assembly.parts[index as usize] = Some(chunk);
-                }
-                let all_present = assembly.parts.iter().all(|p| p.is_some());
-                if !all_present {
-                    return Ok(None);
-                }
-                let bytes: Vec<u8> = assembly
-                    .parts
-                    .iter()
-                    .filter_map(|p| p.as_ref())
-                    .flat_map(|c| c.iter().copied())
-                    .collect();
-                let crc = assembly.crc;
-
-                if let Some(expected) = crc {
-                    let actual = crc32fast::hash(&bytes);
-                    if actual != expected {
-                        self.assemblies.remove(&key);
-                        return Err(format!(
-                            "CRC mismatch on frame {logical_id} ({actual:08x} != {expected:08x})"
-                        ));
-                    }
-                }
-                self.assemblies.remove(&key);
-                self.last_ordinal.insert(key, ordinal);
-
-                let text = String::from_utf8(bytes).map_err(|e| format!("frame not utf-8: {e}"))?;
-                let value: Value =
-                    serde_json::from_str(&text).map_err(|e| format!("frame json invalid: {e}"))?;
-                logical_from_value(&value)
-                    .map(Some)
-                    .ok_or_else(|| "bad logical frame".to_string())
-            }
-            other => Err(format!("unknown frame kind {other}")),
-        }
+    /// Remove an assembly, returning its staged bytes to the global budget.
+    /// Returns the settled (ordinal, logicalFrameId) for tombstoning.
+    pub(super) fn release(&mut self, key: &(String, String)) -> Option<(u64, String)> {
+        let a = self.assemblies.remove(key)?;
+        self.staged_decoded_bytes -= a.decoded_bytes;
+        Some((a.ordinal, a.logical_frame_id))
     }
 
     /// Drop fragment groups stuck for >30s (the protocol's assembly cap) and
@@ -237,16 +179,162 @@ impl FrameAssembler {
         let stale: Vec<(String, String)> = self
             .assemblies
             .iter()
-            .filter(|(_, a)| a.started.elapsed() > Duration::from_secs(30))
+            .filter(|(_, a)| a.started.elapsed() > ASSEMBLY_TIMEOUT)
             .map(|(k, _)| k.clone())
             .collect();
         for key in &stale {
-            self.assemblies.remove(key);
+            if let Some((ordinal, id)) = self.release(key) {
+                self.settle(key, ordinal, &id);
+            }
         }
         stale.into_iter().map(|(topic, _)| topic).collect()
+    }
+
+    /// Drop all fragment state for `topics` (connection reset / unsubscribe):
+    /// active assemblies and their staged bytes are released. Tombstones for
+    /// those routes are cleared too — a fresh subscription re-keys the route.
+    pub fn forget_topics(&mut self, topics: &[String]) {
+        let doomed: Vec<(String, String)> = self
+            .assemblies
+            .keys()
+            .filter(|(topic, _)| topics.contains(topic))
+            .cloned()
+            .collect();
+        for key in &doomed {
+            let _ = self.release(key);
+        }
+        self.settled.retain(|(topic, _), _| !topics.contains(topic));
+    }
+
+    /// Ingest the params of a `v4/conversation/frame` notification.
+    /// Returns a logical frame when one fully arrived; Ok(None) for
+    /// tombstoned ordinals or incomplete fragment groups. Every Err carries a
+    /// canonical reason code; the caller must resync the route (nothing was
+    /// applied).
+    pub fn ingest(&mut self, params: &Value) -> Result<Option<LogicalFrame>, String> {
+        self.sweep_timeouts();
+        // Physical budget: the re-serialized envelope must fit maxFrameBytes
+        // (mirror of measureTopicNotificationEnvelopeBytes).
+        if serde_json::to_vec(params).is_ok_and(|b| b.len() > MAX_FRAME_BYTES) {
+            return Err("proto.frameEnvelopeTooLarge: physical frame exceeds 1 MiB".into());
+        }
+        let Some(obj) = params.as_object() else {
+            return Err("proto.frameAssemblyMetadataMismatch: envelope not an object".into());
+        };
+        if obj.get("wireVersion").and_then(Value::as_u64) != Some(WIRE_VERSION) {
+            return Err(format!(
+                "proto.frameAssemblyMetadataMismatch: wireVersion != {WIRE_VERSION}"
+            ));
+        }
+        let kind = req_str(obj, "kind")?;
+        let topic = req_nonempty(obj, "topic")?;
+        let sub = req_nonempty(obj, "subscriptionId")?;
+        let id = req_nonempty(obj, "logicalFrameId")?;
+        let ordinal = req_u64(obj, "logicalFrameOrdinal")?;
+        if ordinal == 0 {
+            return Err("proto.frameAssemblyMetadataMismatch: ordinal must be positive".into());
+        }
+        let delivery = match obj.get("deliveryKind").and_then(Value::as_str) {
+            // Distinct arms so each returns a 'static literal, not a borrow
+            // of the params.
+            Some("initial") => "initial",
+            Some("online") => "online",
+            Some("recovery") => "recovery",
+            _ => {
+                self.settle(&(topic.clone(), sub.clone()), ordinal, &id);
+                return Err("proto.frameAssemblyMetadataMismatch: invalid deliveryKind".into());
+            }
+        };
+        let key = (topic.clone(), sub.clone());
+
+        // Ordinal tombstone: below → silently stale; equal with a different id
+        // → conflict fault; equal with the same id → exact replay, dropped.
+        if let Some(&(settled_ord, ref settled_id)) = self.settled.get(&key) {
+            if ordinal < settled_ord {
+                return Ok(None);
+            }
+            if ordinal == settled_ord {
+                if settled_id.as_str() != id {
+                    return Err(format!(
+                        "proto.frameAssemblyOrdinalConflict: {ordinal} settled as {settled_id}, got {id}"
+                    ));
+                }
+                return Ok(None);
+            }
+        }
+
+        match kind {
+            "complete" => self.ingest_complete(key, obj, &topic, &sub, &id, ordinal),
+            "fragment" => self.ingest_fragment(key, obj, delivery, &topic, &sub, &id, ordinal),
+            other => Err(format!(
+                "proto.frameAssemblyMetadataMismatch: unknown kind {other}"
+            )),
+        }
+    }
+
+    fn ingest_complete(
+        &mut self,
+        key: (String, String),
+        obj: &serde_json::Map<String, Value>,
+        topic: &str,
+        sub: &str,
+        id: &str,
+        ordinal: u64,
+    ) -> Result<Option<LogicalFrame>, String> {
+        let fault =
+            |e: String| -> String { format!("{e} (complete frame {id}, ordinal {ordinal})") };
+        let frame = obj
+            .get("frame")
+            .ok_or_else(|| fault("proto.frameAssemblyMetadataMismatch: missing frame".into()))?;
+        // The inner logical frame must agree with the routing envelope.
+        if frame.get("topic").and_then(Value::as_str) != Some(topic)
+            || frame.get("subscriptionId").and_then(Value::as_str) != Some(sub)
+        {
+            self.settle(&key, ordinal, id);
+            return Err(fault(
+                "proto.frameAssemblyMetadataMismatch: frame/envelope route mismatch".into(),
+            ));
+        }
+        // A complete frame supersedes an incomplete fragment group on the
+        // route; the old group's seq hole is caught by the route cursor.
+        if let Some((old_ord, old_id)) = self.release(&key) {
+            self.settle(&key, old_ord, &old_id);
+        }
+        let logical = match logical_from_value(frame) {
+            Some(l) => l,
+            None => {
+                self.settle(&key, ordinal, id);
+                return Err(fault(
+                    "proto.frameAssemblyMetadataMismatch: bad logical frame".into(),
+                ));
+            }
+        };
+        if logical.to_seq < logical.from_seq {
+            self.settle(&key, ordinal, id);
+            return Err(fault(
+                "proto.frameAssemblyMetadataMismatch: toSeq < fromSeq".into(),
+            ));
+        }
+        self.settle(&key, ordinal, id);
+        Ok(Some(logical))
+    }
+}
+
+impl Default for FrameAssembler {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[cfg(test)]
+#[path = "wire_fault_tests.rs"]
+mod fault_tests;
+#[cfg(test)]
+#[path = "wire_test_helpers.rs"]
+mod helpers;
+#[cfg(test)]
 #[path = "wire_tests.rs"]
 mod tests;
+
+#[path = "wire_frag.rs"]
+mod wire_frag;

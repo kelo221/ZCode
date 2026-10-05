@@ -8,6 +8,7 @@ use gpui::{
     Window, canvas, div, prelude::*, px, rgb,
 };
 use std::ops::Range;
+use std::path::PathBuf;
 
 pub enum ComposerEvent {
     Submitted,
@@ -24,6 +25,9 @@ pub struct Composer {
     pub(crate) single_line: bool,
     pub(crate) placeholder: &'static str,
     pub(crate) attachments: Vec<AttachmentRef>,
+    /// Temp files this composer created for pasted images (owned: deleted on
+    /// remove; retired to the app on submit; 2026-10-05 audit P1.7).
+    pub(crate) temp_owned: Vec<PathBuf>,
     /// Atomic mention/skill chips (byte ranges into `content`).
     pub(crate) chips: ChipTable,
 }
@@ -38,6 +42,7 @@ impl Composer {
             single_line: false,
             placeholder: "Ask for follow-up changes",
             attachments: Vec::new(),
+            temp_owned: Vec::new(),
             chips: ChipTable::default(),
         }
     }
@@ -62,16 +67,33 @@ impl Composer {
         std::mem::take(&mut self.attachments)
     }
 
+    /// Hand over ownership of the temp files behind pasted images (call
+    /// alongside `take_attachments` on submit): the caller retires them so
+    /// they stay readable for the backend until app quit.
+    pub fn drain_temp_ownership(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.temp_owned)
+    }
+
     pub fn attachments(&self) -> &[AttachmentRef] {
         &self.attachments
     }
 
+    /// True when the attachment's reference is a temp file this composer
+    /// created (content-hash name under the owned prefix).
+    fn is_owned_temp(att: &AttachmentRef) -> bool {
+        crate::shared::temp_attachments::is_owned_path(&att.reference)
+    }
+
     pub fn add_attachment(&mut self, att: AttachmentRef, cx: &mut Context<Self>) {
+        let owned = Self::is_owned_temp(&att);
         if !self
             .attachments
             .iter()
             .any(|a| a.reference == att.reference)
         {
+            if owned {
+                self.temp_owned.push(PathBuf::from(&att.reference));
+            }
             self.attachments.push(att);
             cx.notify();
         }
@@ -79,7 +101,15 @@ impl Composer {
 
     pub fn remove_attachment(&mut self, index: usize, cx: &mut Context<Self>) {
         if index < self.attachments.len() {
-            self.attachments.remove(index);
+            let removed = self.attachments.remove(index);
+            // A pasted-image temp file we created dies with the attachment.
+            if Self::is_owned_temp(&removed) {
+                self.temp_owned
+                    .retain(|p| p.as_os_str() != removed.reference.as_str());
+                crate::shared::temp_attachments::delete_owned(std::path::Path::new(
+                    &removed.reference,
+                ));
+            }
             cx.notify();
         }
     }
@@ -226,21 +256,31 @@ impl Composer {
                             && !img.bytes.is_empty()
                         {
                             has_image = true;
-                            let ts = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .map(|d| d.as_millis())
-                                .unwrap_or(0);
-                            let file_name = format!("pasted_image_{ts}.png");
-                            let tmp_path = std::env::temp_dir().join(&file_name);
-                            if std::fs::write(&tmp_path, &img.bytes).is_ok() {
-                                let att = AttachmentRef {
-                                    reference: tmp_path.to_string_lossy().into_owned(),
-                                    file_name,
-                                    mime: "image/png".to_string(),
-                                    bytes: img.bytes.len() as u64,
-                                    preview_ref: None,
-                                };
-                                self.add_attachment(att, cx);
+                            // Content-derived temp name, owned by this
+                            // composer (deleted on remove / retired on
+                            // submit / swept at startup — see
+                            // shared::temp_attachments; the old timestamp
+                            // naming leaked files on every paste).
+                            match crate::shared::temp_attachments::write_temp_image(
+                                &img.bytes, "png",
+                            ) {
+                                Ok(tmp_path) => {
+                                    let file_name = tmp_path
+                                        .file_name()
+                                        .map(|n| n.to_string_lossy().into_owned())
+                                        .unwrap_or_default();
+                                    let att = AttachmentRef {
+                                        reference: tmp_path.to_string_lossy().into_owned(),
+                                        file_name,
+                                        mime: "image/png".to_string(),
+                                        bytes: img.bytes.len() as u64,
+                                        preview_ref: None,
+                                    };
+                                    self.add_attachment(att, cx);
+                                }
+                                Err(e) => {
+                                    eprintln!("[zcode-gpui] paste temp file failed: {e}");
+                                }
                             }
                         }
                     }

@@ -11,6 +11,7 @@ pub(crate) mod plugin_payloads;
 pub(crate) mod query_cmds;
 pub(crate) mod responses;
 pub(crate) mod reverse_rpc;
+pub(crate) mod route;
 pub(crate) mod session_cmds;
 pub(crate) mod wire;
 pub(crate) mod workflow_cmds;

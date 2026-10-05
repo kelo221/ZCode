@@ -1,48 +1,63 @@
-//! Connection event handling: pumps per workspace agent (with backpressure
-//! signaling), wire routing, fault recovery (resync) and auto-restart.
-//! Response correlation lives in backend/responses.rs.
+//! Connection event handling: pumps per workspace agent (with producer-side
+//! backpressure signaling), wire routing, fault recovery (resync) and
+//! auto-restart. Frame application lives in backend/route.rs; response
+//! correlation lives in backend/responses.rs.
 
 use crate::app::store::AppState;
+use crate::backend::conn::EventBacklog;
 use crate::backend::launcher::ConnEvent;
-use crate::backend::wire::Incoming;
-use crate::conversation::model::{ConversationState, SessionEntry};
 use futures::StreamExt;
 use gpui::{AppContext, Context};
 use serde_json::Value;
-use std::sync::atomic::Ordering;
 
-/// Queue depth at which we tell the CLI to stop streaming frames.
+/// Producer-side backlog at which we tell the CLI to stop streaming frames.
 const FLOW_HIGH: usize = 2000;
-/// Queue depth at which streaming may resume.
+/// Backlog at which streaming may resume.
 const FLOW_LOW: usize = 200;
 /// Consecutive agent crashes before we give up and ask the user to reconnect.
 const MAX_RESTARTS: u32 = 3;
+/// Raw lines above twice the physical frame budget are never parsed — the
+/// assembler would reject them anyway, so skip the allocation up front.
+const MAX_RAW_LINE_BYTES: usize = crate::backend::wire::MAX_FRAME_BYTES * 2;
 
-/// Attach the event pump for a workspace's agent connection. The pump counts
-/// its backlog and signals `v4/connection/flow` at the thresholds so the CLI
-/// pauses frame emission when we can't keep up.
+/// Attach the event pump for a workspace's agent connection. Backlog is
+/// counted on the producer side (each enqueued event), so the flow signal
+/// reflects real queue depth even when the serial consumer lags behind
+/// (2026-10-05 audit P0.3).
 pub(crate) fn attach_pump(
     cx: &mut Context<AppState>,
     ws_key: String,
-    pending: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    backlog: EventBacklog,
     mut events: futures::channel::mpsc::UnboundedReceiver<ConnEvent>,
 ) {
-    // Note: the counter is passed in — reading the entity here would panic
-    // when attach happens during the entity's own update (constructor/restart).
     cx.spawn(async move |this, cx| {
         while let Some(ev) = events.next().await {
-            let depth = pending.fetch_add(1, Ordering::Relaxed) + 1;
-            if depth == FLOW_HIGH {
+            // Depth includes everything the producer queued and we have not
+            // released yet — the true producer backlog.
+            if backlog.depth() >= FLOW_HIGH {
                 let key = ws_key.clone();
                 let _ = this.update(cx, |s, _| s.flow_latch(&key, true));
             }
+            let len = event_len(&ev);
+            let is_exit = matches!(ev, ConnEvent::Exited);
             let keep_going = this
                 .update(cx, |state, cx| state.handle_conn(&ws_key, ev, cx))
                 .unwrap_or(false);
-            let depth = pending.fetch_sub(1, Ordering::Relaxed) - 1;
-            if depth == FLOW_LOW {
+            // Exited bypassed producer admission, so it is never released.
+            let depth = if is_exit {
+                backlog.depth()
+            } else {
+                backlog.release(len)
+            };
+            if depth <= FLOW_LOW {
                 let key = ws_key.clone();
                 let _ = this.update(cx, |s, _| s.flow_latch(&key, false));
+            }
+            // Overflow means data lines were dropped at the hard byte bound;
+            // the mirrored state is now holey — resync every route.
+            if backlog.take_overflow() && keep_going {
+                let key = ws_key.clone();
+                let _ = this.update(cx, |s, _| s.resync_all(&key));
             }
             if !keep_going {
                 break;
@@ -50,6 +65,13 @@ pub(crate) fn attach_pump(
         }
     })
     .detach();
+}
+
+fn event_len(ev: &ConnEvent) -> usize {
+    match ev {
+        ConnEvent::Line(l) | ConnEvent::Log(l) => l.len(),
+        ConnEvent::Exited => 0,
+    }
 }
 
 impl AppState {
@@ -60,7 +82,7 @@ impl AppState {
         cx: &mut Context<Self>,
     ) -> bool {
         match ev {
-            ConnEvent::Line(line) => self.handle_line(ws_key, &line, cx),
+            ConnEvent::Line(line) => self.handle_line(ws_key, line, cx),
             ConnEvent::Log(l) => {
                 // Agent stderr can carry provider request dumps; scrub before
                 // it reaches the console or the in-memory log.
@@ -102,8 +124,9 @@ impl AppState {
                     self.push_log(format!(
                         "backend for {ws_key} died before startup, trying next candidate"
                     ));
-                    let pending = self.inflight_events.clone();
-                    attach_pump(cx, ws_key.to_string(), pending, events);
+                    if let Some(backlog) = self.ws(ws_key).and_then(|w| w.backlog.clone()) {
+                        attach_pump(cx, ws_key.to_string(), backlog, events);
+                    }
                 }
                 None => {
                     ws.status = "no backend".into();
@@ -153,7 +176,7 @@ impl AppState {
     }
 
     /// Clear per-connection mirrors so a fresh subscribe rebuilds them:
-    /// pending rpcs, subscription ids, seq tracking, subscribed flags.
+    /// pending rpcs, subscription ids, route cursors, fragment state.
     pub(crate) fn reset_connection_state(&mut self, ws_key: &str) {
         let sids: Vec<String> = match self.ws_mut(ws_key) {
             Some(ws) => {
@@ -175,9 +198,13 @@ impl AppState {
         for sid in &sids {
             stale.push(format!("conversation/{sid}"));
         }
-        for t in stale {
-            self.last_seq.remove(&t);
+        // Cursors AND fragment state die with the connection: a stale frame
+        // from the old generation must never be applied to the new one
+        // (2026-10-05 audit P0.1, "clear on route replacement").
+        for topic in &stale {
+            self.route_cursors.remove(topic);
         }
+        self.assembler.forget_topics(&stale);
         for sid in sids {
             if let Some(c) = self.conversations.get_mut(&sid) {
                 c.subscribed = false;
@@ -185,13 +212,20 @@ impl AppState {
         }
     }
 
-    fn handle_line(&mut self, ws_key: &str, line: &str, cx: &mut Context<Self>) -> bool {
-        let Some(incoming) = crate::backend::wire::parse_line(line) else {
+    fn handle_line(&mut self, ws_key: &str, line: String, cx: &mut Context<Self>) -> bool {
+        if line.len() > MAX_RAW_LINE_BYTES {
+            self.push_log(format!(
+                "dropped oversized line ({} bytes > {MAX_RAW_LINE_BYTES})",
+                line.len()
+            ));
+            return true;
+        }
+        let Some(incoming) = crate::backend::wire::parse_line(&line) else {
             self.push_log(format!("unparsable stdout line: {line:.120}"));
             return true;
         };
         match incoming {
-            Incoming::AgentRequest { id, method, params } => {
+            crate::backend::wire::Incoming::AgentRequest { id, method, params } => {
                 let action =
                     crate::backend::reverse_rpc::dispatch_reverse_rpc(&id, &method, &params);
                 match action {
@@ -204,7 +238,7 @@ impl AppState {
                     }
                 }
             }
-            Incoming::Notification { method, params } => {
+            crate::backend::wire::Incoming::Notification { method, params } => {
                 match method.as_str() {
                     "startup/storageState" => {
                         let phase = params.get("phase").and_then(Value::as_str).unwrap_or("");
@@ -250,146 +284,10 @@ impl AppState {
                 }
                 true
             }
-            Incoming::Response { id, result, error } => {
+            crate::backend::wire::Incoming::Response { id, result, error } => {
                 self.handle_response(ws_key, id, result, error, cx);
                 true
             }
-        }
-    }
-
-    fn route_frame(&mut self, frame: crate::backend::wire::LogicalFrame, cx: &mut Context<Self>) {
-        // Seq continuity check: frames cover (fromSeq, toSeq]. A gap means we
-        // missed frames — deltas can no longer be applied reliably, so ask the
-        // server for a fresh snapshot on that route.
-        let last = self.last_seq.get(&frame.topic).copied();
-        if let Some(last) = last
-            && frame.from_seq > last + 1
-        {
-            self.push_log(format!(
-                "seq gap on {}: expected ≤{}, got {}-{}",
-                frame.topic,
-                last + 1,
-                frame.from_seq,
-                frame.to_seq
-            ));
-            if let Some(ws_key) = self.ws_for_topic(&frame.topic) {
-                self.resync_topic(&ws_key, &frame.topic);
-            }
-        }
-        self.last_seq.insert(frame.topic.clone(), frame.to_seq);
-
-        let kind = frame
-            .payload
-            .get("kind")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        if let Some(ws_key) = frame.topic.strip_prefix("sessions-index/") {
-            self.apply_sessions_index(ws_key, &kind, &frame.payload);
-        } else if let Some(ws_key) = frame.topic.strip_prefix("workspace-config/") {
-            if let Some(cfg) = self.workspace_configs.get_mut(ws_key) {
-                match kind.as_str() {
-                    "snapshot" => {
-                        if let Some(config) =
-                            frame.payload.get("snapshot").and_then(|s| s.get("config"))
-                        {
-                            cfg.apply_state(config);
-                        }
-                    }
-                    "deltas" => {
-                        if let Some(deltas) = frame.payload.get("deltas").and_then(Value::as_array)
-                        {
-                            for d in deltas {
-                                if d.get("op").and_then(Value::as_str) == Some("config.updated")
-                                    && let Some(config) = d.get("config")
-                                {
-                                    cfg.apply_state(config);
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        } else if let Some(sid) = frame.topic.strip_prefix("conversation/") {
-            let state: &mut ConversationState =
-                self.conversations.entry(sid.to_string()).or_default();
-            match kind.as_str() {
-                "snapshot" => {
-                    state.subscribed = true;
-                    if let Some(snap) = frame.payload.get("snapshot") {
-                        state.apply_snapshot(snap);
-                    }
-                }
-                "deltas" => {
-                    if let Some(deltas) = frame.payload.get("deltas").and_then(Value::as_array) {
-                        state.apply_deltas(deltas);
-                    }
-                }
-                _ => {}
-            }
-        }
-        cx.notify();
-    }
-
-    fn apply_sessions_index(&mut self, ws_key: &str, kind: &str, payload: &Value) {
-        let first_sid = match kind {
-            "snapshot" => {
-                let Some(ws) = self.ws_mut(ws_key) else {
-                    return;
-                };
-                let mut list: Vec<SessionEntry> = payload
-                    .get("snapshot")
-                    .and_then(|s| s.get("sessions"))
-                    .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(SessionEntry::from_value).collect())
-                    .unwrap_or_default();
-                list.sort_by_key(|s| std::cmp::Reverse(s.last_activity_at));
-                let first = list.first().map(|s| s.session_id.clone());
-                ws.sessions = list;
-                first
-            }
-            "deltas" => {
-                let Some(ws) = self.ws_mut(ws_key) else {
-                    return;
-                };
-                let Some(deltas) = payload.get("deltas").and_then(Value::as_array) else {
-                    return;
-                };
-                for d in deltas {
-                    match d.get("op").and_then(Value::as_str).unwrap_or("") {
-                        "session.upserted" => {
-                            if let Some(e) = d.get("session").and_then(SessionEntry::from_value) {
-                                if let Some(s) = ws
-                                    .sessions
-                                    .iter_mut()
-                                    .find(|s| s.session_id == e.session_id)
-                                {
-                                    *s = e;
-                                } else {
-                                    ws.sessions.push(e);
-                                }
-                            }
-                        }
-                        "session.removed" => {
-                            if let Some(sid) = d.get("sessionId").and_then(Value::as_str) {
-                                ws.sessions.retain(|s| s.session_id != sid);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                ws.sort_sessions();
-                None
-            }
-            _ => None,
-        };
-        if self.active.is_none()
-            && !self.draft
-            && let Some(sid) = first_sid
-        {
-            self.active = Some(sid.clone());
-            self.subscribe_conversation(ws_key, &sid);
         }
     }
 }

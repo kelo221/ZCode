@@ -264,8 +264,17 @@ impl RootView {
 
     pub(crate) fn submit(&mut self, cx: &mut Context<Self>) {
         let (text, attachments) = self.state.update(cx, |s, cx| {
-            s.composer
-                .update(cx, |c, _ccx| (c.take_text(), c.take_attachments()))
+            let (text, attachments, retired) = s.composer.update(cx, |c, _ccx| {
+                (
+                    c.take_text(),
+                    c.take_attachments(),
+                    c.drain_temp_ownership(),
+                )
+            });
+            // Pasted-image temp files stay readable for the backend until
+            // quit; ownership moves to the app-level retire list.
+            s.retired_temp_files.extend(retired);
+            (text, attachments)
         });
         self.state
             .update(cx, |s, cx| s.send_with_attachments(&text, attachments, cx));

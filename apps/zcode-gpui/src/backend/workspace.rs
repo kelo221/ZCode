@@ -85,6 +85,18 @@ impl CommandCtx {
     }
 }
 
+/// Subscription identity captured from a subscribe ack (subscribeAckSchema:
+/// `subscriptionId` + `logEpoch`). The id is the wire generation marker; the
+/// epoch is the host log generation behind it. Route cursors and frame
+/// validation use the id; the epoch is carried for diagnostics and future
+/// base-resume support.
+#[derive(Clone, Debug)]
+pub(crate) struct RouteSubscription {
+    pub(crate) id: String,
+    #[allow(dead_code)]
+    pub(crate) log_epoch: String,
+}
+
 /// Purpose classification for a workspace: projects belong to a directory or
 /// repository, while conversations (tasks) use the app-managed default workspace.
 /// Desktop parity: packages/shared/src/workspacePurpose.ts.
@@ -122,8 +134,12 @@ pub struct WorkspaceHandle {
     /// Stable connection id for this workspace's agent link (resync/flow
     /// reference it; re-subscribe replaces by (connectionId, topic)).
     pub(crate) connection_id: String,
-    /// topic → subscriptionId, captured from subscribe acks (resync needs it).
-    pub(crate) subscriptions: HashMap<String, String>,
+    /// topic → subscription identity, captured from subscribe acks (resync
+    /// needs the id; route validation compares generations by it).
+    pub(crate) subscriptions: HashMap<String, RouteSubscription>,
+    /// Producer/consumer backlog accounting for the current connection
+    /// (backpressure + the hard byte bound). None while not spawned.
+    pub(crate) backlog: Option<crate::backend::conn::EventBacklog>,
     /// Consecutive crashes of the agent (reset when storage reaches ready).
     pub(crate) restart_attempts: u32,
 }
@@ -156,6 +172,7 @@ impl WorkspaceHandle {
             desired_conversation: None,
             connection_id: uuid::Uuid::now_v7().to_string(),
             subscriptions: HashMap::new(),
+            backlog: None,
             restart_attempts: 0,
         }
     }
@@ -170,7 +187,8 @@ impl WorkspaceHandle {
     }
 
     /// Spawn (or fall back to) the next backend candidate. Returns the event
-    /// receiver for the store's pump task when a process came up.
+    /// receiver for the store's pump task when a process came up; the
+    /// connection's backlog counter is stored on the handle.
     pub fn try_spawn(&mut self) -> Option<futures::channel::mpsc::UnboundedReceiver<ConnEvent>> {
         let launch = self.candidates.get(self.candidate_idx)?;
         let used = self.candidate_idx;
@@ -182,6 +200,7 @@ impl WorkspaceHandle {
                 self.working_candidate = used;
                 self.inbound = Some(conn.inbound);
                 self.kill = Some(conn.kill);
+                self.backlog = Some(conn.backlog);
                 Some(conn.events)
             }
             Err(e) => {

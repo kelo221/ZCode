@@ -184,8 +184,13 @@ pub fn execute_quickpick_action(
             this.state.update(cx, |s, cx| s.new_chat(cx));
         }
         QuickPickItemAction::Command(QuickPickAction::OpenWorkspace) => {
+            // Marked unavailable rather than silently logging (2026-10-05
+            // audit): the GPUI preview has no directory picker yet; new
+            // projects are added by launching with `--workspace <path>`.
             this.state.update(cx, |state, cx| {
-                state.push_log("open workspace requested".into());
+                state.push_error(
+                    "Open Workspace is not available in the GPUI preview yet — launch with --workspace <path>".into(),
+                );
                 cx.notify();
             });
         }
@@ -213,10 +218,21 @@ pub fn execute_quickpick_action(
             cx.notify();
         }
         QuickPickItemAction::Command(QuickPickAction::OpenSettings) => {
-            this.state.update(cx, |state, cx| {
-                state.push_log("Settings: configured via ~/.zcode/v2/setting.json".into());
-                cx.notify();
-            });
+            // Real action: open the same settings file the app reads at
+            // startup (and which update_settings writes) in the user's
+            // editor; the system default opener is the fallback.
+            let path = crate::shared::settings::settings_file_path();
+            if let Err(e) = crate::shared::os::file_launcher::open_in_editor(&path) {
+                this.state.update(cx, |state, cx| {
+                    state.push_error(format!("cannot open settings: {e}"));
+                    cx.notify();
+                });
+            } else {
+                this.state.update(cx, |state, cx| {
+                    state.push_log(format!("opened settings file {}", path.display()));
+                    cx.notify();
+                });
+            }
         }
         QuickPickItemAction::Command(QuickPickAction::OpenInEditor) => {
             if let Some(path) = this.active_workspace_path(cx) {

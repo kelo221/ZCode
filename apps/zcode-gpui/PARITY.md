@@ -39,29 +39,34 @@ bots, conversation share, whiteboard, treemapping, model-trajectory and develope
 panes, feedback center, resource-manager window, coding-plan purchase webview, ARMS
 telemetry. The app shows "Open in ZCode desktop" where a user would otherwise hit one.
 
-## 2. Where we actually are (audit 2026-10-03)
+## 2. Where we actually are (audit 2026-10-03; corrected 2026-10-05)
 
 v1 marked M0–M3 done. Across the v2 implementation run, milestones P0, M4, M5, M6, M7, M8,
-and M10 have all been completed with green CI, 198 passing unit/smoke tests, and strict
+and M10 have all been completed with green CI, 221 passing unit/smoke tests, and strict
 conformance to repo constraints (<= 400 lines/file, pure Apache-2.0, no backend forks).
+
+**Evidence note (2026-10-05):** an external parity audit correctly flagged that several
+"Done" rows below described models/helpers/tests rather than user-reachable runtime
+behavior. The rows now say exactly what is wired and what is scaffolding. Rule going
+forward: "Done" means the running app exposes the behavior, not that a model exists.
 
 | Area | State |
 |---|---|
-| Wire, resync, `rowsRange` paging, backpressure, crash-restart | Done (golden tests) |
+| Route cursors, frame assembler, transport backpressure | **Done (2026-10-05)**: `(subscriptionId, seq)` route cursors with exact `(fromSeq == cursor.seq)` continuity, stale/duplicate drop and no-apply-on-gap; fragment assembler enforces the canonical `PROTOCOL_V4_LIMITS` (1 MiB physical, 16 MiB assembly, 1024 fragments, 32 concurrent, 32 MiB staged) with metadata-equality and conflict faults; producer-side backlog counting with a 64 MiB hard bound, overflow → full resync. Golden tests cover the audit's required cases. |
 | Chat core: interactions via `resolveInteraction`, edit/retry/undo, queue send/delete/autodrain, rename/delete, drafts | Done |
 | Markdown, syntect, diff view, virtualized transcript | Done |
-| Review pane, files pane, terminal drawer | Done |
-| **P0: Reverse RPC & Launch parity** | **Done**: `--surface desktop`, env mirroring, explicit reverse RPC table |
-| **M4: Attachments, slash commands, @mentions, V4 goal/queue cmds** | **Done**: 512 KiB chunking, catalog-backed `/` & `@`, queue actions |
-| **M5: Settings, i18n, theme, shortcuts, quickpick** | **Done**: dual-language i18n table generation, light/dark themes, 25 shortcuts, quickpick palette |
-| **M6: Lifecycle & OS integration** | **Done**: single-instance pipe, notifications, keep-awake, log export |
-| **M7: Workflows, automations, usage, MCP, subagents** | **Done**: delta reducer (header→removals→upserts), workflow timeline, MCP list, usage stats, subagents |
+| Review pane, files pane, terminal drawer | Done (basic; discard now confirms, commit drafts survive failure, git has timeouts + no-prompt env) |
+| **P0: Reverse RPC & Launch parity** | **Done**: `--surface desktop`, explicit reverse RPC table, `env_clear()` + allowlisted child environment (system passthrough + proxy/data vars only) |
+| **M4: Attachments, slash commands, @mentions, V4 goal/queue cmds** | **Partial**: chunk/begin/commit helpers and strict params exist with tests, but the upload transaction is **not wired into the send path** — local-path attachments are what ships. Catalog-backed `/` & `@`, queue actions: Done. |
+| **M5: Settings, i18n, theme, shortcuts, quickpick** | **Startup-only, not runtime parity**: settings/locale/theme/font size are *read once* at launch; there is no settings UI and no runtime persistence (`update_settings` has no live caller); visible surfaces still use hard-coded dark constants and `px()` sizes; translation tables exist but `t()` is concentrated in QuickPick; the shortcut catalog is declarative while startup binds six fixed keys and ignores `shortcut_bindings`. QuickPick Open Settings now opens the real file; Open Workspace reports itself unavailable. |
+| **M6: Lifecycle & OS integration** | **Partial**: single-instance is Windows-only (named mutex + hidden window; activation callback is a no-op), notifications/keep-awake are minimal, no tray/multi-window. Log export: Done. |
+| **M7: Workflows, automations, usage, MCP, subagents** | **Partial**: workflow delta reducer, timeline, resume, MCP list, usage stats, subagents: Done. Automations/off-peak fail fast by design (host-owned; D3) — not scheduled locally. |
 | **M8: Plugin store** | **Done**: CONTEXT.md lifecycle, official vs personal marketplaces, installed strip, restorable builtins |
-| **M10: Distribution & packaging** | **Done**: version sync (3.14.3), commit embedding, manifest updater, release packager, cross-platform CI matrix |
+| **M10: Distribution & packaging** | **Scaffolding**: version sync, commit embedding, manifest updater and the packager script exist, but the script copies a bare binary + manifest — no installer bundle, sidecar backend, signing, or update fetch/install path yet. |
 | **Subagents & Background Work** | **Done**: V4 row/projection, card pairing, dock review section, child navigation, read-only gating, sidebar filter |
 | **Ely Framework & Visual Polish** | **Done**: Zed git rev `1a28cff` pin, `ely-gpui-component` integration, Inter & JetBrains Mono font assets, synthesized tool diff cards, provider model grouping |
-| **Cross-Process Live Synchronization** | **Done**: Client tail-polling (`rowsRange` 3s probe), cold store-fingerprint detection, gateway rehydration on external updates |
-| **`cargo fmt --check`, `clippy -D warnings`, `cargo test`** | **Green** (198 tests pass, zero warnings; clippy also clean with `--all-targets`) |
+| **Cross-Process Live Synchronization** | **Partial**: active-conversation tail polling (`rowsRange` 3s probe) + resync refresh; background sessions, pin/archive and other host state are not synchronized. |
+| **`cargo fmt --check`, `clippy -D warnings`, `cargo test`** | Green (clippy also clean with `--all-targets`) |
 
 ## 3. The real blockers v1 missed
 
@@ -378,8 +383,23 @@ API-key providers, which work without it.
   the CLI's binding check must fail closed. Unknown methods get the desktop's
   `-32601 "Unsupported ZCode Protocol request: <method>"`.
 
-### Audit invariants (2026-10-03)
+### Audit invariants (2026-10-03, extended 2026-10-05)
 
+- **Transport (2026-10-05 audit P0.1/P0.2/P0.3)**: route cursors key on
+  `(subscriptionId, logEpoch, seq)`; deltas apply only when
+  `fromSeq == cursor.seq` (a one-event gap is a gap); stale/duplicate frames
+  (`toSeq <= cursor.seq`) and old-generation frames are dropped without
+  touching state; any discontinuity resyncs and returns before the reducer
+  runs. The fragment assembler enforces the canonical limits and faults with
+  the canonical reason codes; cursor and fragment state are cleared together
+  on reconnect/unsubscribe/workspace unload. Event transport counts backlog on
+  the producer side with a 64 MiB hard bound; overflow drops lines and
+  resyncs all routes instead of growing memory.
+- **Child environment (P0.4)**: the backend is spawned with `env_clear()` and
+  an explicit allowlist (system basics + proxy + ZCODE data vars); variables
+  like `GLM_BINARY_PATH` or `NODE_OPTIONS` can no longer leak into the agent.
+- **Client identity (P1.10)**: `client_id` is created once under
+  `<data>/v2/gpui-client-id` and reused across processes.
 - **Secrets**: every sink (in-memory log, agent stderr echo, error banners,
   `lastError` text, panic log, exported log bundle) goes through
   `shared::redact::scrub` (credential keys, `Bearer`/`Basic`, `sk-`/`ghp_`/`AKIA`/JWT
