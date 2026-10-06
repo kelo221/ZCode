@@ -3,12 +3,15 @@
 
 #![allow(dead_code)]
 
+use crate::shared::theme::ui_size;
+use crate::shared::theme_colors::color as rgb;
+
 pub use crate::app::quickpick_items::*;
 use crate::app::root::RootView;
 use crate::shared::theme::*;
 use gpui::{
     AnyElement, Context, ElementId, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    Styled, Window, div, px, rgb, rgba,
+    Styled, Window, div, px, rgba,
 };
 
 gpui::actions!(quickpick, [ToggleQuickPick, SwitchThemeAction]);
@@ -19,7 +22,15 @@ pub fn render_quickpick_modal(
     cx: &mut Context<RootView>,
 ) -> AnyElement {
     let app = this.state.read(cx);
-    let items = get_quickpick_items(&app.workspaces, &this.quickpick_query);
+    let mut items = get_quickpick_items(&app.workspaces, &this.quickpick_query);
+    let preferences = cx
+        .global::<crate::shared::preferences::PreferenceOwner>()
+        .0
+        .clone();
+    apply_shortcut_labels(
+        &mut items,
+        preferences.read(cx).snapshot.shortcut_bindings.as_ref(),
+    );
     let count = items.len();
     let selected = this.quickpick_selected.min(count.saturating_sub(1));
 
@@ -54,8 +65,8 @@ pub fn render_quickpick_modal(
                 .justify_between()
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |this, _, _window, cx| {
-                        execute_quickpick_action(this, &action, cx);
+                    cx.listener(move |this, _, window, cx| {
+                        execute_quickpick_action(this, &action, window, cx);
                     }),
                 )
                 .child(
@@ -66,7 +77,7 @@ pub fn render_quickpick_modal(
                         .gap_2()
                         .child(
                             div()
-                                .text_size(px(10.))
+                                .text_size(px(ui_size(10.)))
                                 .px_1()
                                 .rounded_sm()
                                 .bg(rgb(HOVER))
@@ -75,14 +86,14 @@ pub fn render_quickpick_modal(
                         )
                         .child(
                             div()
-                                .text_size(px(13.))
+                                .text_size(px(ui_size(13.)))
                                 .text_color(rgb(TEXT))
                                 .child(item.title),
                         ),
                 )
                 .children(item.shortcut.map(|sc| {
                     div()
-                        .text_size(px(11.))
+                        .text_size(px(ui_size(11.)))
                         .px_1p5()
                         .py_0p5()
                         .rounded_sm()
@@ -104,6 +115,8 @@ pub fn render_quickpick_modal(
 
     div()
         .id("quickpick-overlay")
+        // QuickPick 焦点必须在渲染树中；否则 Enter 会落回隐藏 composer，触发发送。
+        .track_focus(&this.settings.focus)
         .absolute()
         .inset_0()
         .bg(rgba(0x00000088))
@@ -113,10 +126,7 @@ pub fn render_quickpick_modal(
         .pt(px(60.))
         .on_mouse_down(
             MouseButton::Left,
-            cx.listener(|this, _, _, cx| {
-                this.quickpick_open = false;
-                cx.notify();
-            }),
+            cx.listener(|this, _, window, cx| this.close_command_center(window, cx)),
         )
         .child(
             div()
@@ -153,13 +163,13 @@ pub fn render_quickpick_modal(
                         .child(
                             div()
                                 .flex_1()
-                                .text_size(px(13.))
+                                .text_size(px(ui_size(13.)))
                                 .text_color(query_color)
                                 .child(query_display),
                         )
                         .child(
                             div()
-                                .text_size(px(10.))
+                                .text_size(px(ui_size(10.)))
                                 .px_1()
                                 .rounded_sm()
                                 .border_1()
@@ -176,63 +186,37 @@ pub fn render_quickpick_modal(
 pub fn execute_quickpick_action(
     this: &mut RootView,
     action: &QuickPickItemAction,
+    window: &mut Window,
     cx: &mut Context<RootView>,
 ) {
-    this.quickpick_open = false;
+    this.close_command_center(window, cx);
     match action {
         QuickPickItemAction::Command(QuickPickAction::NewTask) => {
-            this.state.update(cx, |s, cx| s.new_chat(cx));
+            this.close_settings(window, cx);
+            this.state.update(cx, |s, cx| s.new_conversation_chat(cx));
         }
         QuickPickItemAction::Command(QuickPickAction::OpenWorkspace) => {
-            // Marked unavailable rather than silently logging (2026-10-05
-            // audit): the GPUI preview has no directory picker yet; new
-            // projects are added by launching with `--workspace <path>`.
-            this.state.update(cx, |state, cx| {
-                state.push_error(
-                    "Open Workspace is not available in the GPUI preview yet — launch with --workspace <path>".into(),
-                );
-                cx.notify();
-            });
+            this.close_settings(window, cx);
+            // Real action (Electron parity: Open folder → native directory
+            // picker); the picked folder becomes a project workspace.
+            this.open_project_dialog(cx);
         }
         QuickPickItemAction::Command(QuickPickAction::ToggleSidePane) => {
+            this.close_settings(window, cx);
             this.dock_open = !this.dock_open;
             cx.notify();
         }
         QuickPickItemAction::Command(QuickPickAction::ToggleTerminal) => {
+            this.close_settings(window, cx);
             this.term_open = !this.term_open;
             if this.term_open {
                 this.ensure_term(cx);
             }
             cx.notify();
         }
-        QuickPickItemAction::Command(QuickPickAction::SwitchTheme) => {
-            let next_mode = match theme_mode() {
-                ThemeMode::ZaiLight => ThemeMode::ZaiDark,
-                _ => ThemeMode::ZaiLight,
-            };
-            set_theme_mode(next_mode);
-            this.state.update(cx, |state, cx| {
-                state.push_log(format!("Switched theme to {}", next_mode.as_str()));
-                cx.notify();
-            });
-            cx.notify();
-        }
+        QuickPickItemAction::Command(QuickPickAction::SwitchTheme) => this.switch_theme(cx),
         QuickPickItemAction::Command(QuickPickAction::OpenSettings) => {
-            // Real action: open the same settings file the app reads at
-            // startup (and which update_settings writes) in the user's
-            // editor; the system default opener is the fallback.
-            let path = crate::shared::settings::settings_file_path();
-            if let Err(e) = crate::shared::os::file_launcher::open_in_editor(&path) {
-                this.state.update(cx, |state, cx| {
-                    state.push_error(format!("cannot open settings: {e}"));
-                    cx.notify();
-                });
-            } else {
-                this.state.update(cx, |state, cx| {
-                    state.push_log(format!("opened settings file {}", path.display()));
-                    cx.notify();
-                });
-            }
+            this.open_settings(window, cx)
         }
         QuickPickItemAction::Command(QuickPickAction::OpenInEditor) => {
             if let Some(path) = this.active_workspace_path(cx) {
@@ -255,6 +239,7 @@ pub fn execute_quickpick_action(
             }
         }
         QuickPickItemAction::OpenSession { sid, ws_key } => {
+            this.close_settings(window, cx);
             this.state.update(cx, |state, cx| {
                 state.select_session(ws_key, sid, cx);
             });
@@ -266,16 +251,24 @@ pub fn execute_quickpick_action(
 pub fn handle_quickpick_key(
     this: &mut RootView,
     ev: &gpui::KeyDownEvent,
+    window: &mut Window,
     cx: &mut Context<RootView>,
 ) -> bool {
     let app = this.state.read(cx);
-    let items = get_quickpick_items(&app.workspaces, &this.quickpick_query);
+    let mut items = get_quickpick_items(&app.workspaces, &this.quickpick_query);
+    let preferences = cx
+        .global::<crate::shared::preferences::PreferenceOwner>()
+        .0
+        .clone();
+    apply_shortcut_labels(
+        &mut items,
+        preferences.read(cx).snapshot.shortcut_bindings.as_ref(),
+    );
     let count = items.len();
 
     match ev.keystroke.key.as_str() {
         "escape" => {
-            this.quickpick_open = false;
-            cx.notify();
+            this.close_command_center(window, cx);
             true
         }
         "up" => {
@@ -299,7 +292,7 @@ pub fn handle_quickpick_key(
         "enter" => {
             if count > 0 && this.quickpick_selected < count {
                 let action = items[this.quickpick_selected].action.clone();
-                execute_quickpick_action(this, &action, cx);
+                execute_quickpick_action(this, &action, window, cx);
             }
             true
         }

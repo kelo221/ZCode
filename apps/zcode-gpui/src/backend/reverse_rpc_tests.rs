@@ -5,12 +5,12 @@ fn test_raced_interactions_stay_unanswered() {
     let id = serde_json::json!("req-1");
     let params = serde_json::json!({});
 
-    match dispatch_reverse_rpc(&id, "interaction/requestPermission", &params) {
+    match dispatch_reverse_rpc(&id, "interaction/requestPermission", &params, false) {
         ReverseRpcAction::Raced => {}
         _ => panic!("interaction/requestPermission must be Raced"),
     }
 
-    match dispatch_reverse_rpc(&id, "interaction/requestUserInput", &params) {
+    match dispatch_reverse_rpc(&id, "interaction/requestUserInput", &params, false) {
         ReverseRpcAction::Raced => {}
         _ => panic!("interaction/requestUserInput must be Raced"),
     }
@@ -20,7 +20,12 @@ fn test_raced_interactions_stay_unanswered() {
 fn test_provider_runtime_headers_fast_fails() {
     let id = serde_json::json!("req-headers");
     let params = serde_json::json!({});
-    match dispatch_reverse_rpc(&id, "interaction/requestProviderRuntimeHeaders", &params) {
+    match dispatch_reverse_rpc(
+        &id,
+        "interaction/requestProviderRuntimeHeaders",
+        &params,
+        false,
+    ) {
         ReverseRpcAction::Respond(resp) => {
             let val: Value = serde_json::from_str(&resp).unwrap();
             assert_eq!(val["id"], "req-headers");
@@ -40,15 +45,17 @@ fn test_provider_runtime_headers_fast_fails() {
 fn test_runtime_preferences_served() {
     let id = serde_json::json!(42);
     let params = serde_json::json!({});
-    match dispatch_reverse_rpc(&id, "session/requestRuntimePreferences", &params) {
-        ReverseRpcAction::Respond(resp) => {
-            let val: Value = serde_json::from_str(&resp).unwrap();
-            assert_eq!(val["id"], 42);
-            assert_eq!(val["result"]["askUserQuestionAutoResolutionEnabled"], true);
-            assert_eq!(val["result"]["nativeSearchEnhancementsEnabled"], true);
-            assert_eq!(val["result"]["memoryEnabled"], false);
+    for enabled in [false, true] {
+        match dispatch_reverse_rpc(&id, "session/requestRuntimePreferences", &params, enabled) {
+            ReverseRpcAction::Respond(resp) => {
+                let val: Value = serde_json::from_str(&resp).unwrap();
+                assert_eq!(val["id"], 42);
+                assert_eq!(val["result"]["askUserQuestionAutoResolutionEnabled"], true);
+                assert_eq!(val["result"]["nativeSearchEnhancementsEnabled"], true);
+                assert_eq!(val["result"]["memoryEnabled"], enabled);
+            }
+            _ => panic!("Must respond"),
         }
-        _ => panic!("Must respond"),
     }
 }
 
@@ -57,7 +64,7 @@ fn test_browser_and_mcp_requests() {
     let id = serde_json::json!("b1");
     let params = serde_json::json!({});
 
-    match dispatch_reverse_rpc(&id, "interaction/browserList", &params) {
+    match dispatch_reverse_rpc(&id, "interaction/browserList", &params, false) {
         ReverseRpcAction::Respond(resp) => {
             let val: Value = serde_json::from_str(&resp).unwrap();
             assert_eq!(val["result"]["browsers"].as_array().unwrap().len(), 0);
@@ -65,7 +72,7 @@ fn test_browser_and_mcp_requests() {
         _ => panic!("Must respond"),
     }
 
-    match dispatch_reverse_rpc(&id, "interaction/browserExecute", &params) {
+    match dispatch_reverse_rpc(&id, "interaction/browserExecute", &params, false) {
         ReverseRpcAction::Respond(resp) => {
             let val: Value = serde_json::from_str(&resp).unwrap();
             assert_eq!(val["result"]["ok"], false);
@@ -74,7 +81,12 @@ fn test_browser_and_mcp_requests() {
         _ => panic!("Must respond"),
     }
 
-    match dispatch_reverse_rpc(&id, "interaction/requestOfficialMcpAuthHeaders", &params) {
+    match dispatch_reverse_rpc(
+        &id,
+        "interaction/requestOfficialMcpAuthHeaders",
+        &params,
+        false,
+    ) {
         ReverseRpcAction::Respond(resp) => {
             let val: Value = serde_json::from_str(&resp).unwrap();
             assert_eq!(val["result"]["ok"], false);
@@ -86,7 +98,7 @@ fn test_browser_and_mcp_requests() {
 
 fn respond(method: &str) -> Value {
     let id = serde_json::json!("auto-1");
-    match dispatch_reverse_rpc(&id, method, &serde_json::json!({})) {
+    match dispatch_reverse_rpc(&id, method, &serde_json::json!({}), false) {
         ReverseRpcAction::Respond(resp) => serde_json::from_str(&resp).unwrap(),
         ReverseRpcAction::Raced => panic!("{method} must be answered"),
     }

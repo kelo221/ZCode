@@ -15,7 +15,17 @@ impl AppState {
         error: Option<Value>,
         cx: &mut Context<Self>,
     ) {
+        if self.handle_workflow_content_response(ws_key, id, &result, &error, cx)
+            || self.handle_workflow_artifact_response(ws_key, id, &result, &error, cx)
+            || self.handle_attachment_response(ws_key, id, &result, &error, cx)
+        {
+            return;
+        }
         if let Some(err) = error {
+            // 失效请求的迟到错误没有 owner；不能污染新页面或回显已清除请求中的密钥。
+            if !self.ws(ws_key).is_some_and(|w| w.pending.contains_key(&id)) {
+                return;
+            }
             // Background freshness probes fail silently: the next tick retries,
             // and a transient store hiccup must not banner the user.
             if let Some(ws) = self.ws_mut(ws_key)
@@ -29,11 +39,78 @@ impl AppState {
                 .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or("rpc error");
-            self.status_error(msg);
+            let msg = if self
+                .ws(ws_key)
+                .is_some_and(|w| matches!(w.pending.get(&id), Some(Pending::SlashCatalog(_))))
+            {
+                crate::composer::slash_catalog::SLASH_CATALOG_ERROR
+            } else if self
+                .ws(ws_key)
+                .is_some_and(|w| matches!(w.pending.get(&id), Some(Pending::FetchMcpList)))
+            {
+                crate::shared::mcp::MCP_ERROR
+            } else {
+                self.plugin_config_feedback(ws_key, id, msg)
+            };
+            self.status_error(ws_key, msg);
             self.push_error(format!("request failed: {msg}"));
             let pending = self.ws_mut(ws_key).and_then(|ws| ws.pending.remove(&id));
-            if let Some(Pending::Command(ctx)) = pending {
-                self.rollback_command(ws_key, &ctx);
+            if let Some(pending) = &pending {
+                self.settle_inspection_error(ws_key, pending, msg);
+            }
+            match pending {
+                Some(Pending::SlashCatalog(session)) => {
+                    self.settle_slash_catalog(ws_key, session, None)
+                }
+                Some(Pending::ReferenceCatalog { session, kind }) => {
+                    self.settle_reference_catalog(ws_key, session, kind, Err(msg.to_string()));
+                }
+                Some(Pending::SavedWorkflowList(scope)) => {
+                    self.settle_saved_workflow_list(ws_key, &scope, Err(msg.into()))
+                }
+                Some(Pending::SavedWorkflowCreate(launch)) => {
+                    self.saved_workflow_launch_error(ws_key, &launch, msg)
+                }
+                Some(Pending::SavedWorkflowStart { session, launch }) => {
+                    self.cleanup_workflow_target(ws_key, &session);
+                    self.saved_workflow_launch_error(ws_key, &launch, msg);
+                }
+                Some(Pending::PluginPrompt(_)) => self.plugin_prompt_error(ws_key, msg),
+                Some(Pending::PluginConfig(request)) => {
+                    self.settle_plugin_config(ws_key, request, Err(msg.into()), cx)
+                }
+                Some(Pending::PluginDescribe(identity)) => {
+                    self.settle_plugin_description(ws_key, &identity, Err(msg.into()))
+                }
+                Some(Pending::WorkflowDefinition { scope, name }) => {
+                    self.settle_workflow_definition(ws_key, &scope, &name, Err(msg.into()))
+                }
+                Some(Pending::WorkflowHistory { scope, name }) => {
+                    self.settle_workflow_history(ws_key, &scope, &name, Err(msg.into()))
+                }
+                Some(Pending::WorkflowPreflight(receipt)) => {
+                    self.workflow_management_error(ws_key, &receipt, msg)
+                }
+                Some(Pending::WorkflowMutation(receipt)) => {
+                    self.settle_workflow_mutation(ws_key, receipt, Err(msg.into()), cx)
+                }
+                Some(Pending::WorkflowSettings { session, run }) => {
+                    self.workflow_settings_error(ws_key, &session, &run, msg)
+                }
+                Some(Pending::SavedWorkflowCleanup) => {
+                    self.saved_workflow_error(ws_key, "Workflow target cleanup failed")
+                }
+                Some(Pending::QueueEdit(restore)) => self.settle_queue_edit(restore, None, cx),
+                Some(Pending::SubagentDirectory { session, replacing }) => {
+                    self.settle_subagent_directory(ws_key, &session, replacing, Err(msg.into()), cx)
+                }
+                Some(Pending::Command(ctx)) => self.rollback_command(ws_key, &ctx),
+                Some(
+                    Pending::SendText(submission)
+                    | Pending::CreateSession(submission)
+                    | Pending::HeldSend { submission, .. },
+                ) => self.recover_submission(submission, cx),
+                _ => {}
             }
             cx.notify();
             return;
@@ -84,7 +161,11 @@ impl AppState {
                     self.delete_session(&ws_key, &sid);
                 }
             }
-            Pending::CleanupCatalog => {}
+            Pending::AttachmentUpload { .. }
+            | Pending::AttachmentAbort
+            | Pending::WorkflowArtifacts(_)
+            | Pending::WorkflowArtifactContent(_)
+            | Pending::CleanupCatalog => {}
             Pending::SubscribeConversation(sid) => {
                 let topic = format!("conversation/{sid}");
                 self.capture_subscription(ws_key, &topic, &result);
@@ -92,35 +173,40 @@ impl AppState {
                 c.subscribed = true;
                 self.push_log(format!("subscribed conversation {sid}"));
             }
-            Pending::CreateSession => {
-                // RPC result = CommandAck { status, result: { type:
-                // "createSession", sessionId, .. } } — the session id lives
-                // one level below the ack.
-                let sid = result
-                    .as_ref()
-                    .and_then(|ack| ack.get("result"))
-                    .and_then(|r| r.get("sessionId"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
-                if let Some(sid) = sid {
-                    self.draft = false;
-                    self.active = Some(sid.clone());
-                    self.active_workspace = Some(ws_key.to_string());
-                    self.ui_model_value = None;
-                    self.ui_mode = None;
-                    self.push_log("session created".into());
-                    self.subscribe_conversation(ws_key, &sid);
-                }
+            Pending::CreateSession(submission) => {
+                self.handle_submission_ack(ws_key, submission, result.as_ref(), true, cx);
             }
             // The CAS revision is mirrored only from the conversation stream.
-            // `revisionAtDecision + 1` was a guess, and was applied to whatever
-            // session happened to be active when the ack arrived.
-            Pending::SendText | Pending::Stop => {}
+            Pending::SendText(submission) => {
+                self.handle_submission_ack(ws_key, submission, result.as_ref(), false, cx);
+            }
+            Pending::HeldSend {
+                submission,
+                trigger,
+            } => self.settle_held_submission(ws_key, submission, trigger, result.as_ref(), cx),
+            Pending::QueueEdit(restore) => self.settle_queue_edit(restore, result.as_ref(), cx),
+            Pending::SubagentDirectory { session, replacing } => self.settle_subagent_directory(
+                ws_key,
+                &session,
+                replacing,
+                result.ok_or_else(|| "Missing subagent directory response".into()),
+                cx,
+            ),
+            Pending::Stop => {
+                if !crate::backend::submission::ack_succeeded(result.as_ref()) {
+                    self.push_error("Stop was not accepted".into());
+                }
+            }
             Pending::Command(ctx) => {
                 self.handle_command_ack(ws_key, result.as_ref(), ctx);
             }
-            Pending::Resync => {
-                self.push_log("resync acknowledged".into());
+            Pending::Resync(topic) => {
+                // The resync result wraps a subscribe ack; reconcile the
+                // active route generation BEFORE the recovery snapshot
+                // arrives, or the snapshot would be rejected against the
+                // stale epoch (review finding 1).
+                self.capture_subscription(ws_key, &topic, &result);
+                self.push_log(format!("resync acknowledged for {topic}"));
             }
             Pending::FetchRows(sid) => {
                 let (rows, has_more) = match &result {
@@ -184,78 +270,123 @@ impl AppState {
             }
             Pending::FetchUsageStats(range) => {
                 if let Some(res) = &result {
-                    self.usage_stats = Some(
-                        crate::shared::usage_stats::AppUsageSnapshot::from_value(res, &range),
-                    );
+                    if let Some(ws) = self.ws_mut(ws_key) {
+                        ws.inspection
+                            .usage
+                            .entry(range.clone())
+                            .or_default()
+                            .finish(crate::shared::usage_stats::AppUsageSnapshot::from_value(
+                                res, &range,
+                            ));
+                    }
                     self.push_log(format!("usage stats loaded ({range})"));
+                } else if let Some(ws) = self.ws_mut(ws_key) {
+                    ws.inspection
+                        .usage
+                        .entry(range)
+                        .or_default()
+                        .fail("Missing usage response");
                 }
             }
+            Pending::SlashCatalog(session) => self.settle_slash_catalog(ws_key, session, result),
+            Pending::ReferenceCatalog { session, kind } => {
+                self.settle_reference_catalog(
+                    ws_key,
+                    session,
+                    kind,
+                    result.ok_or_else(|| "Missing reference catalog response".to_string()),
+                );
+            }
             Pending::FetchMcpList => {
-                if let Some(res) = &result {
-                    self.mcp_servers = crate::shared::mcp::McpServerSnapshot::list_from_value(res);
-                    self.push_log(format!(
-                        "mcp servers loaded: {} found",
-                        self.mcp_servers.len()
-                    ));
+                if let Some(ws) = self.ws_mut(ws_key) {
+                    match result {
+                        Some(res) => {
+                            match crate::shared::mcp::McpServerSnapshot::list_from_value(&res) {
+                                Ok(list) => ws.inspection.mcp.finish(list),
+                                Err(error) => ws.inspection.mcp.fail(&error),
+                            }
+                        }
+                        None => ws.inspection.mcp.fail("Missing MCP response"),
+                    }
                 }
             }
             Pending::FetchPluginsOverview => {
-                if let Some(res) = &result {
-                    self.plugins_overview = Some(
-                        crate::shared::plugins::PluginsOverviewResult::from_value(res),
-                    );
-                    self.push_log(format!(
-                        "plugins overview loaded: {} available, {} installed",
-                        self.plugins_overview
-                            .as_ref()
-                            .map(|o| o.available_plugins.len())
-                            .unwrap_or(0),
-                        self.plugins_overview
-                            .as_ref()
-                            .map(|o| o.installed_plugins.len())
-                            .unwrap_or(0),
-                    ));
+                if let Some(ws) = self.ws_mut(ws_key) {
+                    match result {
+                        Some(res) => match crate::shared::plugin_results::validate_overview(&res) {
+                            Ok(()) => ws.inspection.plugins.finish(
+                                crate::shared::plugins::PluginsOverviewResult::from_value(&res),
+                            ),
+                            Err(error) => ws.inspection.plugins.fail(&error),
+                        },
+                        None => ws.inspection.plugins.fail("Missing plugin response"),
+                    }
                 }
             }
             Pending::PluginAction(desc) => {
-                self.push_log(format!("plugin action completed: {desc}"));
-                self.fetch_plugins_overview(cx);
+                self.settle_plugin_action(ws_key, &desc, result.as_ref(), cx)
+            }
+            Pending::SavedWorkflowList(scope) => self.settle_saved_workflow_list(
+                ws_key,
+                &scope,
+                result.ok_or_else(|| "Missing saved workflow list".into()),
+            ),
+            Pending::SavedWorkflowCreate(launch) => {
+                self.settle_saved_workflow_create(ws_key, launch, result.as_ref(), cx)
+            }
+            Pending::SavedWorkflowStart { launch, session } => {
+                self.settle_saved_workflow_start(ws_key, launch, &session, result.as_ref(), cx)
+            }
+            Pending::PluginConfig(request) => self.settle_plugin_config(
+                ws_key,
+                request,
+                result.ok_or_else(|| "Missing plugin configuration response".into()),
+                cx,
+            ),
+            Pending::PluginDescribe(identity) => self.settle_plugin_description(
+                ws_key,
+                &identity,
+                result.ok_or_else(|| "Missing plugin description".into()),
+            ),
+            Pending::PluginPrompt(prompt) => self.settle_plugin_prompt(
+                ws_key,
+                prompt,
+                result.ok_or_else(|| "Missing plugin reference response".into()),
+                cx,
+            ),
+            Pending::WorkflowDefinition { scope, name } => self.settle_workflow_definition(
+                ws_key,
+                &scope,
+                &name,
+                result.ok_or_else(|| "Missing workflow definition response".into()),
+            ),
+            Pending::WorkflowHistory { scope, name } => self.settle_workflow_history(
+                ws_key,
+                &scope,
+                &name,
+                result.ok_or_else(|| "Missing workflow history response".into()),
+            ),
+            Pending::WorkflowPreflight(receipt) => self.settle_workflow_preflight(
+                ws_key,
+                receipt,
+                result.ok_or_else(|| "Missing workflow preflight response".into()),
+                cx,
+            ),
+            Pending::WorkflowMutation(receipt) => self.settle_workflow_mutation(
+                ws_key,
+                receipt,
+                result.ok_or_else(|| "Missing workflow mutation response".into()),
+                cx,
+            ),
+            Pending::WorkflowSettings { session, run } => {
+                self.settle_workflow_settings(ws_key, &session, &run, result.as_ref())
+            }
+            Pending::SavedWorkflowCleanup => {
+                if !crate::backend::submission::ack_succeeded(result.as_ref()) {
+                    self.saved_workflow_error(ws_key, "Workflow target cleanup was not accepted");
+                }
             }
         }
         cx.notify();
-    }
-
-    /// Subscribe acks carry the subscriptionId + logEpoch (subscribeAckSchema);
-    /// resync needs the id per topic and route validation compares
-    /// generations by it.
-    fn capture_subscription(&mut self, ws_key: &str, topic: &str, result: &Option<Value>) {
-        let ack = result.as_ref().and_then(|r| r.get("ack"));
-        let sub = ack
-            .and_then(|a| a.get("subscriptionId"))
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let epoch = ack
-            .and_then(|a| a.get("logEpoch"))
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        if let Some(sub) = sub.filter(|s| !s.is_empty()) {
-            let full_topic = match topic {
-                "sessions-index" | "workspace-config" => {
-                    let key = self.ws(ws_key).map(|w| w.key.clone()).unwrap_or_default();
-                    format!("{topic}/{key}")
-                }
-                other => other.to_string(),
-            };
-            if let Some(ws) = self.ws_mut(ws_key) {
-                ws.subscriptions.insert(
-                    full_topic,
-                    crate::backend::workspace::RouteSubscription {
-                        id: sub,
-                        log_epoch: epoch,
-                    },
-                );
-            }
-        }
     }
 }

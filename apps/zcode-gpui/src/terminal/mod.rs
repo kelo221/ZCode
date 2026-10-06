@@ -3,5 +3,7 @@
 
 pub(crate) mod grid;
 pub(crate) mod io;
+pub(crate) mod metrics;
 pub(crate) mod pane;
+pub(crate) mod selection;
 pub(crate) mod view;

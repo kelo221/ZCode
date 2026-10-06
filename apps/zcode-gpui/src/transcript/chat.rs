@@ -2,10 +2,12 @@
 //! assistant text with streaming cursor, collapsible reasoning, and expandable tool cards.
 
 use crate::conversation::model::Row;
-use crate::shared::theme::{ACCENT, BORDER, CARD, MUTED, REASONING, TEXT, USER_BLUE};
+use crate::shared::theme::ui_size;
+use crate::shared::theme::{ACCENT, CARD, MUTED, TEXT, USER_BLUE};
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, ClipboardItem, Context, ElementId, IntoElement, ParentElement, Styled, div,
-    prelude::*, px, rgb,
+    prelude::*, px,
 };
 
 impl crate::app::root::RootView {
@@ -61,7 +63,7 @@ impl crate::app::root::RootView {
                                 .rounded_lg()
                                 .px_3()
                                 .py_2()
-                                .text_size(px(13.5))
+                                .text_size(px(ui_size(13.5)))
                                 .text_color(rgb(USER_BLUE))
                                 .child(user_text),
                         )
@@ -77,7 +79,7 @@ impl crate::app::root::RootView {
                                         .px_1p5()
                                         .py_0p5()
                                         .rounded_sm()
-                                        .text_size(px(10.))
+                                        .text_size(px(ui_size(10.)))
                                         .text_color(rgb(MUTED))
                                         .hover(|s| s.text_color(rgb(TEXT)))
                                         .cursor_pointer()
@@ -96,7 +98,7 @@ impl crate::app::root::RootView {
                                             .px_1p5()
                                             .py_0p5()
                                             .rounded_sm()
-                                            .text_size(px(10.))
+                                            .text_size(px(ui_size(10.)))
                                             .text_color(rgb(MUTED))
                                             .hover(|s| s.text_color(rgb(TEXT)))
                                             .cursor_pointer()
@@ -151,7 +153,7 @@ impl crate::app::root::RootView {
                                             .px_1p5()
                                             .py_0p5()
                                             .rounded_sm()
-                                            .text_size(px(10.))
+                                            .text_size(px(ui_size(10.)))
                                             .text_color(rgb(MUTED))
                                             .hover(|s| s.text_color(rgb(TEXT)))
                                             .cursor_pointer()
@@ -178,7 +180,7 @@ impl crate::app::root::RootView {
                                                     .px_1p5()
                                                     .py_0p5()
                                                     .rounded_sm()
-                                                    .text_size(px(10.))
+                                                    .text_size(px(ui_size(10.)))
                                                     .text_color(rgb(MUTED))
                                                     .hover(|s| s.text_color(rgb(ACCENT)))
                                                     .cursor_pointer()
@@ -202,7 +204,7 @@ impl crate::app::root::RootView {
                                                     .px_1p5()
                                                     .py_0p5()
                                                     .rounded_sm()
-                                                    .text_size(px(10.))
+                                                    .text_size(px(ui_size(10.)))
                                                     .text_color(rgb(MUTED))
                                                     .hover(|s| s.text_color(rgb(ACCENT)))
                                                     .cursor_pointer()
@@ -226,7 +228,7 @@ impl crate::app::root::RootView {
                                                     .px_1p5()
                                                     .py_0p5()
                                                     .rounded_sm()
-                                                    .text_size(px(10.))
+                                                    .text_size(px(ui_size(10.)))
                                                     .text_color(rgb(MUTED))
                                                     .hover(|s| s.text_color(rgb(ACCENT)))
                                                     .cursor_pointer()
@@ -255,7 +257,7 @@ impl crate::app::root::RootView {
                                                     .px_1p5()
                                                     .py_0p5()
                                                     .rounded_sm()
-                                                    .text_size(px(10.))
+                                                    .text_size(px(ui_size(10.)))
                                                     .text_color(rgb(MUTED))
                                                     .hover(|s| s.text_color(rgb(ACCENT)))
                                                     .cursor_pointer()
@@ -285,58 +287,7 @@ impl crate::app::root::RootView {
                 row_id,
                 text,
                 duration_ms,
-            } => {
-                let r_id = *row_id;
-                let expanded = self.expanded_reasonings.contains(&r_id);
-                let duration_desc = duration_ms
-                    .map(|ms| format!(" ({})", crate::conversation::turn_meta::format_duration(ms)))
-                    .unwrap_or_default();
-
-                let header_title = format!("💭 Thought{duration_desc}");
-
-                Some(
-                    div()
-                        .w_full()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .my_1()
-                        .child(
-                            div()
-                                .id(ElementId::NamedInteger("toggle-thought".into(), r_id))
-                                .flex()
-                                .items_center()
-                                .gap_1()
-                                .cursor_pointer()
-                                .text_size(px(11.5))
-                                .text_color(rgb(REASONING))
-                                .child(if expanded { "▼" } else { "▶" })
-                                .child(header_title)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    if this.expanded_reasonings.contains(&r_id) {
-                                        this.expanded_reasonings.remove(&r_id);
-                                    } else {
-                                        this.expanded_reasonings.insert(r_id);
-                                    }
-                                    cx.notify();
-                                })),
-                        )
-                        .when(expanded, |el| {
-                            el.child(
-                                div()
-                                    .pl_3()
-                                    .border_l_1()
-                                    .border_color(rgb(BORDER))
-                                    .text_size(px(12.))
-                                    .text_color(rgb(REASONING))
-                                    .opacity(0.85)
-                                    .child(text.clone()),
-                            )
-                        })
-                        .into_any_element(),
-                )
-            }
+            } => Some(self.render_reasoning(*row_id, text, *duration_ms, cx)),
             Row::ToolCall {
                 row_id,
                 label,

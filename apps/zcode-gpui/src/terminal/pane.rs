@@ -77,7 +77,12 @@ pub struct TermPane {
     pub pending_size: Arc<Mutex<Option<(f32, f32)>>>,
     pub focus: FocusHandle,
     pub dims: TermDims,
+    pub(crate) cell_metrics: crate::terminal::metrics::CellMetrics,
+    #[cfg(test)]
+    pub(crate) test_cell_metrics: Option<crate::terminal::metrics::CellMetrics>,
     pub middle_anchor: Option<Point<Pixels>>,
+    pub(crate) grid_bounds: Arc<Mutex<Option<gpui::Bounds<Pixels>>>>,
+    pub(crate) selecting: bool,
 }
 
 impl TermPane {
@@ -97,7 +102,12 @@ impl TermPane {
             pending_size: Arc::new(Mutex::new(None)),
             focus,
             dims: TermDims { cols: 80, rows: 24 },
+            cell_metrics: Default::default(),
+            #[cfg(test)]
+            test_cell_metrics: None,
             middle_anchor: None,
+            grid_bounds: Arc::new(Mutex::new(None)),
+            selecting: false,
         }
     }
 
@@ -105,6 +115,10 @@ impl TermPane {
     /// (unblocking the reader thread) and cancel the poll loop.
     pub fn shutdown(&mut self) {
         self.poll_task = None;
+        self.selecting = false;
+        self.middle_anchor = None;
+        self.grid_bounds = Arc::new(Mutex::new(None));
+        self.pending_size = Arc::new(Mutex::new(None));
         if let Ok(mut w) = self.writer.lock() {
             *w = None;
         }
@@ -270,7 +284,7 @@ impl RootView {
 
     /// Apply a measured pixel size to the PTY and grid.
     pub(crate) fn resize_term(&mut self, width: f32, height: f32) {
-        let dims = dims_for_pixels(width, height);
+        let dims = dims_for_pixels(width, height, self.term.cell_metrics);
         let (cols, rows) = (dims.cols, dims.rows);
         if self.term.dims == dims {
             return;
@@ -290,7 +304,26 @@ impl RootView {
     }
 
     pub(crate) fn term_key(&mut self, keystroke: &Keystroke, cx: &mut Context<Self>) {
+        if self.term.workspace.is_none()
+            || self.term.workspace != self.state.read(cx).active_ws_key()
+        {
+            return;
+        }
         let k = keystroke.key.as_str();
+        // 有选区的 Ctrl/Cmd+C 是复制；无选区仍走 ETX，不能吞掉 shell 中断。
+        if k.eq_ignore_ascii_case("c")
+            && (keystroke.modifiers.control || keystroke.modifiers.platform)
+            && let Some(text) = self
+                .term
+                .term
+                .as_ref()
+                .and_then(|term| term.selection_to_string())
+            && !text.is_empty()
+        {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+            cx.stop_propagation();
+            return;
+        }
         if k == "v" && (keystroke.modifiers.control || keystroke.modifiers.platform) {
             if let Some(item) = cx.read_from_clipboard()
                 && let Some(text) = item.text()

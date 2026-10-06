@@ -35,6 +35,40 @@ fn detached_head_has_no_dots() {
 }
 
 #[test]
+fn parses_nul_delimited_status_and_rename() {
+    // `git status -z`: rename is "R  old\0new\0", not "old -> new".
+    let out = "## main\0R  old.rs\0renamed.rs\0?? new file.txt\0";
+    let st = parse_status(out);
+    assert_eq!(st.branch, "main");
+    assert_eq!(st.files.len(), 2);
+    assert_eq!(st.files[0].path, "renamed.rs");
+    assert_eq!(st.files[1].path, "new file.txt");
+}
+
+#[test]
+fn parses_nul_delimited_numstat_rename() {
+    // `git diff --numstat -z` rename: "add\tdel\0old\0new\0".
+    let map = parse_numstat(concat!("3\t1\0old.rs\0new.rs\0", "12\t0\tok.rs\0"));
+    assert_eq!(map["new.rs"], (3, 1));
+    assert_eq!(map["ok.rs"], (12, 0));
+}
+
+#[test]
+fn discard_confirm_clears_on_repository_switch() {
+    let mut g = GitState {
+        confirm_discard: Some("a.rs".into()),
+        ..GitState::default()
+    };
+    g.apply_status(std::path::PathBuf::from("/repo-a"), GitStatus::default());
+    g.confirm_discard = Some("a.rs".into());
+    g.apply_status(std::path::PathBuf::from("/repo-b"), GitStatus::default());
+    assert!(
+        g.confirm_discard.is_none(),
+        "armed discard must not follow a repo switch"
+    );
+}
+
+#[test]
 fn parses_numstat_and_binary() {
     let map = parse_numstat("12\t3\ta.rs\n-\t-\timg.png\n");
     assert_eq!(map["a.rs"], (12, 3));

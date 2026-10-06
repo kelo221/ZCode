@@ -4,14 +4,14 @@
 use crate::app::root::RootView;
 use crate::composer::input::Composer;
 use crate::conversation::msg_actions::ComposerIntent;
-use crate::conversation::turn_meta::PlanState;
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{
-    ACCENT, AMBER, BORDER, CARD, CARD_HOVER, DANGER, I_ARROW_UP, I_STOP, MUTED, PANEL, PRIMARY,
-    TEXT, icon, phase_badge,
+    AMBER, BORDER, CARD, CARD_HOVER, DANGER, I_ARROW_UP, I_STOP, MUTED, PANEL, PRIMARY, TEXT, icon,
 };
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
-    AnyElement, ClickEvent, Context, CursorStyle, Div, Entity, ParentElement, SharedString,
-    Stateful, Styled, div, prelude::*, px, rgb,
+    AnyElement, ClickEvent, Context, CursorStyle, Div, Entity, ParentElement, Stateful, Styled,
+    div, prelude::*, px,
 };
 
 fn banner() -> Div {
@@ -27,6 +27,16 @@ fn banner() -> Div {
 }
 
 impl RootView {
+    pub(crate) fn queue_panel(
+        &self,
+        queue: Option<&crate::conversation::queue::QueueState>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        queue.and_then(|queue| {
+            crate::conversation::queue::render_queue_panel(queue, &self.state, cx)
+        })
+    }
+
     /// Dismissable error banners (newest first) plus the backend turn error.
     pub(crate) fn error_banners(
         &self,
@@ -47,7 +57,7 @@ impl RootView {
                     .child(
                         div()
                             .flex_1()
-                            .text_size(px(12.))
+                            .text_size(px(ui_size(12.)))
                             .text_color(rgb(DANGER))
                             .truncate()
                             .child(msg),
@@ -71,7 +81,7 @@ impl RootView {
         if let Some((code, message)) = phase_error {
             out.push(
                 banner()
-                    .text_size(px(12.))
+                    .text_size(px(ui_size(12.)))
                     .text_color(rgb(DANGER))
                     .child(format!("{code}: {message}"))
                     .into_any_element(),
@@ -108,7 +118,7 @@ impl RootView {
                 .child(
                     div()
                         .flex_1()
-                        .text_size(px(11.5))
+                        .text_size(px(ui_size(11.5)))
                         .text_color(rgb(AMBER))
                         .child(label),
                 )
@@ -116,7 +126,7 @@ impl RootView {
                     div()
                         .id("intent-cancel")
                         .px_1p5()
-                        .text_size(px(11.5))
+                        .text_size(px(ui_size(11.5)))
                         .text_color(rgb(MUTED))
                         .hover(|s| s.text_color(rgb(TEXT)))
                         .cursor(CursorStyle::PointingHand)
@@ -148,7 +158,7 @@ impl RootView {
                 .bg(rgb(PANEL))
                 .border_1()
                 .border_color(rgb(BORDER))
-                .text_size(px(11.5))
+                .text_size(px(ui_size(11.5)))
                 .text_color(rgb(MUTED))
                 .cursor(CursorStyle::PointingHand)
                 .hover(|s| s.bg(rgb(CARD)).text_color(rgb(TEXT)))
@@ -185,52 +195,107 @@ impl RootView {
     ) -> Div {
         let send = round_button("send-btn", I_ARROW_UP, PRIMARY, 0x000000)
             .hover(|s| s.opacity(0.85))
-            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| this.submit(cx)));
+            .on_click(cx.listener(|this, event: &ClickEvent, _window, cx| {
+                let trigger = if crate::composer::delivery::primary_modifier(&event.modifiers()) {
+                    crate::composer::delivery::SubmitTrigger::ModifiedPointer
+                } else {
+                    crate::composer::delivery::SubmitTrigger::Ordinary
+                };
+                this.state
+                    .update(cx, |s, cx| s.submit_composer_with_trigger(trigger, cx));
+            }));
         let stop = round_button("stop-btn", I_STOP, CARD_HOVER, TEXT)
             .hover(|s| s.bg(rgb(BORDER)))
             .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                 this.state.update(cx, |s, cx| s.stop(cx));
             }));
 
+        let query = crate::composer::references::reference_query(composer.read(cx).text())
+            .map(|(kind, _, _)| kind);
+        if let Some(kind) = query {
+            self.state.update(cx, |state, cx| {
+                state.ensure_reference_catalog(kind, false, cx)
+            });
+        }
+        if crate::composer::slash::filter_slash_commands(&[], composer.read(cx).text()).is_some() {
+            self.state
+                .update(cx, |state, cx| state.ensure_slash_catalog(false, cx));
+        }
         let suggestions = self.autocomplete_suggestions(cx);
         let popup = suggestions.map(|s| self.render_autocomplete_popup(&s, cx));
         let att_tray = Self::render_attachment_tray(&composer, cx);
         let attach_btn = Self::render_attach_button(cx);
+        let view = cx.weak_entity();
+        let held_confirmation = self.held_queue_confirmation(cx);
 
-        div().w_full().flex().flex_col().children(popup).child(
-            div()
-                .w_full()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .px_3()
-                .pt_3()
-                .pb_2()
-                .rounded_xl()
-                .bg(rgb(CARD))
-                .border_1()
-                .border_color(rgb(BORDER))
-                .on_drop(
-                    cx.listener(|this, paths: &gpui::ExternalPaths, _window, cx| {
-                        this.attach_files(paths.paths().to_vec(), cx);
-                    }),
-                )
-                .children(att_tray)
-                .child(composer)
-                .child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_1()
-                        .child(attach_btn)
-                        .child(self.mode_menu(cx))
-                        .child(div().flex_1())
-                        .child(self.composer_selectors(cx))
-                        .when(running, |el| el.child(stop))
-                        .child(send),
-                ),
-        )
+        div()
+            .w_full()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .children(held_confirmation)
+            .children(self.image_upload_feedback(cx))
+            .children(self.reference_feedback(cx))
+            .children(self.slash_catalog_feedback(cx))
+            .children(popup)
+            .child(
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .px_3()
+                    .pt_3()
+                    .pb_2()
+                    .rounded_xl()
+                    .bg(rgb(CARD))
+                    .border_1()
+                    .border_color(rgb(BORDER))
+                    .on_drop(
+                        cx.listener(|this, paths: &gpui::ExternalPaths, _window, cx| {
+                            this.attach_files(paths.paths().to_vec(), cx);
+                        }),
+                    )
+                    .on_children_prepainted(move |bounds, _, cx| {
+                        if let Some(bounds) = bounds.last() {
+                            let compact = bounds.size.width <= px(480.);
+                            let _ = view.update(cx, |this, cx| {
+                                if this.composer_compact != compact {
+                                    this.composer_compact = compact;
+                                    cx.notify();
+                                }
+                            });
+                        }
+                    })
+                    .children(att_tray)
+                    .child(composer)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .w_full()
+                            .min_w_0()
+                            .flex_wrap()
+                            .items_center()
+                            .gap_1()
+                            .child(attach_btn)
+                            .child(self.mode_menu(cx))
+                            .children(self.composer_activity(cx))
+                            .child(div().flex_1())
+                            .child(self.composer_selectors(cx))
+                            .when(running, |el| el.child(stop))
+                            .child({
+                                let wrapper = div().child(send);
+                                #[cfg(test)]
+                                let wrapper = crate::app::test_support::track_children(
+                                    wrapper,
+                                    vec!["send-btn".into()],
+                                );
+                                wrapper
+                            }),
+                    ),
+            )
     }
 
     pub(crate) fn autocomplete_suggestions(
@@ -239,22 +304,21 @@ impl RootView {
     ) -> Option<Vec<crate::composer::autocomplete::AutocompleteSuggestion>> {
         let state = self.state.read(cx);
         let text = state.composer.read(cx).text().to_string();
-        let mut slash = crate::composer::slash::builtin_slash_commands();
-        if let Some(cfg) = state.active_workspace_config() {
-            for cmd in cfg.slash_commands() {
-                if !slash.iter().any(|s| s.name == cmd.name) {
-                    slash.push(cmd);
-                }
-            }
-        }
+        let slash = state.active_slash_commands().unwrap_or_default();
         let sessions = state.active_sessions();
         let ws_path = state.active_workspace_path();
-        crate::composer::autocomplete::detect_autocomplete(
-            &text,
-            &slash,
-            &sessions,
-            ws_path.as_deref(),
-        )
+        let mut references = self.reference_suggestions(&text, cx);
+        references.extend(
+            crate::composer::autocomplete::detect_autocomplete(
+                &text,
+                slash,
+                &sessions,
+                ws_path.as_deref(),
+            )
+            .unwrap_or_default(),
+        );
+        references.truncate(8);
+        (!references.is_empty()).then_some(references)
     }
 
     /// Filesystem path of the active workspace (git, terminal, file tree).
@@ -263,138 +327,6 @@ impl RootView {
     }
 
     pub(crate) fn submit(&mut self, cx: &mut Context<Self>) {
-        let (text, attachments) = self.state.update(cx, |s, cx| {
-            let (text, attachments, retired) = s.composer.update(cx, |c, _ccx| {
-                (
-                    c.take_text(),
-                    c.take_attachments(),
-                    c.drain_temp_ownership(),
-                )
-            });
-            // Pasted-image temp files stay readable for the backend until
-            // quit; ownership moves to the app-level retire list.
-            s.retired_temp_files.extend(retired);
-            (text, attachments)
-        });
-        self.state
-            .update(cx, |s, cx| s.send_with_attachments(&text, attachments, cx));
-    }
-
-    /// Header bar with conversation title, progress counter, tools & terminal toggles.
-    pub(crate) fn main_header(
-        &self,
-        title: SharedString,
-        context_tag: Option<SharedString>,
-        plan: Option<&PlanState>,
-        phase: &str,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let title_col = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_1p5()
-            .min_w_0()
-            .flex_1()
-            .children(context_tag.map(|tag| {
-                div()
-                    .text_size(px(14.))
-                    .text_color(rgb(MUTED))
-                    .child(format!("{tag} ›"))
-            }))
-            .child(
-                div()
-                    .text_size(px(14.))
-                    .font_weight(gpui::FontWeight::MEDIUM)
-                    .text_color(rgb(TEXT))
-                    .truncate()
-                    .child(title),
-            );
-
-        div()
-            .h(px(46.))
-            .relative()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_2()
-            .px_5()
-            .child(title_col)
-            .children(plan.map(|p| {
-                let c = p.completed_count();
-                let t = p.items.len();
-                div()
-                    .id("plan-header-badge")
-                    .px_2()
-                    .py_0p5()
-                    .rounded_sm()
-                    .bg(rgb(CARD))
-                    .border_1()
-                    .border_color(rgb(BORDER))
-                    .text_size(px(11.))
-                    .text_color(rgb(ACCENT))
-                    .cursor(CursorStyle::PointingHand)
-                    .child(format!("Progress {c}/{t}"))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.dock_open = true;
-                        this.dock_tab = crate::app::dock::DockTab::Review;
-                        this.plan_expanded = !this.plan_expanded;
-                        cx.notify();
-                    }))
-            }))
-            .children(phase_badge(phase))
-            .child(
-                div()
-                    .id("dock-toggle")
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .px_2()
-                    .py_0p5()
-                    .rounded_sm()
-                    .bg(rgb(CARD))
-                    .border_1()
-                    .border_color(rgb(BORDER))
-                    .text_size(px(11.))
-                    .text_color(rgb(if self.dock_open { ACCENT } else { MUTED }))
-                    .cursor(CursorStyle::PointingHand)
-                    .hover(|s| s.text_color(rgb(TEXT)))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.dock_open = !this.dock_open;
-                        if this.dock_open {
-                            this.on_dock_tab(this.dock_tab, cx);
-                        }
-                        cx.notify();
-                    }))
-                    .child("Tools")
-                    .child(icon(crate::shared::theme::I_CHEVRON_DOWN, 8., MUTED)),
-            )
-            .child(
-                div()
-                    .id("term-toggle")
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .px_2()
-                    .py_0p5()
-                    .rounded_sm()
-                    .bg(rgb(CARD))
-                    .border_1()
-                    .border_color(rgb(BORDER))
-                    .text_size(px(11.))
-                    .text_color(rgb(if self.term_open { ACCENT } else { MUTED }))
-                    .cursor(CursorStyle::PointingHand)
-                    .hover(|s| s.text_color(rgb(TEXT)))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.term_open = !this.term_open;
-                        if this.term_open {
-                            this.ensure_term(cx);
-                            window.focus(&this.term.focus, cx);
-                        }
-                        cx.notify();
-                    }))
-                    .child("Terminal")
-                    .child(icon(crate::shared::theme::I_CHEVRON_DOWN, 8., MUTED)),
-            )
+        self.state.update(cx, |state, cx| state.submit_composer(cx));
     }
 }

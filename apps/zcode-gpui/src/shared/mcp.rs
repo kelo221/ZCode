@@ -1,93 +1,161 @@
-//! MCP server status data models for mcp/list inspection.
-//!
-//! Spec source: packages/shared/src/zcode-protocol/index.ts (zcodeMcpListResultSchema).
-
-use serde::{Deserialize, Serialize};
+//! Strict connection-local projection of the current mcp/list status contract.
+use serde::Deserialize;
 use serde_json::Value;
+use std::collections::BTreeMap;
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct McpServerSnapshot {
+const INVALID: &str = "Invalid MCP status response";
+pub(crate) const MCP_ERROR: &str = "MCP request failed; refresh status to retry";
+
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct McpAuthorization {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(rename = "authorizationUrl")]
+    authorization_url: String,
+    #[serde(rename = "startedAt")]
+    pub started_at: String,
+}
+impl std::fmt::Debug for McpAuthorization {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("McpAuthorization([redacted])")
+    }
+}
+impl McpAuthorization {
+    pub(crate) fn url(&self) -> &str {
+        &self.authorization_url
+    }
+    fn valid(&self) -> bool {
+        let value = self.url();
+        self.kind == "oauth_authorization_code"
+            && !self.started_at.trim().is_empty()
+            && value.trim() == value
+            && (value.to_ascii_lowercase().starts_with("https://")
+                || value.to_ascii_lowercase().starts_with("http://"))
+            && !value.contains('\\')
+            && !value.chars().any(char::is_control)
+            && url::Url::parse(value).is_ok_and(|url| {
+                matches!(url.scheme(), "http" | "https")
+                    && url.host_str().is_some()
+                    && url.username().is_empty()
+                    && url.password().is_none()
+            })
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct McpServerSnapshot {
     pub name: String,
     pub status: String,
     pub transport: String,
     pub tool_count: u64,
     pub error: Option<String>,
     pub updated_at: Option<String>,
+    pub authorization: Option<McpAuthorization>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+struct Status {
+    status: String,
+    transport: String,
+    tool_count: u64,
+    updated_at: String,
+    error: Option<String>,
+    failure_kind: Option<String>,
+    server_request_id: Option<String>,
+    protocol_era: Option<String>,
+    authorization: Option<McpAuthorization>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StatusList {
+    statuses: BTreeMap<String, Status>,
 }
 
 impl McpServerSnapshot {
-    pub fn list_from_value(v: &Value) -> Vec<Self> {
-        let Some(statuses) = v.get("statuses").and_then(Value::as_object) else {
-            return Vec::new();
-        };
-
+    pub(crate) fn list_from_value(value: &Value) -> Result<Vec<Self>, String> {
+        let parsed: StatusList = serde_json::from_value(value.clone()).map_err(|_| INVALID)?;
         let mut list = Vec::new();
-        for (name, item) in statuses {
-            let status = item
-                .get("status")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown")
-                .to_string();
-            let transport = item
-                .get("transport")
-                .and_then(Value::as_str)
-                .unwrap_or("stdio")
-                .to_string();
-            let tool_count = item.get("toolCount").and_then(Value::as_u64).unwrap_or(0);
-            let error = item
-                .get("error")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let updated_at = item
-                .get("updatedAt")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-
+        for (name, mut item) in parsed.statuses {
+            let raw = &value["statuses"][&name];
+            let null = [
+                "error",
+                "failureKind",
+                "serverRequestId",
+                "protocolEra",
+                "authorization",
+            ]
+            .iter()
+            .any(|key| raw.get(key).is_some_and(Value::is_null));
+            if null
+                || !matches!(
+                    item.status.as_str(),
+                    "connecting"
+                        | "connected"
+                        | "disabled"
+                        | "disconnected"
+                        | "failed"
+                        | "untrusted"
+                )
+                || !matches!(item.transport.as_str(), "stdio" | "http" | "sse")
+                || item.updated_at.trim().is_empty()
+                || item
+                    .server_request_id
+                    .as_ref()
+                    .is_some_and(|v| v.trim().is_empty())
+                || item
+                    .protocol_era
+                    .as_deref()
+                    .is_some_and(|v| !matches!(v, "legacy" | "modern"))
+                || item.failure_kind.as_deref().is_some_and(|v| {
+                    !matches!(
+                        v,
+                        "config_invalid"
+                            | "runtime_unavailable"
+                            | "process_start_failed"
+                            | "network_unreachable"
+                            | "connection_timeout"
+                            | "protocol_negotiation_failed"
+                            | "tool_list_failed"
+                            | "unexpected_disconnect"
+                            | "oauth_authorization_failed"
+                            | "official_origin_untrusted"
+                            | "not_authenticated"
+                            | "coding_plan_required"
+                            | "server_not_found"
+                            | "server_unavailable"
+                            | "rate_limited"
+                            | "server_internal_error"
+                            | "protocol_error"
+                            | "status_unavailable"
+                            | "connection_failed"
+                    )
+                })
+                || item.authorization.as_ref().is_some_and(|a| !a.valid())
+            {
+                return Err(INVALID.into());
+            }
+            if let Some(authorization) = &mut item.authorization {
+                authorization.authorization_url = url::Url::parse(authorization.url())
+                    .map_err(|_| INVALID)?
+                    .to_string();
+            }
             list.push(Self {
-                name: name.clone(),
-                status,
-                transport,
-                tool_count,
-                error,
-                updated_at,
+                name,
+                status: item.status,
+                transport: item.transport,
+                tool_count: item.tool_count,
+                // OAuth URL 的任意 token 可能被原样回显；通用错误避免凭据进入状态和日志。
+                error: item.error.map(|_| MCP_ERROR.into()),
+                updated_at: Some(item.updated_at),
+                authorization: item.authorization,
             });
         }
-        list.sort_by(|a, b| a.name.cmp(&b.name));
-        list
+        Ok(list)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn test_mcp_server_snapshot_parsing() {
-        let val = json!({
-            "statuses": {
-                "fetch": {
-                    "status": "connected",
-                    "transport": "stdio",
-                    "toolCount": 2,
-                    "updatedAt": "2026-10-03T10:00:00Z"
-                },
-                "github": {
-                    "status": "failed",
-                    "transport": "http",
-                    "toolCount": 0,
-                    "error": "connection refused"
-                }
-            }
-        });
-
-        let list = McpServerSnapshot::list_from_value(&val);
-        assert_eq!(list.len(), 2);
-        assert_eq!(list[0].name, "fetch");
-        assert_eq!(list[0].status, "connected");
-        assert_eq!(list[0].tool_count, 2);
-        assert_eq!(list[1].name, "github");
-        assert_eq!(list[1].status, "failed");
-        assert_eq!(list[1].error.as_deref(), Some("connection refused"));
-    }
-}
+#[path = "mcp_tests.rs"]
+pub(crate) mod authorization_tests;

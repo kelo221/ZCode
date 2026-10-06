@@ -6,15 +6,31 @@
 
 pub(crate) mod code;
 pub(crate) mod inline;
+mod passive;
 
 use crate::shared::markdown::code::code_block;
 use crate::shared::markdown::inline::{Style, inline_element, render_inlines};
-use gpui::{AnyElement, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb};
+use crate::shared::theme::ui_size;
+use crate::shared::theme_colors::color as rgb;
+use gpui::{AnyElement, IntoElement, ParentElement, Styled, div, prelude::*, px};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 const BASE_TEXT: f32 = 13.5;
 
 pub fn render_markdown(text: &str, id_base: u64, streaming: bool) -> AnyElement {
+    render_markdown_with_policy(text, id_base, streaming, false)
+}
+
+pub(crate) fn render_passive_markdown(text: &str, id_base: u64) -> AnyElement {
+    render_markdown_with_policy(text, id_base, false, true)
+}
+
+fn render_markdown_with_policy(
+    text: &str,
+    id_base: u64,
+    streaming: bool,
+    passive: bool,
+) -> AnyElement {
     let body = if streaming {
         format!("{text} ▍")
     } else {
@@ -22,7 +38,11 @@ pub fn render_markdown(text: &str, id_base: u64, streaming: bool) -> AnyElement 
     };
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS);
-    let events: Vec<Event> = Parser::new_ext(&body, opts).collect();
+    let events: Vec<Event> = if passive {
+        passive::events(&body, opts)
+    } else {
+        Parser::new_ext(&body, opts).collect()
+    };
     let mut pos = 0usize;
     let mut block_ix = 0usize;
     // Link hitbox ids are seeded by row id so they stay unique across rows.
@@ -34,7 +54,7 @@ pub fn render_markdown(text: &str, id_base: u64, streaming: bool) -> AnyElement 
         .flex()
         .flex_col()
         .gap_1()
-        .text_size(px(BASE_TEXT))
+        .text_size(px(ui_size(BASE_TEXT)))
         .text_color(rgb(crate::shared::theme::TEXT))
         .children(children)
         .into_any_element()
@@ -88,7 +108,7 @@ fn blocks(
                     div()
                         .w_full()
                         .mt_1()
-                        .text_size(px(size))
+                        .text_size(px(ui_size(size)))
                         .child(inline_element(
                             inline,
                             gpui::ElementId::NamedInteger("md-blk".into(), *block_ix as u64),

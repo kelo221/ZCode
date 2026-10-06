@@ -3,15 +3,20 @@
 //! Spec source: packages/shared/src/usage-stats.ts and PARITY.md M7.
 
 use crate::app::root::RootView;
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{ACCENT, BORDER, CARD, HOVER, MUTED, PANEL, TEXT};
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, Context, CursorStyle, ElementId, InteractiveElement, IntoElement, ParentElement,
-    Styled, div, prelude::*, px, rgb,
+    Styled, div, prelude::*, px,
 };
 
 impl RootView {
     pub(crate) fn usage_pane(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let usage = self.state.read(cx).usage_stats.clone();
+        self.ensure_inspection(crate::app::inspection_view::InspectionKind::Usage, cx);
+        let feedback =
+            self.inspection_feedback(crate::app::inspection_view::InspectionKind::Usage, cx);
+        let usage = self.state.read(cx).active_usage().cloned();
 
         div()
             .flex_1()
@@ -20,6 +25,7 @@ impl RootView {
             .bg(rgb(PANEL))
             .min_h_0()
             .child(self.render_usage_header(cx))
+            .child(feedback)
             .child(match usage {
                 Some(snap) => div()
                     .id("usage-scroll")
@@ -37,9 +43,12 @@ impl RootView {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_size(px(12.))
+                    .text_size(px(ui_size(12.)))
                     .text_color(rgb(MUTED))
-                    .child("Loading usage stats…"),
+                    .child(crate::shared::i18n::label(
+                        "No usage statistics loaded",
+                        "尚未加载用量统计",
+                    )),
             })
             .into_any_element()
     }
@@ -48,9 +57,8 @@ impl RootView {
         let current_range = self
             .state
             .read(cx)
-            .usage_stats
-            .as_ref()
-            .map(|u| u.range.clone())
+            .active_inspection()
+            .map(|i| i.usage_range.clone())
             .unwrap_or_else(|| "7d".to_string());
 
         div()
@@ -80,7 +88,7 @@ impl RootView {
                             .px_2()
                             .py_0p5()
                             .rounded_sm()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .cursor(CursorStyle::PointingHand)
                             .when(selected, |el| el.bg(rgb(CARD)).text_color(rgb(TEXT)))
                             .when(!selected, |el| {
@@ -101,7 +109,7 @@ impl RootView {
                     .px_2()
                     .py_0p5()
                     .rounded_sm()
-                    .text_size(px(11.))
+                    .text_size(px(ui_size(11.)))
                     .text_color(rgb(MUTED))
                     .cursor(CursorStyle::PointingHand)
                     .hover(|h| h.bg(rgb(HOVER)).text_color(rgb(TEXT)))
@@ -140,7 +148,7 @@ impl RootView {
                     .justify_between()
                     .child(
                         div()
-                            .text_size(px(12.))
+                            .text_size(px(ui_size(12.)))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(rgb(TEXT))
                             .child("Tokens & Turns"),
@@ -148,7 +156,7 @@ impl RootView {
                     .when_some(sum.favorite_model.as_deref(), |el, model| {
                         el.child(
                             div()
-                                .text_size(px(10.5))
+                                .text_size(px(ui_size(10.5)))
                                 .text_color(rgb(ACCENT))
                                 .child(format!("★ {model}")),
                         )
@@ -188,7 +196,7 @@ impl RootView {
             .gap_1p5()
             .child(
                 div()
-                    .text_size(px(11.5))
+                    .text_size(px(ui_size(11.5)))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(rgb(MUTED))
                     .child("Daily Timeline"),
@@ -206,7 +214,7 @@ impl RootView {
                     .border_color(rgb(BORDER))
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .text_color(rgb(TEXT))
                             .child(day.date.clone()),
                     )
@@ -217,19 +225,19 @@ impl RootView {
                             .gap_3()
                             .child(
                                 div()
-                                    .text_size(px(10.5))
+                                    .text_size(px(ui_size(10.5)))
                                     .text_color(rgb(MUTED))
                                     .child(format!("{} turns", day.turn_count)),
                             )
                             .child(
                                 div()
-                                    .text_size(px(10.5))
+                                    .text_size(px(ui_size(10.5)))
                                     .text_color(rgb(MUTED))
                                     .child(format!("{} tools", day.tool_call_count)),
                             )
                             .child(
                                 div()
-                                    .text_size(px(11.))
+                                    .text_size(px(ui_size(11.)))
                                     .font_weight(gpui::FontWeight::MEDIUM)
                                     .text_color(rgb(ACCENT))
                                     .child(format!("{} tokens", format_count(day.total_tokens))),
@@ -244,10 +252,15 @@ impl RootView {
             .flex_1()
             .flex()
             .flex_col()
-            .child(div().text_size(px(10.)).text_color(rgb(MUTED)).child(label))
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(px(ui_size(10.)))
+                    .text_color(rgb(MUTED))
+                    .child(label),
+            )
+            .child(
+                div()
+                    .text_size(px(ui_size(12.)))
                     .font_weight(gpui::FontWeight::MEDIUM)
                     .text_color(rgb(TEXT))
                     .child(value.to_string()),

@@ -17,11 +17,13 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4
 ely-gpui-component = { git = "https://github.com/ZacharyZhang-NY/Ely-GPUI-Components", rev = "2f8b2f687cd1e9b98a7cd29d4e882d09406fc547" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+url = "2.5.8"
 uuid = { version = "1", features = ["v7"] }
 futures = "0.3"
 base64 = "0.22"
 sha2 = "0.10"
 crc32fast = "1"
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
 pulldown-cmark = "0.13.4"
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
 portable-pty = "0.9.0"
@@ -32,11 +34,17 @@ windows = { version = "0.62", features = [
     "Win32_System_JobObjects",
     "Win32_System_Threading",
     "Win32_Security",
+    "Win32_Globalization",
     "Win32_System_Diagnostics_ToolHelp",
     # ShellExecuteW for the system file opener (no cmd.exe in the path).
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
+    # CoCreateInstance for the native folder picker (IFileDialog).
+    "Win32_System_Com",
 ] }
+
+[dev-dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b", features = ["test-support"] }
 
 [build-dependencies]
 serde_json = "1"

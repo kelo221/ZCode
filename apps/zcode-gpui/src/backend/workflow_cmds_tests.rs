@@ -1,6 +1,52 @@
 use super::*;
 use serde_json::json;
 
+#[gpui::test]
+fn workflow_resume_requires_authoritative_eligibility_and_captured_owner(
+    cx: &mut gpui::TestAppContext,
+) {
+    use gpui::AppContext;
+    let state = cx.new(AppState::for_test);
+    state.update(cx, |s, cx| {
+        let key = s.workspaces[0].key.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        s.workspaces[0].inbound = Some(tx);
+        s.workspaces[0].started = true;
+        s.active_workspace = Some(key.clone());
+        s.active = Some("parent".into());
+        let conv = crate::conversation::model::ConversationState {
+            workflow_runs: crate::conversation::workflows_types::WorkflowRunsState {
+                runs: vec![crate::conversation::workflows_types::WorkflowRunState {
+                    run_id: "run".into(),
+                    status: "stopped".into(),
+                    resumable: Some(false),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        s.conversations.insert("parent".into(), conv);
+        s.resume_workflow_run_for(&key, "parent", "run", cx);
+        assert!(rx.try_recv().is_err());
+        s.conversations
+            .get_mut("parent")
+            .unwrap()
+            .workflow_runs
+            .runs[0]
+            .resumable = Some(true);
+        s.resume_workflow_run_for(&key, "other", "run", cx);
+        assert!(rx.try_recv().is_err());
+        s.resume_workflow_run_for(&key, "parent", "run", cx);
+        s.resume_workflow_run_for(&key, "parent", "run", cx);
+        let command: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
+        assert_eq!(command["params"]["type"], "resumeWorkflowRun");
+        assert_eq!(command["params"]["payload"]["workId"], "run");
+        assert!(command["params"].get("baseRevision").is_none());
+        assert!(rx.try_recv().is_err());
+    });
+}
+
 #[test]
 fn test_start_saved_workflow_payload() {
     let p =

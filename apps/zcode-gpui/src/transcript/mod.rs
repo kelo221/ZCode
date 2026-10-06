@@ -3,6 +3,7 @@
 
 pub(crate) mod chat;
 pub(crate) mod list;
+pub(crate) mod reasoning;
 pub(crate) mod scroll;
 #[cfg(test)]
 mod scroll_tests;

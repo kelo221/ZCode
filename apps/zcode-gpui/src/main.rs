@@ -1,7 +1,6 @@
 //! zcode-gpui: minimal native GPUI frontend for the ZCode agent backend.
 //!
-//! Chat + project/sessions view only; settings and heavier features stay in
-//! the original Electron app. The backend is spawned as an external process
+//! Native chat, settings and local tool surfaces. The backend is an external process
 //! (`app-server --stdio`) and driven over the V4 wire protocol, so backend
 //! updates from upstream keep flowing without frontend changes.
 //!
@@ -20,15 +19,12 @@ mod shared;
 mod terminal;
 mod transcript;
 
-use app::dock::ToggleDock;
 use app::root::RootView;
 use app::store::AppState;
 use backend::launcher::resolve_candidates;
 use backend::workspace::discover_workspaces;
-use ely_gpui_component::theme::{Mode, Theme};
-use gpui::{App, AppContext, KeyBinding, TitlebarOptions, WindowOptions};
+use gpui::{App, AppContext, TitlebarOptions, WindowOptions};
 use std::path::PathBuf;
-use terminal::pane::ToggleTerminal;
 
 fn chrono_now() -> String {
     std::time::SystemTime::now()
@@ -76,6 +72,7 @@ fn main() {
 
     // M5: Load settings, locale, theme, and font size on launch
     let settings = shared::settings::load_settings();
+    shared::data_paths::initialize(settings.data_base_dir.as_deref());
     if let Some(loc_str) = settings
         .locale_preference
         .as_deref()
@@ -125,21 +122,7 @@ fn main() {
         .with_assets(ely_gpui_component::Assets)
         .run(move |cx: &mut App| {
             ely_gpui_component::init(cx);
-            Theme::set_mode_now(
-                match shared::theme::theme_mode() {
-                    shared::theme::ThemeMode::ZaiLight => Mode::Light,
-                    _ => Mode::Dark,
-                },
-                cx,
-            );
-            cx.bind_keys([
-                KeyBinding::new("ctrl-b", ToggleDock, None),
-                KeyBinding::new("ctrl-`", ToggleTerminal, None),
-                KeyBinding::new("ctrl-j", ToggleTerminal, None),
-                KeyBinding::new("ctrl-k", app::quickpick::ToggleQuickPick, None),
-                KeyBinding::new("ctrl-shift-p", app::quickpick::ToggleQuickPick, None),
-                KeyBinding::new("ctrl-shift-l", app::quickpick::SwitchThemeAction, None),
-            ]);
+            shared::preferences::Preferences::install(settings.clone(), cx);
             // One agent per known workspace (desktop parity: processes are keyed by
             // workspace key; the project list comes from ~/.zcode/v2/setting.json).
             let workspaces = discover_workspaces(&workspace, 8);
@@ -155,9 +138,19 @@ fn main() {
                     }),
                     ..Default::default()
                 },
-                move |_window, cx| {
+                move |window, cx| {
+                    window
+                        .observe_window_appearance(|window, cx| {
+                            if shared::theme::theme_mode() == shared::theme::ThemeMode::System {
+                                shared::theme::apply_appearance(window.appearance(), cx);
+                            }
+                        })
+                        .detach();
                     let state = cx.new(|cx| AppState::new(workspaces, candidates, cx));
-                    cx.new(|cx| RootView::new(state, cx))
+                    let root = cx.new(|cx| RootView::new(state, cx));
+                    let focus = root.read(cx).state.read(cx).composer.read(cx).focus.clone();
+                    window.focus(&focus, cx);
+                    root
                 },
             )
             .expect("failed to open window");

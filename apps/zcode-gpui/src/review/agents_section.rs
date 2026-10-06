@@ -2,11 +2,13 @@
 //! elapsed duration, summary preview, and Stop/Open controls.
 
 use crate::app::root::RootView;
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{
     ACCENT, BORDER, CARD, CARD_HOVER, DANGER, HOVER, MUTED, PANEL, SUCCESS, TEXT, WARNING,
 };
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
-    AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb,
+    AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px,
 };
 
 /// Format title or type fallback for an agent item.
@@ -44,9 +46,16 @@ pub fn format_ended_summary(ended_total: u64) -> Option<String> {
 impl RootView {
     /// Render the collapsible Agents section for the review dock pane.
     pub(crate) fn render_agents_section(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let ended = self.render_ended_agents(cx);
         let state = self.state.read(cx);
         let conv = state.active_conversation();
-        let running = conv.map(|c| c.running_subagents()).unwrap_or_default();
+        let mut running = conv.map(|c| c.running_subagents()).unwrap_or_default();
+        running.sort_by(|a, b| {
+            a.started_at
+                .cmp(&b.started_at)
+                .then(a.child_session_id.cmp(&b.child_session_id))
+        });
+        let owner = state.active_ws_key().zip(state.active.clone());
         let running_count = running.len();
         let ended_count = conv
             .and_then(|c| c.subagents.as_ref())
@@ -74,20 +83,20 @@ impl RootView {
             }))
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(px(ui_size(12.)))
                     .text_color(rgb(TEXT))
                     .child("Agents"),
             )
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(px(ui_size(11.)))
                     .text_color(rgb(MUTED))
                     .child(if expanded { "▾" } else { "▸" }),
             )
             .child(div().flex_1())
             .child(
                 div()
-                    .text_size(px(12.))
+                    .text_size(px(ui_size(12.)))
                     .text_color(rgb(counter_color))
                     .child(format!("{running_count}")),
             );
@@ -101,7 +110,7 @@ impl RootView {
             div()
                 .px_2()
                 .py_2()
-                .text_size(px(11.5))
+                .text_size(px(ui_size(11.5)))
                 .text_color(rgb(MUTED))
                 .child(msg)
                 .into_any_element()
@@ -136,41 +145,18 @@ impl RootView {
                     crate::conversation::turn_meta::format_duration(diff)
                 });
 
-                let wid_opt = agent.work_id.clone();
-                let stop_button = if agent.cancellable
-                    && let Some(wid) = wid_opt
-                {
-                    Some(
-                        div()
-                            .id(ElementId::NamedInteger(
-                                "dock-stop-subagent".into(),
-                                idx as u64,
-                            ))
-                            .px_2()
-                            .py_0p5()
-                            .rounded_sm()
-                            .bg(rgb(PANEL))
-                            .border_1()
-                            .border_color(rgb(BORDER))
-                            .text_size(px(10.5))
-                            .text_color(rgb(DANGER))
-                            .hover(|h| h.bg(rgb(CARD_HOVER)))
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                let wid_clone = wid.clone();
-                                this.state
-                                    .update(cx, |s, cx| s.cancel_background_work(&wid_clone, cx));
-                            }))
-                            .child("Stop"),
-                    )
-                } else {
-                    None
-                };
+                let stop_button = agent
+                    .work_id
+                    .clone()
+                    .filter(|_| agent.cancellable)
+                    .and_then(|wid| {
+                        self.activity_cancel_button(format!("dock-stop-subagent-{idx}"), wid, cx)
+                    });
 
                 let open_button = if !agent.child_session_id.is_empty() {
                     let sid_clone = agent.child_session_id.clone();
-                    Some(
+                    let owner = owner.clone();
+                    let element = div().child(
                         div()
                             .id(ElementId::NamedInteger(
                                 "dock-open-subagent".into(),
@@ -182,18 +168,26 @@ impl RootView {
                             .bg(rgb(PANEL))
                             .border_1()
                             .border_color(rgb(BORDER))
-                            .text_size(px(10.5))
+                            .text_size(px(ui_size(10.5)))
                             .text_color(rgb(ACCENT))
                             .hover(|h| h.bg(rgb(CARD_HOVER)))
                             .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                            .on_click(cx.listener(move |this, _, window, cx| {
                                 cx.stop_propagation();
-                                let sid_clone = sid_clone.clone();
-                                this.state
-                                    .update(cx, |s, cx| s.open_subagent(&sid_clone, cx));
+                                if let Some((workspace, parent)) = &owner {
+                                    this.open_child_conversation(
+                                        workspace, parent, &sid_clone, window, cx,
+                                    );
+                                }
                             }))
-                            .child("Open"),
-                    )
+                            .child(crate::shared::i18n::label("Open", "打开")),
+                    );
+                    #[cfg(test)]
+                    let element = crate::app::test_support::track_children(
+                        element,
+                        vec![format!("agent-open-{}", agent.child_session_id)],
+                    );
+                    Some(element)
                 } else {
                     None
                 };
@@ -201,7 +195,7 @@ impl RootView {
                 let summary_node = truncate_summary(agent.summary.as_deref(), 160).map(|txt| {
                     div()
                         .mt_1()
-                        .text_size(px(11.))
+                        .text_size(px(ui_size(11.)))
                         .text_color(rgb(MUTED))
                         .child(txt)
                 });
@@ -236,7 +230,7 @@ impl RootView {
                                     .child(
                                         div()
                                             .font_family(crate::shared::theme::MONO_FONT)
-                                            .text_size(px(11.5))
+                                            .text_size(px(ui_size(11.5)))
                                             .font_weight(gpui::FontWeight::SEMIBOLD)
                                             .text_color(rgb(TEXT))
                                             .child(title.to_string()),
@@ -244,7 +238,7 @@ impl RootView {
                                     .when_some(elapsed, |el, dur| {
                                         el.child(
                                             div()
-                                                .text_size(px(10.5))
+                                                .text_size(px(ui_size(10.5)))
                                                 .text_color(rgb(MUTED))
                                                 .child(format!("({dur})")),
                                         )
@@ -269,7 +263,7 @@ impl RootView {
                     div()
                         .px_2()
                         .pt_1()
-                        .text_size(px(10.5))
+                        .text_size(px(ui_size(10.5)))
                         .text_color(rgb(MUTED))
                         .child(ended_msg),
                 );
@@ -287,6 +281,7 @@ impl RootView {
             .pt_1()
             .child(header)
             .when(expanded, |el| el.child(content))
+            .children(ended)
             .into_any_element()
     }
 }

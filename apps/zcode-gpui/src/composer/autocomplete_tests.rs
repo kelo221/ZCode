@@ -30,15 +30,8 @@ fn test_detect_mention_autocomplete() {
     let list = res.unwrap();
     assert!(list.iter().any(|s| s.label() == "Refactor parser"));
 
-    let res_skill = detect_autocomplete("Use @agent", &builtins, &sessions, None);
-    assert!(res_skill.is_some());
-    let list_skill = res_skill.unwrap();
-    assert!(list_skill.iter().any(|s| s.label() == "$agent-browser"));
-
-    let res_plugin = detect_autocomplete("Try @browser", &builtins, &sessions, None);
-    assert!(res_plugin.is_some());
-    let list_plugin = res_plugin.unwrap();
-    assert!(list_plugin.iter().any(|s| s.label() == "@browser-use"));
+    assert!(detect_autocomplete("Use $agent", &builtins, &sessions, None).is_none());
+    assert!(detect_autocomplete("Try @browser", &builtins, &sessions, None).is_none());
 }
 
 #[test]

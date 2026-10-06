@@ -4,10 +4,12 @@ use crate::app::root::RootView;
 use crate::composer::attachment::{
     ATTACHMENT_MAX_BYTES, AttachmentRef, detect_mime_type, format_bytes,
 };
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{ACCENT, BORDER, CARD_HOVER, DANGER, I_ADD, MUTED, TEXT, icon};
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, ClickEvent, Context, CursorStyle, Div, IntoElement, ParentElement,
-    PathPromptOptions, SharedString, Styled, div, prelude::*, px, rgb,
+    PathPromptOptions, SharedString, Styled, div, prelude::*, px,
 };
 use std::path::PathBuf;
 
@@ -49,18 +51,23 @@ impl RootView {
                         .border_1()
                         .border_color(rgb(BORDER))
                         .hover(|s| s.bg(rgb(CARD_HOVER)))
-                        .child(div().text_size(px(11.)).text_color(rgb(ACCENT)).child("📎"))
+                        .child(
+                            div()
+                                .text_size(px(ui_size(11.)))
+                                .text_color(rgb(ACCENT))
+                                .child("📎"),
+                        )
                         .child(
                             div()
                                 .max_w(px(160.))
                                 .truncate()
-                                .text_size(px(11.5))
+                                .text_size(px(ui_size(11.5)))
                                 .text_color(rgb(TEXT))
                                 .child(name),
                         )
                         .child(
                             div()
-                                .text_size(px(10.))
+                                .text_size(px(ui_size(10.)))
                                 .text_color(rgb(MUTED))
                                 .child(format!("({size_str})")),
                         )
@@ -68,7 +75,7 @@ impl RootView {
                             div()
                                 .id(SharedString::from(format!("att-del-{idx}")))
                                 .cursor(CursorStyle::PointingHand)
-                                .text_size(px(11.))
+                                .text_size(px(ui_size(11.)))
                                 .text_color(rgb(MUTED))
                                 .hover(|s| s.text_color(rgb(DANGER)))
                                 .child("✕")

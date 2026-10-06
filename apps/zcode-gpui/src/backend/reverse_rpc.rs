@@ -53,7 +53,12 @@ fn is_host_scheduler_method(method: &str) -> bool {
 }
 
 /// Dispatches an agent-to-client request based on the method name.
-pub fn dispatch_reverse_rpc(id: &Value, method: &str, _params: &Value) -> ReverseRpcAction {
+pub fn dispatch_reverse_rpc(
+    id: &Value,
+    method: &str,
+    _params: &Value,
+    memory_enabled: bool,
+) -> ReverseRpcAction {
     match method {
         "interaction/requestPermission" | "interaction/requestUserInput" => ReverseRpcAction::Raced,
 
@@ -75,7 +80,7 @@ pub fn dispatch_reverse_rpc(id: &Value, method: &str, _params: &Value) -> Revers
             json!({
                 "askUserQuestionAutoResolutionEnabled": true,
                 "nativeSearchEnhancementsEnabled": true,
-                "memoryEnabled": false
+                "memoryEnabled": memory_enabled
             }),
         ),
 

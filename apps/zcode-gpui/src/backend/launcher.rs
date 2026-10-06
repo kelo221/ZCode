@@ -36,7 +36,7 @@ pub fn resolve_candidates(workspace: &Path) -> Vec<BackendLaunch> {
     // terminal.
     if let Ok(program) = std::env::var("ZCODE_GPUI_AGENT_PROGRAM") {
         let args = std::env::var("ZCODE_GPUI_AGENT_ARGS")
-            .map(|a| a.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+            .map(|a| parse_agent_args(&a))
             .unwrap_or_else(|_| {
                 vec![
                     "app-server".into(),
@@ -271,9 +271,33 @@ fn system_env_passthrough() -> Vec<(String, String)> {
 /// honored: `GLM_BINARY_PATH`, `ZCODE_AGENT_SERVER_COMMAND` (desktop exports
 /// them to every child; see resolve_candidates), `NODE_OPTIONS`,
 /// `RUST_*`, and any other unlisted variable.
+/// `ZCODE_GPUI_AGENT_ARGS` parser: a JSON array of strings is the canonical
+/// form (quoted paths survive); whitespace splitting stays as a legacy
+/// fallback for hand-written values (review finding 8).
+fn parse_agent_args(raw: &str) -> Vec<String> {
+    if let Ok(list) = serde_json::from_str::<Vec<String>>(raw) {
+        return list;
+    }
+    raw.split_whitespace().map(str::to_string).collect()
+}
+
 fn common_backend_envs() -> Vec<(String, String)> {
     let mut envs = system_env_passthrough();
     envs.push(("ZCODE_RUNTIME_ENV".into(), "desktop".into()));
+    let paths = crate::shared::data_paths::paths();
+    envs.push((
+        "ZCODE_DATA_BASE_DIR".into(),
+        paths.data_base.to_string_lossy().into_owned(),
+    ));
+    envs.push((
+        "ZCODE_DESKTOP_HOME_DIR".into(),
+        paths.settings_home.to_string_lossy().into_owned(),
+    ));
+    envs.retain(|(key, _)| key != "HOME");
+    envs.push((
+        "HOME".into(),
+        paths.settings_home.to_string_lossy().into_owned(),
+    ));
     for key in [
         "HTTP_PROXY",
         "HTTPS_PROXY",
@@ -283,8 +307,16 @@ fn common_backend_envs() -> Vec<(String, String)> {
         "https_proxy",
         "all_proxy",
         "no_proxy",
-        "ZCODE_DATA_BASE_DIR",
         "ZCODE_HOME",
+        // Explicit overrides the launcher reasons about: without forwarding
+        // them the checks below self-cancelled — the bundled fallback was
+        // suppressed while the caller's value never reached the child
+        // (review finding 8).
+        "ZCODE_RG_BINARY",
+        "ZCODE_BUILTIN_PROVIDER_CONFIG_FILE",
+        "NODE_EXTRA_CA_CERTS",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
     ] {
         if let Ok(val) = std::env::var(key) {
             envs.push((key.into(), val));

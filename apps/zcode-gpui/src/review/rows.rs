@@ -2,12 +2,14 @@
 //! for the 400-line cap).
 
 use crate::app::root::RootView;
+use crate::review::controls::side_btn;
 use crate::review::git::DiffSide;
-use crate::review::pane::side_btn;
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{ACCENT, BORDER, CARD, DANGER, HOVER, MUTED, SUCCESS, icon};
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, Context, CursorStyle, IntoElement, ParentElement, SharedString, Styled, div,
-    prelude::*, px, rgb,
+    prelude::*, px,
 };
 
 impl RootView {
@@ -43,7 +45,7 @@ impl RootView {
                             .hover(|h| h.bg(rgb(HOVER)))
                             .cursor(CursorStyle::PointingHand)
                             .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 cx.stop_propagation();
                                 this.cycle_branch(cx);
@@ -56,19 +58,19 @@ impl RootView {
                     )
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .text_color(rgb(MUTED))
                             .child(format!("{files_n} files")),
                     )
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .text_color(rgb(SUCCESS))
                             .child(format!("+{add}")),
                     )
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .text_color(rgb(DANGER))
                             .child(format!("-{del}")),
                     )
@@ -101,7 +103,7 @@ impl RootView {
                             .px_3()
                             .py_0p5()
                             .rounded_sm()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .cursor(CursorStyle::PointingHand)
                             .when(selected, |el| el.bg(rgb(CARD)).text_color(rgb(ACCENT)))
                             .when(!selected, |el| {
@@ -170,7 +172,7 @@ impl RootView {
             .child(
                 div()
                     .w(px(18.))
-                    .text_size(px(10.))
+                    .text_size(px(ui_size(10.)))
                     .font_weight(gpui::FontWeight::BOLD)
                     .text_color(rgb(crate::shared::theme::TOOL))
                     .child(badge),
@@ -179,19 +181,19 @@ impl RootView {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_size(px(11.5))
+                    .text_size(px(ui_size(11.5)))
                     .truncate()
                     .child(path.to_string()),
             )
             .child(
                 div()
-                    .text_size(px(10.5))
+                    .text_size(px(ui_size(10.5)))
                     .text_color(rgb(SUCCESS))
                     .child(format!("+{add}")),
             )
             .child(
                 div()
-                    .text_size(px(10.5))
+                    .text_size(px(ui_size(10.5)))
                     .text_color(rgb(DANGER))
                     .child(format!("-{del}")),
             )
@@ -210,7 +212,7 @@ impl RootView {
                         // safe mid-frame (display toggles are not).
                         .opacity(0.)
                         .group_hover("file-row", |s| s.opacity(1.))
-                        .text_size(px(10.))
+                        .text_size(px(ui_size(10.)))
                         .text_color(rgb(SUCCESS))
                         .cursor(CursorStyle::PointingHand)
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -230,7 +232,7 @@ impl RootView {
                             .rounded_sm()
                             .bg(rgb(DANGER))
                             .opacity(1.)
-                            .text_size(px(10.))
+                            .text_size(px(ui_size(10.)))
                             .text_color(rgb(crate::shared::theme::BG))
                             .cursor(CursorStyle::PointingHand)
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -245,7 +247,7 @@ impl RootView {
                             .rounded_sm()
                             .bg(rgb(CARD))
                             .opacity(1.)
-                            .text_size(px(10.))
+                            .text_size(px(ui_size(10.)))
                             .text_color(rgb(MUTED))
                             .cursor(CursorStyle::PointingHand)
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -265,7 +267,7 @@ impl RootView {
                             .hover(|h| h.bg(rgb(HOVER)))
                             .opacity(0.)
                             .group_hover("file-row", |s| s.opacity(1.))
-                            .text_size(px(10.))
+                            .text_size(px(ui_size(10.)))
                             .text_color(rgb(DANGER))
                             .cursor(CursorStyle::PointingHand)
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -288,7 +290,7 @@ impl RootView {
                         .hover(|h| h.bg(rgb(HOVER)))
                         .opacity(0.)
                         .group_hover("file-row", |s| s.opacity(1.))
-                        .text_size(px(10.))
+                        .text_size(px(ui_size(10.)))
                         .text_color(rgb(MUTED))
                         .cursor(CursorStyle::PointingHand)
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -312,14 +314,14 @@ impl RootView {
                 Some(_) => div()
                     .px_2()
                     .pb_1()
-                    .text_size(px(11.))
+                    .text_size(px(ui_size(11.)))
                     .text_color(rgb(MUTED))
                     .child("(no textual changes)")
                     .into_any_element(),
                 None => div()
                     .px_2()
                     .pb_1()
-                    .text_size(px(11.))
+                    .text_size(px(ui_size(11.)))
                     .text_color(rgb(MUTED))
                     .child("loading diff…")
                     .into_any_element(),

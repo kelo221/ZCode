@@ -7,7 +7,8 @@ use crate::conversation::interactions::{
     questions_answer, toggle_pick,
 };
 use crate::shared::theme::{ACCENT, AMBER, BORDER, CARD, DANGER, MUTED, TEXT};
-use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Stateful, div, prelude::*, rgb};
+use crate::shared::theme_colors::color as rgb;
+use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Stateful, div, prelude::*};
 use serde_json::Value;
 
 fn action_btn(id: String, label: &str, bg: u32, fg: u32) -> Stateful<Div> {

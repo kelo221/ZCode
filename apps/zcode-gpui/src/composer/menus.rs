@@ -49,14 +49,19 @@ impl RootView {
                 .into_any_element()
             }))
             .children((!effective.thought_levels.is_empty()).then(|| {
-                DropdownMenu::new(
-                    "thought-menu",
-                    effective.thought_display(),
-                    thought_menu(&effective, root.clone()),
-                )
-                .icon(IconName::Lightbulb)
-                .variant(ButtonVariant::Ghost)
-                .into_any_element()
+                let trigger = div().child(
+                    DropdownMenu::new(
+                        "thought-menu",
+                        effective.thought_display(),
+                        thought_menu(&effective, root.clone()),
+                    )
+                    .icon(IconName::Lightbulb)
+                    .variant(ButtonVariant::Ghost),
+                );
+                #[cfg(test)]
+                let trigger =
+                    crate::app::test_support::track_children(trigger, vec!["thought-menu".into()]);
+                trigger.into_any_element()
             }))
     }
 
@@ -100,7 +105,9 @@ fn model_menu(effective: &EffectiveConfig, models: &[ModelOption], root: Entity<
             MenuItem::radio(opt.name.clone(), selected).on_click(move |_, cx| {
                 root.update(cx, |root, cx| {
                     root.state.update(cx, |s, cx| {
-                        if s.effective_config().has_session {
+                        if s.set_restored_model(&value_provider, &value_model, &thought) {
+                            cx.notify();
+                        } else if s.effective_config().has_session {
                             s.switch_model(&value_provider, &value_model, &thought, cx);
                         } else {
                             s.ui_model_value = Some(raw_value.clone());
@@ -140,10 +147,15 @@ fn thought_menu(effective: &EffectiveConfig, root: Entity<RootView>) -> Menu {
         menu = menu.item(MenuItem::radio(label, selected).on_click(move |_, cx| {
             root.update(cx, |root, cx| {
                 root.state.update(cx, |s, cx| {
+                    let thought = lv.clone();
+                    // /plan 草稿已有 override，但没有 live session；先更新同一 owner，避免思考级别点击被吞掉。
+                    if s.set_restored_model(&provider, &model, &thought) {
+                        cx.notify();
+                        return;
+                    }
                     if !s.effective_config().has_session {
                         return;
                     }
-                    let thought = lv.clone();
                     if provider.is_empty() || model.is_empty() {
                         s.switch_thought(&thought, cx);
                     } else {
@@ -165,7 +177,9 @@ fn mode_menu(current: &str, root: Entity<RootView>) -> Menu {
         menu = menu.item(MenuItem::radio(label, selected).on_click(move |_, cx| {
             root.update(cx, |root, cx| {
                 root.state.update(cx, |s, cx| {
-                    if s.effective_config().has_session {
+                    if s.set_restored_mode(id) {
+                        cx.notify();
+                    } else if s.effective_config().has_session {
                         s.switch_mode(id, cx);
                     } else {
                         s.ui_mode = Some(id.to_string());

@@ -73,3 +73,9 @@ packages/desktop/resources/macos-window-bounds/
 __pycache__/
 *.pyc
 .zcode-runtime
+
+# 本地工具运行产物，均可再生：桌面端 e2e 的截图/缓存/网络抓包。
+packages/desktop/.e2e-artifacts/
+packages/desktop/.e2e-cache/
+packages/desktop/.e2e-network-capture/
+/.zcode

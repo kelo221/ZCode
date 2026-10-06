@@ -4,12 +4,11 @@
 //! wire-binary.ts) and packages/services/src/zcode-agent/zcodeStdioTransport.ts
 //! (LF-delimited JSON lines, one object per line, UTF-8).
 //!
-//! The assembler mirrors the canonical TypeScript `TopicWireFrameAssembler`
-//! (packages/shared/src/zcode-protocol-v4/wire-assembler.ts): ordinal
-//! tombstones, per-route metadata equality, and the `PROTOCOL_V4_LIMITS`
-//! budgets are enforced before any logical frame is produced. Divergences are
-//! limited to what the route layer already tolerates (unknown payload kinds
-//! pass through; PARITY.md §6 keeps unknown enum values non-fatal).
+//! Mirrors `TopicWireFrameAssembler` (packages/shared/.../wire-assembler.ts):
+//! strict allowed keys, monotonic ordinal tombstones, per-route metadata
+//! equality, and `PROTOCOL_V4_LIMITS` (global staged budget checked per
+//! fragment). Staleness is decided before field validation; the 30s assembly
+//! timeout sweep is caller-driven so timed-out groups surface for resync.
 
 use serde_json::Value;
 use std::collections::HashMap;
@@ -25,6 +24,32 @@ pub(crate) const MAX_CONCURRENT_ASSEMBLIES: usize = 32;
 pub(crate) const MAX_STAGED_DECODED_BYTES: usize = 32 * 1024 * 1024;
 const ASSEMBLY_TIMEOUT: Duration = Duration::from_secs(30);
 const WIRE_VERSION: u64 = 3;
+/// Canonical `COMPLETE_WIRE_KEYS` / `FRAGMENT_WIRE_KEYS` (wire-assembler.ts):
+/// physical envelopes with extra keys are faults.
+const COMPLETE_WIRE_KEYS: [&str; 8] = [
+    "wireVersion",
+    "kind",
+    "deliveryKind",
+    "logicalFrameId",
+    "logicalFrameOrdinal",
+    "topic",
+    "subscriptionId",
+    "frame",
+];
+const FRAGMENT_WIRE_KEYS: [&str; 12] = [
+    "wireVersion",
+    "kind",
+    "deliveryKind",
+    "logicalFrameId",
+    "logicalFrameOrdinal",
+    "topic",
+    "subscriptionId",
+    "fragmentIndex",
+    "fragmentCount",
+    "logicalBytes",
+    "checksum",
+    "dataBase64",
+];
 
 /// One parsed inbound NDJSON message.
 pub enum Incoming {
@@ -126,10 +151,15 @@ pub(crate) struct Assembly {
 pub struct FrameAssembler {
     pub(super) assemblies: HashMap<(String, String), Assembly>,
     /// Per-route tombstone of the last settled (ordinal, logicalFrameId).
-    /// Late arrivals below it are dropped; a conflicting id at the same
-    /// ordinal is a fault — a settled frame can never be resurrected.
+    /// Monotonically increasing: a newer tombstone is never replaced by an
+    /// older ordinal (review finding 5).
     settled: HashMap<(String, String), (u64, String)>,
     pub(super) staged_decoded_bytes: usize,
+    /// Global staging budget (PROTOCOL_V4_LIMITS default; shrinkable in
+    /// tests). Checked before EVERY newly staged fragment.
+    pub(super) staged_budget: usize,
+    /// Assembly timeout (default 30s; shrinkable in tests).
+    assembly_timeout: Duration,
 }
 
 fn req_str<'a>(obj: &'a serde_json::Map<String, Value>, key: &str) -> Result<&'a str, String> {
@@ -154,15 +184,31 @@ fn req_nonempty(obj: &serde_json::Map<String, Value>, key: &str) -> Result<Strin
 
 impl FrameAssembler {
     pub fn new() -> Self {
+        Self::with_limits(MAX_STAGED_DECODED_BYTES, ASSEMBLY_TIMEOUT)
+    }
+
+    /// Test/limit constructor: shrinkable global staging budget and timeout.
+    pub(crate) fn with_limits(staged_budget: usize, assembly_timeout: Duration) -> Self {
         Self {
             assemblies: HashMap::new(),
             settled: HashMap::new(),
             staged_decoded_bytes: 0,
+            staged_budget,
+            assembly_timeout,
         }
     }
 
+    /// Monotonic tombstone: only ever moves FORWARD (review finding 5) —
+    /// a malformed stale frame must never pull the tombstone backward and
+    /// reopen already-settled ordinals.
     pub(super) fn settle(&mut self, key: &(String, String), ordinal: u64, id: &str) {
-        self.settled.insert(key.clone(), (ordinal, id.to_string()));
+        let entry = self
+            .settled
+            .entry(key.clone())
+            .or_insert((0, String::new()));
+        if ordinal > entry.0 {
+            *entry = (ordinal, id.to_string());
+        }
     }
 
     /// Remove an assembly, returning its staged bytes to the global budget.
@@ -173,13 +219,15 @@ impl FrameAssembler {
         Some((a.ordinal, a.logical_frame_id))
     }
 
-    /// Drop fragment groups stuck for >30s (the protocol's assembly cap) and
-    /// return their topics so the caller can resync those routes.
+    /// Drop fragment groups stuck past the assembly cap and return their
+    /// topics so the caller can resync those routes. Callers MUST surface
+    /// the returned topics (review finding 5): swallowing them leaves a
+    /// route permanently stalled without recovery.
     pub fn sweep_timeouts(&mut self) -> Vec<String> {
         let stale: Vec<(String, String)> = self
             .assemblies
             .iter()
-            .filter(|(_, a)| a.started.elapsed() > ASSEMBLY_TIMEOUT)
+            .filter(|(_, a)| a.started.elapsed() > self.assembly_timeout)
             .map(|(k, _)| k.clone())
             .collect();
         for key in &stale {
@@ -212,9 +260,12 @@ impl FrameAssembler {
     /// canonical reason code; the caller must resync the route (nothing was
     /// applied).
     pub fn ingest(&mut self, params: &Value) -> Result<Option<LogicalFrame>, String> {
-        self.sweep_timeouts();
+        // NOTE: assembly timeouts are swept by the CALLER (events.rs sweeps
+        // and resyncs the returned topics before every ingest) — swallowing
+        // the sweep result here stranded routes without recovery.
         // Physical budget: the re-serialized envelope must fit maxFrameBytes
-        // (mirror of measureTopicNotificationEnvelopeBytes).
+        // (mirror of measureTopicNotificationEnvelopeBytes; measured on the
+        // re-serialized params — see the header for the divergence note).
         if serde_json::to_vec(params).is_ok_and(|b| b.len() > MAX_FRAME_BYTES) {
             return Err("proto.frameEnvelopeTooLarge: physical frame exceeds 1 MiB".into());
         }
@@ -234,21 +285,25 @@ impl FrameAssembler {
         if ordinal == 0 {
             return Err("proto.frameAssemblyMetadataMismatch: ordinal must be positive".into());
         }
-        let delivery = match obj.get("deliveryKind").and_then(Value::as_str) {
-            // Distinct arms so each returns a 'static literal, not a borrow
-            // of the params.
-            Some("initial") => "initial",
-            Some("online") => "online",
-            Some("recovery") => "recovery",
-            _ => {
-                self.settle(&(topic.clone(), sub.clone()), ordinal, &id);
-                return Err("proto.frameAssemblyMetadataMismatch: invalid deliveryKind".into());
-            }
+        // Strict allowed-key sets (canonical COMPLETE_WIRE_KEYS /
+        // FRAGMENT_WIRE_KEYS): extra physical-frame keys are a fault, not a
+        // tolerated addition (review finding 5).
+        let allowed: &[&str] = if kind == "complete" {
+            &COMPLETE_WIRE_KEYS
+        } else if kind == "fragment" {
+            &FRAGMENT_WIRE_KEYS
+        } else {
+            &[]
         };
+        if !allowed.is_empty() && !obj.keys().all(|k| allowed.contains(&k.as_str())) {
+            self.settle(&(topic.clone(), sub.clone()), ordinal, &id);
+            return Err("proto.frameAssemblyMetadataMismatch: unexpected envelope key".into());
+        }
         let key = (topic.clone(), sub.clone());
 
-        // Ordinal tombstone: below → silently stale; equal with a different id
-        // → conflict fault; equal with the same id → exact replay, dropped.
+        // Ordinal tombstone runs BEFORE deliveryKind validation (review
+        // finding 5): staleness is decided by the monotonic tombstone, not
+        // by which field happened to be malformed first.
         if let Some(&(settled_ord, ref settled_id)) = self.settled.get(&key) {
             if ordinal < settled_ord {
                 return Ok(None);
@@ -262,61 +317,28 @@ impl FrameAssembler {
                 return Ok(None);
             }
         }
+        let delivery = match obj.get("deliveryKind").and_then(Value::as_str) {
+            // Distinct arms so each returns a 'static literal, not a borrow
+            // of the params.
+            Some("initial") => "initial",
+            Some("online") => "online",
+            Some("recovery") => "recovery",
+            _ => {
+                self.settle(&key, ordinal, &id);
+                return Err("proto.frameAssemblyMetadataMismatch: invalid deliveryKind".into());
+            }
+        };
 
         match kind {
             "complete" => self.ingest_complete(key, obj, &topic, &sub, &id, ordinal),
             "fragment" => self.ingest_fragment(key, obj, delivery, &topic, &sub, &id, ordinal),
-            other => Err(format!(
-                "proto.frameAssemblyMetadataMismatch: unknown kind {other}"
-            )),
-        }
-    }
-
-    fn ingest_complete(
-        &mut self,
-        key: (String, String),
-        obj: &serde_json::Map<String, Value>,
-        topic: &str,
-        sub: &str,
-        id: &str,
-        ordinal: u64,
-    ) -> Result<Option<LogicalFrame>, String> {
-        let fault =
-            |e: String| -> String { format!("{e} (complete frame {id}, ordinal {ordinal})") };
-        let frame = obj
-            .get("frame")
-            .ok_or_else(|| fault("proto.frameAssemblyMetadataMismatch: missing frame".into()))?;
-        // The inner logical frame must agree with the routing envelope.
-        if frame.get("topic").and_then(Value::as_str) != Some(topic)
-            || frame.get("subscriptionId").and_then(Value::as_str) != Some(sub)
-        {
-            self.settle(&key, ordinal, id);
-            return Err(fault(
-                "proto.frameAssemblyMetadataMismatch: frame/envelope route mismatch".into(),
-            ));
-        }
-        // A complete frame supersedes an incomplete fragment group on the
-        // route; the old group's seq hole is caught by the route cursor.
-        if let Some((old_ord, old_id)) = self.release(&key) {
-            self.settle(&key, old_ord, &old_id);
-        }
-        let logical = match logical_from_value(frame) {
-            Some(l) => l,
-            None => {
-                self.settle(&key, ordinal, id);
-                return Err(fault(
-                    "proto.frameAssemblyMetadataMismatch: bad logical frame".into(),
-                ));
+            other => {
+                self.settle(&key, ordinal, &id);
+                Err(format!(
+                    "proto.frameAssemblyMetadataMismatch: unknown kind {other}"
+                ))
             }
-        };
-        if logical.to_seq < logical.from_seq {
-            self.settle(&key, ordinal, id);
-            return Err(fault(
-                "proto.frameAssemblyMetadataMismatch: toSeq < fromSeq".into(),
-            ));
         }
-        self.settle(&key, ordinal, id);
-        Ok(Some(logical))
     }
 }
 

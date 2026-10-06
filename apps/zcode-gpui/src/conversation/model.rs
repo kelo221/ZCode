@@ -61,6 +61,8 @@ pub use crate::conversation::rows::Row;
 pub struct ConversationState {
     pub rows: BTreeMap<u64, Row>,
     pub phase: String,
+    pub(crate) can_stop: bool,
+    pub(crate) input_routing: Option<crate::composer::delivery::InputRouting>,
     pub log_epoch: Option<String>,
     pub seq: u64,
     /// Mirrored CAS revision (`snapshot.revision`, then `state.updated`
@@ -90,6 +92,9 @@ pub struct ConversationState {
     pub resolving: crate::conversation::interactions::ResolvingInteractions,
     /// Active plan execution progress
     pub plan: Option<crate::conversation::turn_meta::PlanState>,
+    pub(crate) goal: Option<crate::conversation::goal::GoalState>,
+    pub(crate) goal_availability: crate::conversation::goal::GoalAvailability,
+    pub(crate) queue_edit_allowed: bool,
     /// Follow-up input queue
     pub queue: Option<crate::conversation::queue::QueueState>,
     /// Active foreground execution id for target-scoped stop
@@ -141,6 +146,10 @@ impl ConversationState {
             self.revision = rev;
             self.revision_known = true;
         }
+        self.input_routing = snap
+            .get("inputRouting")
+            .and_then(crate::composer::delivery::InputRouting::from_value);
+        self.can_stop = snap.pointer("/control/canStop").and_then(Value::as_bool) == Some(true);
         if let Some(control) = snap.get("control") {
             self.apply_control(control);
         }
@@ -150,6 +159,17 @@ impl ConversationState {
         if let Some(pis) = snap.get("pendingInteractions").and_then(Value::as_array) {
             self.set_pending_interactions(pis);
         }
+        self.queue_edit_allowed = snap
+            .pointer("/availability/queueEdit/allowed")
+            .and_then(Value::as_bool)
+            == Some(true);
+        self.goal = snap
+            .get("goal")
+            .and_then(crate::conversation::goal::GoalState::from_value);
+        self.goal_availability = snap
+            .get("availability")
+            .map(crate::conversation::goal::GoalAvailability::from_value)
+            .unwrap_or_default();
         if let Some(p) = snap.get("plan") {
             self.plan = crate::conversation::turn_meta::PlanState::from_value(p);
         }
@@ -199,6 +219,7 @@ impl ConversationState {
     }
 
     fn apply_control(&mut self, control: &Value) {
+        self.can_stop = control.get("canStop").and_then(Value::as_bool) == Some(true);
         self.phase = control
             .get("phase")
             .and_then(Value::as_str)
@@ -303,6 +324,10 @@ impl ConversationState {
                 }
                 "state.updated" => {
                     if let Some(patch) = d.get("patch") {
+                        if let Some(routing) = patch.get("inputRouting") {
+                            self.input_routing =
+                                crate::composer::delivery::InputRouting::from_value(routing);
+                        }
                         if let Some(control) = patch.get("control") {
                             self.apply_control(control);
                         }
@@ -316,6 +341,19 @@ impl ConversationState {
                             patch.get("pendingInteractions").and_then(Value::as_array)
                         {
                             self.set_pending_interactions(pis);
+                        }
+                        if let Some(goal) = patch.get("goal") {
+                            self.goal = crate::conversation::goal::GoalState::from_value(goal);
+                        }
+                        if let Some(availability) = patch.get("availability") {
+                            self.queue_edit_allowed = availability
+                                .pointer("/queueEdit/allowed")
+                                .and_then(Value::as_bool)
+                                == Some(true);
+                            self.goal_availability =
+                                crate::conversation::goal::GoalAvailability::from_value(
+                                    availability,
+                                );
                         }
                         if let Some(p) = patch.get("plan") {
                             self.plan = crate::conversation::turn_meta::PlanState::from_value(p);

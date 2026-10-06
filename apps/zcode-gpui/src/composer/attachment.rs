@@ -9,8 +9,6 @@
 //! - v4/attachment/commit
 //! - v4/attachment/abort
 
-#![allow(dead_code)]
-
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use serde::{Deserialize, Serialize};
@@ -32,6 +30,7 @@ pub const ATTACHMENT_MAX_CHUNKS: usize = 64;
 
 /// The only upload methods this client may call. `v4/attachment/put` is
 /// internal to the host and deliberately absent.
+#[cfg(test)]
 pub const ATTACHMENT_UPLOAD_METHODS: [&str; 4] = [
     "v4/attachment/begin",
     "v4/attachment/chunk",

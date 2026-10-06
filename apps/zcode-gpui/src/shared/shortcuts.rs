@@ -244,25 +244,27 @@ pub fn matches_binding(binding: &str, key: &str, modifiers: Modifiers) -> bool {
     let mut need_ctrl = false;
     let mut need_shift = false;
     let mut need_alt = false;
+    let mut need_cmd = false;
 
     for &m in mod_parts {
         match m {
             "CmdOrCtrl" => need_ctrl_or_cmd = true,
             "Ctrl" => need_ctrl = true,
+            "Cmd" => need_cmd = true,
             "Shift" => need_shift = true,
             "Alt" => need_alt = true,
             _ => {}
         }
     }
 
-    let has_ctrl_or_cmd = modifiers.control || modifiers.platform;
-    if need_ctrl_or_cmd && !has_ctrl_or_cmd {
-        return false;
+    if need_ctrl_or_cmd {
+        if cfg!(target_os = "macos") {
+            need_cmd = true;
+        } else {
+            need_ctrl = true;
+        }
     }
-    if !need_ctrl_or_cmd && !need_ctrl && has_ctrl_or_cmd {
-        return false;
-    }
-    if need_ctrl && !modifiers.control {
+    if modifiers.control != need_ctrl || modifiers.platform != need_cmd {
         return false;
     }
     if need_shift != modifiers.shift {
@@ -312,7 +314,8 @@ mod tests {
     #[test]
     fn test_matches_binding() {
         let mut mods = Modifiers {
-            control: true,
+            control: !cfg!(target_os = "macos"),
+            platform: cfg!(target_os = "macos"),
             ..Default::default()
         };
         assert!(matches_binding("CmdOrCtrl+k", "k", mods));
@@ -327,14 +330,16 @@ mod tests {
     #[test]
     fn test_match_shortcut_defaults() {
         let mods = Modifiers {
-            control: true,
+            control: !cfg!(target_os = "macos"),
+            platform: cfg!(target_os = "macos"),
             ..Default::default()
         };
         let cmd = match_shortcut("k", mods, ShortcutScope::Global, None);
         assert_eq!(cmd, Some(ShortcutCommandId::OpenCommandCenter));
 
         let shift_mods = Modifiers {
-            control: true,
+            control: !cfg!(target_os = "macos"),
+            platform: cfg!(target_os = "macos"),
             shift: true,
             ..Default::default()
         };
@@ -352,7 +357,8 @@ mod tests {
         );
 
         let mods = Modifiers {
-            control: true,
+            control: !cfg!(target_os = "macos"),
+            platform: cfg!(target_os = "macos"),
             ..Default::default()
         };
         assert_eq!(

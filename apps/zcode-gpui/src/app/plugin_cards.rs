@@ -5,10 +5,12 @@
 
 use crate::app::root::RootView;
 use crate::shared::plugins::{AvailablePluginSummary, InstalledPluginSummary, available_card_id};
-use crate::shared::theme::{ACCENT, BORDER, CARD, DANGER, MUTED, SUCCESS, TEXT, WARNING};
+use crate::shared::theme::ui_size;
+use crate::shared::theme::{ACCENT, BORDER, CARD, MUTED, SUCCESS, TEXT, WARNING};
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
-    AnyElement, Context, CursorStyle, ElementId, InteractiveElement, IntoElement, ParentElement,
-    Styled, div, prelude::*, px, rgb,
+    AnyElement, Context, ElementId, InteractiveElement, IntoElement, ParentElement, Styled, div,
+    prelude::*, px,
 };
 
 impl RootView {
@@ -26,6 +28,11 @@ impl RootView {
             .as_ref()
             .and_then(|l| l.example_prompts.clone())
             .unwrap_or_default();
+        let prompt_owner = self.state.read(cx).active_ws_key();
+        let prompt_plugin = p.id.clone();
+        let prompt_pending = prompt_owner
+            .as_ref()
+            .is_some_and(|key| self.state.read(cx).plugin_prompt_pending(key));
         let requires_paid = p
             .listing
             .as_ref()
@@ -60,7 +67,7 @@ impl RootView {
                             .gap_1p5()
                             .child(
                                 div()
-                                    .text_size(px(12.))
+                                    .text_size(px(ui_size(12.)))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(rgb(TEXT))
                                     .child(p.display_label().to_string()),
@@ -72,7 +79,7 @@ impl RootView {
                                         .py_0p5()
                                         .rounded_sm()
                                         .bg(rgb(0x382c14))
-                                        .text_size(px(9.5))
+                                        .text_size(px(ui_size(9.5)))
                                         .text_color(rgb(WARNING))
                                         .child("Paid Plan"),
                                 )
@@ -84,39 +91,29 @@ impl RootView {
                             .py_0p5()
                             .rounded_sm()
                             .bg(rgb(0x133827))
-                            .text_size(px(10.))
+                            .text_size(px(ui_size(10.)))
                             .text_color(rgb(SUCCESS))
                             .child("Installed")
                             .into_any_element()
                     } else {
-                        let n = name.clone();
-                        let m = market.clone();
-                        div()
-                            .id("install")
-                            .px_2()
-                            .py_0p5()
-                            .rounded_sm()
-                            .bg(rgb(ACCENT))
-                            .text_size(px(10.5))
-                            .text_color(rgb(0xffffff))
-                            .cursor(CursorStyle::PointingHand)
-                            .hover(|h| h.bg(rgb(0x2563eb)))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                let n = n.clone();
-                                let m = m.clone();
-                                this.state.update(cx, |s, cx| s.install_plugin(&n, &m, cx));
-                            }))
-                            .child("Install")
-                            .into_any_element()
+                        self.plugin_mutation_button(
+                            format!("install/{}/{}/{}", is_featured, market, p.id),
+                            crate::shared::i18n::label("Install", "安装").into(),
+                            crate::app::plugin_controls::PluginMutation::Install(
+                                name.clone(),
+                                market.clone(),
+                            ),
+                            cx,
+                        )
                     }),
             )
             .child(
                 div()
-                    .text_size(px(10.5))
+                    .text_size(px(ui_size(10.5)))
                     .text_color(rgb(MUTED))
                     .child(p.description.clone().unwrap_or_default()),
             )
+            .child(self.plugin_detail_button(p, cx))
             .when(!example_prompts.is_empty(), |el| {
                 el.child(
                     div().flex().flex_wrap().gap_1().mt_1().children(
@@ -126,28 +123,36 @@ impl RootView {
                             .enumerate()
                             .map(|(i, prompt)| {
                                 let pr = prompt.clone();
-                                div()
-                                    .id(ElementId::NamedInteger("prompt".into(), i as u64))
-                                    .px_1p5()
-                                    .py_0p5()
-                                    .rounded_sm()
-                                    .bg(rgb(0x1a2436))
-                                    .border_1()
-                                    .border_color(rgb(0x2b3d5c))
-                                    .text_size(px(9.5))
-                                    .text_color(rgb(ACCENT))
-                                    .cursor(CursorStyle::PointingHand)
-                                    .hover(|h| h.bg(rgb(0x24334d)))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        cx.stop_propagation();
-                                        let text = pr.clone();
+                                let owner = prompt_owner.clone();
+                                let plugin = prompt_plugin.clone();
+                                let control = ely_gpui_component::buttons::Button::new(
+                                    format!("plugin-prompt-{}-{i}", p.id),
+                                    prompt.clone(),
+                                )
+                                .variant(ely_gpui_component::buttons::ButtonVariant::Secondary)
+                                .size(ely_gpui_component::theme::ControlSize::Sm)
+                                .disabled(
+                                    prompt_pending
+                                        || prompt_owner.as_ref().is_none_or(|key| {
+                                            !self.state.read(cx).plugin_operation_available(key)
+                                        }),
+                                )
+                                .loading(prompt_pending)
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    if let Some(owner) = &owner {
                                         this.state.update(cx, |s, cx| {
-                                            s.composer.update(cx, |c, _cx| {
-                                                c.set_text(&text);
-                                            });
+                                            s.use_plugin_prompt(owner, &plugin, &pr, cx)
                                         });
-                                    }))
-                                    .child(format!("💬 {prompt}"))
+                                    }
+                                }));
+                                let control = div().child(control);
+                                #[cfg(test)]
+                                let control = crate::app::test_support::track_children(
+                                    control,
+                                    vec![format!("plugin-prompt-{}-{i}", p.id)],
+                                );
+                                control
                             }),
                     ),
                 )
@@ -168,8 +173,9 @@ impl RootView {
 
         div()
             .flex()
-            .items_center()
-            .justify_between()
+            .flex_col()
+            .items_start()
+            .gap_2()
             .p_2p5()
             .rounded_md()
             .bg(rgb(CARD))
@@ -186,103 +192,71 @@ impl RootView {
                             .gap_1p5()
                             .child(
                                 div()
-                                    .text_size(px(12.))
+                                    .text_size(px(ui_size(12.)))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(rgb(TEXT))
                                     .child(p.display_label().to_string()),
                             )
                             .child(
                                 div()
-                                    .text_size(px(10.))
+                                    .text_size(px(ui_size(10.)))
                                     .text_color(rgb(MUTED))
                                     .child(format!("v{}", p.version.as_deref().unwrap_or("0.1.0"))),
                             ),
                     )
                     .child(
                         div()
-                            .text_size(px(10.))
+                            .text_size(px(ui_size(10.)))
                             .text_color(rgb(MUTED))
                             .child(format!("source: {}", p.marketplace)),
                     ),
             )
+            .child(self.plugin_config_button(&p.id, cx))
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap_1p5()
                     .when(has_update, |el| {
-                        let id = p_id.clone();
-                        let m = p_market.clone();
-                        let btn_update_id = format!("update-{}", id);
-                        el.child(
-                            div()
-                                .id(ElementId::Name(btn_update_id.into()))
-                                .px_2()
-                                .py_0p5()
-                                .rounded_sm()
-                                .bg(rgb(0x1e3a5f))
-                                .text_size(px(10.))
-                                .text_color(rgb(ACCENT))
-                                .cursor(CursorStyle::PointingHand)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    let id = id.clone();
-                                    let m = m.clone();
-                                    this.state.update(cx, |s, cx| s.update_plugin(&id, &m, cx));
-                                }))
-                                .child(format!(
-                                    "Update ({})",
-                                    latest_ver.as_deref().unwrap_or("new")
-                                )),
-                        )
+                        el.child(self.plugin_mutation_button(
+                            format!("update-{}", p_id),
+                            format!(
+                                "{} ({})",
+                                crate::shared::i18n::label("Update", "更新"),
+                                latest_ver.as_deref().unwrap_or("new")
+                            ),
+                            crate::app::plugin_controls::PluginMutation::Update(
+                                p_id.clone(),
+                                p_market.clone(),
+                            ),
+                            cx,
+                        ))
                     })
-                    .child({
-                        let id = p_id.clone();
-                        let btn_toggle_id = format!("toggle-{}", id);
-                        div()
-                            .id(ElementId::Name(btn_toggle_id.into()))
-                            .px_2()
-                            .py_0p5()
-                            .rounded_sm()
-                            .bg(if enabled {
-                                rgb(0x133827)
+                    .child(
+                        self.plugin_mutation_button(
+                            format!("toggle-{}", p_id),
+                            if enabled {
+                                crate::shared::i18n::label("Enabled", "已启用")
                             } else {
-                                rgb(0x2a2f3a)
-                            })
-                            .text_size(px(10.))
-                            .text_color(if enabled { rgb(SUCCESS) } else { rgb(MUTED) })
-                            .cursor(CursorStyle::PointingHand)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                let id = id.clone();
-                                this.state
-                                    .update(cx, |s, cx| s.set_plugin_enabled(&id, !enabled, cx));
-                            }))
-                            .child(if enabled { "Enabled" } else { "Disabled" })
-                    })
-                    .child({
-                        let id = p_id.clone();
-                        let m = p_market.clone();
-                        let btn_uninstall_id = format!("uninstall-{}", id);
-                        div()
-                            .id(ElementId::Name(btn_uninstall_id.into()))
-                            .px_2()
-                            .py_0p5()
-                            .rounded_sm()
-                            .bg(rgb(0x3f1d24))
-                            .text_size(px(10.))
-                            .text_color(rgb(DANGER))
-                            .cursor(CursorStyle::PointingHand)
-                            .hover(|h| h.bg(rgb(0x5c1d24)))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                let id = id.clone();
-                                let m = m.clone();
-                                this.state
-                                    .update(cx, |s, cx| s.uninstall_plugin(&id, &m, cx));
-                            }))
-                            .child("Uninstall")
-                    }),
+                                crate::shared::i18n::label("Disabled", "已禁用")
+                            }
+                            .into(),
+                            crate::app::plugin_controls::PluginMutation::Enable(
+                                p_id.clone(),
+                                !enabled,
+                            ),
+                            cx,
+                        ),
+                    )
+                    .child(self.plugin_mutation_button(
+                        format!("uninstall-{}", p_id),
+                        crate::shared::i18n::label("Uninstall", "卸载").into(),
+                        crate::app::plugin_controls::PluginMutation::Uninstall(
+                            p_id.clone(),
+                            p_market.clone(),
+                        ),
+                        cx,
+                    )),
             )
             .into_any_element()
     }

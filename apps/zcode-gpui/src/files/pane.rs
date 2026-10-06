@@ -6,9 +6,11 @@ use crate::app::root::RootView;
 pub use crate::files::preview::Preview;
 use crate::files::preview::{pane_note, preview_element, read_preview};
 use crate::shared::theme::{BORDER, CARD, HOVER, MUTED, TEXT, TOOL};
+use crate::shared::theme_colors::color as rgb;
+use crate::shared::{i18n::label, theme::ui_size};
 use gpui::{
     AnyElement, Context, CursorStyle, IntoElement, ParentElement, SharedString, Styled, div,
-    prelude::*, px, rgb,
+    prelude::*, px,
 };
 use std::path::{Path, PathBuf};
 
@@ -32,16 +34,34 @@ pub struct FilesState {
     /// Workspace the tree was loaded from; a different active workspace
     /// resets the pane.
     pub root: Option<PathBuf>,
+    pub(crate) workspace: Option<String>,
+    pub(crate) reset_generation: u64,
+    pub(crate) generation: u64,
 }
 
 impl RootView {
     pub(crate) fn ensure_files_loaded(&mut self, cx: &mut Context<Self>) {
         let active = self.active_workspace_path(cx);
-        if active.is_none() || active == self.files.root {
+        let workspace = self.state.read(cx).active_ws_key();
+        // 两个 identity 可以共享 path；目录归属不能只比较文件系统根。
+        if active == self.files.root && workspace == self.files.workspace {
             return;
         }
+        let generation = self
+            .files
+            .generation
+            .checked_add(1)
+            .expect("file preview generation exhausted");
+        let reset_generation = self
+            .files
+            .reset_generation
+            .checked_add(1)
+            .expect("file workspace generation exhausted");
         self.files = FilesState {
             root: active,
+            workspace,
+            generation,
+            reset_generation,
             ..FilesState::default()
         };
         self.load_dir(None, cx);
@@ -52,6 +72,16 @@ impl RootView {
         let Some(root) = self.files.root.clone() else {
             return;
         };
+        let Some(workspace) = self.files.workspace.clone() else {
+            return;
+        };
+        let generation = self.files.reset_generation;
+        if self.state.read(cx).active_ws_key().as_deref() != Some(workspace.as_str())
+            || self.active_workspace_path(cx).as_ref() != Some(&root)
+            || dir.as_ref().is_some_and(|path| !path.starts_with(&root))
+        {
+            return;
+        }
         self.files.loading = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -61,23 +91,40 @@ impl RootView {
                 .background_spawn(async move { list_dir(&list_root, moved_dir.as_deref()) })
                 .await;
             this.update(cx, |v, cx| {
-                // The pane moved to another workspace while listing.
-                if v.files.root.as_ref() != Some(&root) {
-                    return;
-                }
-                v.files.loading = false;
-                match dir {
-                    None => v.files.roots = entries,
-                    Some(d) => {
-                        insert_children(&mut v.files.roots, &d, entries);
-                        v.files.expanded.insert(d);
-                    }
-                }
-                cx.notify();
+                v.settle_file_listing(&workspace, &root, generation, dir, entries, cx);
             })
             .ok();
         })
         .detach();
+    }
+
+    pub(crate) fn settle_file_listing(
+        &mut self,
+        workspace: &str,
+        root: &Path,
+        generation: u64,
+        dir: Option<PathBuf>,
+        entries: Vec<FilesNode>,
+        cx: &mut Context<Self>,
+    ) {
+        // 工作区 A→B→A 会复用根路径；旧 listing 不能覆盖新目录或结束其 loading。
+        if self.files.workspace.as_deref() != Some(workspace)
+            || self.files.root.as_deref() != Some(root)
+            || self.files.reset_generation != generation
+            || self.state.read(cx).active_ws_key().as_deref() != Some(workspace)
+            || self.active_workspace_path(cx).as_deref() != Some(root)
+        {
+            return;
+        }
+        self.files.loading = false;
+        match dir {
+            None => self.files.roots = entries,
+            Some(d) => {
+                insert_children(&mut self.files.roots, &d, entries);
+                self.files.expanded.insert(d);
+            }
+        }
+        cx.notify();
     }
 
     pub(crate) fn toggle_dir(&mut self, path: PathBuf, cx: &mut Context<Self>) {
@@ -89,6 +136,24 @@ impl RootView {
     }
 
     pub(crate) fn select_file(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        let Some(root) = self.files.root.clone() else {
+            return;
+        };
+        let Some(workspace) = self.state.read(cx).active_ws_key() else {
+            return;
+        };
+        if self.files.workspace.as_deref() != Some(workspace.as_str())
+            || self.active_workspace_path(cx).as_ref() != Some(&root)
+            || !path.starts_with(&root)
+        {
+            return;
+        }
+        self.files.generation = self
+            .files
+            .generation
+            .checked_add(1)
+            .expect("file preview generation exhausted");
+        let generation = self.files.generation;
         self.files.selected = Some(path.clone());
         self.files.preview = None;
         cx.notify();
@@ -98,17 +163,34 @@ impl RootView {
                 .background_spawn(async move { read_preview(&read_path) })
                 .await;
             this.update(cx, |v, cx| {
-                // Rapid clicks: an older, slower read must not replace the
-                // preview of the file selected since.
-                if v.files.selected.as_ref() != Some(&path) {
-                    return;
-                }
-                v.files.preview = Some(preview);
-                cx.notify();
+                v.settle_file_preview(&workspace, &root, &path, generation, preview, cx);
             })
             .ok();
         })
         .detach();
+    }
+
+    pub(crate) fn settle_file_preview(
+        &mut self,
+        workspace: &str,
+        root: &Path,
+        path: &Path,
+        generation: u64,
+        preview: Preview,
+        cx: &mut Context<Self>,
+    ) {
+        // 同一路径的 A→B→A 与工作区重入仍是新请求；只按 path 会采用旧图片。
+        if self.files.selected.as_deref() != Some(path)
+            || self.files.workspace.as_deref() != Some(workspace)
+            || self.files.root.as_deref() != Some(root)
+            || self.files.generation != generation
+            || self.state.read(cx).active_ws_key().as_deref() != Some(workspace)
+            || self.active_workspace_path(cx).as_deref() != Some(root)
+        {
+            return;
+        }
+        self.files.preview = Some(preview);
+        cx.notify();
     }
 
     /// Flattened visible tree (depth, node) respecting the expanded set.
@@ -155,10 +237,13 @@ impl RootView {
                     .border_r_1()
                     .border_color(rgb(BORDER))
                     .when(self.files.roots.is_empty() && self.files.loading, |el| {
-                        el.child(pane_note("Loading…"))
+                        el.child(pane_note(label("Loading…", "加载中…")))
                     })
                     .when(self.files.roots.is_empty() && !self.files.loading, |el| {
-                        el.child(pane_note("No workspace"))
+                        el.child(pane_note(label(
+                            "No files in this workspace",
+                            "此工作区没有文件",
+                        )))
                     })
                     .children(
                         rows.into_iter()
@@ -176,8 +261,8 @@ impl RootView {
                     .min_h_0()
                     .overflow_y_scroll()
                     .child(match (&self.files.selected, &self.files.preview) {
-                        (None, _) => pane_note("Select a file to preview"),
-                        (Some(_), None) => pane_note("Loading…"),
+                        (None, _) => pane_note(label("Select a file to preview", "选择文件以预览")),
+                        (Some(_), None) => pane_note(label("Loading…", "加载中…")),
                         (Some(p), Some(pv)) => preview_element(p, pv),
                     }),
             )
@@ -190,7 +275,10 @@ impl RootView {
         let name = node.name.clone();
         let click_path = node.path.clone();
         let is_dir = node.is_dir;
-        div()
+        let root = self.files.root.clone();
+        let workspace = self.state.read(cx).active_ws_key();
+        let generation = self.files.generation;
+        let row = div()
             .id(SharedString::from(format!("f-{}", node.path.display())))
             .flex()
             .items_center()
@@ -205,6 +293,12 @@ impl RootView {
             .when(!selected, |el| el.hover(|h| h.bg(rgb(HOVER))))
             .on_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();
+                if this.files.root != root
+                    || this.files.generation != generation
+                    || this.state.read(cx).active_ws_key() != workspace
+                {
+                    return;
+                }
                 if is_dir {
                     this.toggle_dir(click_path.clone(), cx);
                 } else {
@@ -214,7 +308,7 @@ impl RootView {
             .child(
                 div()
                     .w(px(10.))
-                    .text_size(px(9.))
+                    .text_size(px(ui_size(9.)))
                     .text_color(rgb(MUTED))
                     .child(if is_dir {
                         if expanded { "▾" } else { "▸" }.to_string()
@@ -224,12 +318,17 @@ impl RootView {
             )
             .child(
                 div()
-                    .text_size(px(11.5))
+                    .text_size(px(ui_size(11.5)))
                     .truncate()
                     .text_color(rgb(if node.is_dir { TOOL } else { TEXT }))
                     .child(name),
-            )
-            .into_any_element()
+            );
+        #[cfg(test)]
+        let row = crate::app::test_support::track_children(
+            div().child(row),
+            vec![format!("file-row-{}", node.name)],
+        );
+        row.into_any_element()
     }
 }
 

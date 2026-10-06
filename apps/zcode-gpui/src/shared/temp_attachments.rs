@@ -2,11 +2,10 @@
 //!
 //! The composer used to write timestamp-named files into the global temp dir
 //! with no ownership tracking, so every paste leaked a file (2026-10-05 audit
-//! P1.7). Files now use content-derived names under a `zcode-gpui-paste-`
-//! prefix and are deleted through this module: on attachment remove, on app
+//! P1.7). Each paste now uses a unique file under a `zcode-gpui-paste-`
+//! directory and is deleted through explicit producer ownership: on remove, on app
 //! quit (retired after submit), and via a stale sweep at startup.
 
-use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -14,26 +13,22 @@ use std::time::Duration;
 /// files carrying it).
 pub(crate) const TEMP_PREFIX: &str = "zcode-gpui-paste-";
 
-/// Write `bytes` as a temp file named by content hash (dedupes identical
-/// pastes, avoids timestamp collisions). Returns the path; the caller owns
-/// deletion through [`delete_owned`].
+/// Private per-process paste directory: another GPUI process can never
+/// own, reuse or delete this process's paste files (review finding 10).
+fn paste_dir() -> PathBuf {
+    std::env::temp_dir().join(format!("{TEMP_PREFIX}{}", std::process::id()))
+}
+
+/// Write a separate file per paste; the caller owns deletion through [`delete_owned`].
 pub(crate) fn write_temp_image(bytes: &[u8], ext: &str) -> std::io::Result<PathBuf> {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    let digest = hasher.finalize();
-    let mut name = String::with_capacity(TEMP_PREFIX.len() + 16 + ext.len() + 1);
-    name.push_str(TEMP_PREFIX);
-    for b in digest.iter().take(8) {
-        use std::fmt::Write;
-        let _ = write!(name, "{b:02x}");
-    }
-    name.push('.');
-    name.push_str(ext.trim_start_matches('.'));
-    let path = std::env::temp_dir().join(name);
-    if path.exists() {
-        // Same content already materialized: reuse the file.
-        return Ok(path);
-    }
+    let dir = paste_dir();
+    std::fs::create_dir_all(&dir)?;
+    // 同内容的第二次粘贴不能复用已提交路径，否则移除新附件会删除 runtime 仍在读取的文件。
+    let path = dir.join(format!(
+        "{TEMP_PREFIX}{}.{}",
+        uuid::Uuid::now_v7(),
+        ext.trim_start_matches('.')
+    ));
     #[cfg(unix)]
     {
         use std::io::Write;
@@ -74,13 +69,21 @@ pub(crate) fn delete_owned(path: &Path) {
     }
 }
 
-/// Startup sweep: remove paste temp files older than 24h (crash leftovers).
-/// Only files with the owned prefix are considered.
+/// Startup sweep: remove paste files older than 24h (crash leftovers),
+/// including whole directories left behind by dead processes. Only paths
+/// carrying the owned prefix are ever considered.
 pub(crate) fn scavenge_stale() {
     let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
         return;
     };
     let max_age = Duration::from_secs(24 * 3600);
+    let stale = |path: &Path| {
+        path.metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|m| m.elapsed().ok())
+            .is_some_and(|age| age >= max_age)
+    };
     for entry in entries.flatten() {
         let name = entry.file_name();
         let Some(name) = name.to_str() else {
@@ -89,13 +92,17 @@ pub(crate) fn scavenge_stale() {
         if !name.starts_with(TEMP_PREFIX) {
             continue;
         }
-        let fresh = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|m| m.elapsed().ok())
-            .is_some_and(|age| age < max_age);
-        if !fresh {
+        if entry.path().is_dir() {
+            if let Ok(files) = std::fs::read_dir(entry.path()) {
+                for file in files.flatten() {
+                    if stale(&file.path()) {
+                        let _ = std::fs::remove_file(file.path());
+                    }
+                }
+            }
+            // Only succeeds when the directory is empty.
+            let _ = std::fs::remove_dir(entry.path());
+        } else if stale(&entry.path()) {
             let _ = std::fs::remove_file(entry.path());
         }
     }
@@ -106,15 +113,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn temp_image_names_are_content_derived() {
+    fn identical_pastes_have_independent_lifetimes() {
         let a = write_temp_image(b"hello image", "png").unwrap();
         let b = write_temp_image(b"hello image", "png").unwrap();
-        assert_eq!(a, b, "same bytes must reuse the same file");
-        assert!(
-            a.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with(TEMP_PREFIX))
-        );
+        assert_ne!(a, b, "a later paste must not own an already submitted path");
+        delete_owned(&b);
+        assert!(a.exists());
         delete_owned(&a);
         assert!(!a.exists());
     }

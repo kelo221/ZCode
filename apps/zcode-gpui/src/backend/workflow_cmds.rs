@@ -8,7 +8,6 @@ use crate::backend::workspace::{CommandCtx, Pending};
 use gpui::Context;
 use serde_json::{Value, json};
 
-#[allow(dead_code)]
 pub fn start_saved_workflow_payload(name: &str, scope: Option<&str>, args: Option<Value>) -> Value {
     let mut payload = json!({ "name": name });
     if let Some(scope) = scope {
@@ -28,7 +27,6 @@ pub fn resume_workflow_run_payload(work_id: &str, name: Option<&str>) -> Value {
     payload
 }
 
-#[allow(dead_code)]
 pub fn amend_workflow_run_settings_payload(
     work_id: &str,
     subagent_model: Option<Option<String>>,
@@ -51,81 +49,44 @@ pub fn amend_workflow_run_settings_payload(
 }
 
 impl AppState {
-    #[allow(dead_code)]
-    pub fn start_saved_workflow(
-        &mut self,
-        name: &str,
-        scope: Option<&str>,
-        args: Option<Value>,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(ws_key) = self.active_ws_key() else {
-            return;
-        };
-        let sid = self.active.clone();
-        let payload = start_saved_workflow_payload(name, scope, args);
-        let ctx = CommandCtx::new(
-            sid.as_deref().unwrap_or(""),
-            "startSavedWorkflow",
-            payload.clone(),
-        );
-        self.send_command(
-            &ws_key,
-            sid,
-            "startSavedWorkflow",
-            payload,
-            None,
-            Pending::Command(ctx),
-        );
-        self.push_log(format!("starting saved workflow {name}…"));
-        cx.notify();
+    pub(crate) fn workflow_resume_pending(&self, workspace: &str, sid: &str, run_id: &str) -> bool {
+        self.ws(workspace).is_some_and(|ws| ws.pending.values().any(|p| matches!(p, Pending::Command(ctx) if ctx.sid == sid && ctx.ctype == "resumeWorkflowRun" && ctx.payload["workId"].as_str() == Some(run_id))))
     }
 
-    pub fn resume_workflow_run(
+    pub(crate) fn resume_workflow_run_for(
         &mut self,
+        workspace: &str,
+        sid: &str,
         run_id: &str,
-        name: Option<&str>,
         cx: &mut Context<Self>,
     ) {
-        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
+        if self.active_ws_key().as_deref() != Some(workspace)
+            || self.active.as_deref() != Some(sid)
+            || self.is_read_only_view()
+            || self.workflow_resume_pending(workspace, sid, run_id)
+        {
             return;
-        };
-        let payload = resume_workflow_run_payload(run_id, name);
-        let ctx = CommandCtx::new(&sid, "resumeWorkflowRun", payload.clone());
-        self.send_command(
-            &ws_key,
-            Some(sid),
-            "resumeWorkflowRun",
-            payload,
-            None,
-            Pending::Command(ctx),
-        );
-        self.push_log(format!("resuming workflow run {run_id}…"));
-        cx.notify();
-    }
-
-    #[allow(dead_code)]
-    pub fn amend_workflow_run_settings(
-        &mut self,
-        run_id: &str,
-        subagent_model: Option<Option<String>>,
-        max_concurrency: Option<Option<u64>>,
-        cx: &mut Context<Self>,
-    ) {
-        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
+        }
+        // stopped 不是恢复许可；显式 resumable=false 或被替代的 run 必须保持关闭。
+        let allowed = self.conversations.get(sid).is_some_and(|c| {
+            c.workflow_runs.runs.iter().any(|r| {
+                r.run_id == run_id
+                    && r.status == "stopped"
+                    && r.resumable == Some(true)
+                    && r.superseded_by.is_none()
+            })
+        });
+        if !allowed {
             return;
-        };
-        let payload = amend_workflow_run_settings_payload(run_id, subagent_model, max_concurrency);
-        let ctx = CommandCtx::new(&sid, "amendWorkflowRunSettings", payload.clone());
-        self.send_command(
-            &ws_key,
-            Some(sid),
-            "amendWorkflowRunSettings",
-            payload,
-            None,
-            Pending::Command(ctx),
+        }
+        self.send_session_command(
+            workspace,
+            CommandCtx::new(
+                sid,
+                "resumeWorkflowRun",
+                resume_workflow_run_payload(run_id, None),
+            ),
         );
-        self.push_log(format!("amending workflow run {run_id} settings…"));
         cx.notify();
     }
 }

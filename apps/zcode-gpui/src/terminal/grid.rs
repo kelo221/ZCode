@@ -12,6 +12,7 @@ const PALETTE: [u32; 16] = [
     0xbf616a, 0xa3be8c, 0xebcb8b, 0x8fa1b3, 0xb48ead, 0x96b5b4, 0xeff1f5,
 ];
 pub const TERM_FG: u32 = 0xc0c5ce;
+pub const SELECTION_BG: u32 = 0x4f5b66;
 
 /// Resolve a terminal cell color to an RGB token using the base palette
 /// (per-session VT color overrides are folded in by the caller when set).
@@ -76,6 +77,8 @@ pub fn indexed(i: u8) -> u32 {
 #[derive(Clone, Debug, PartialEq)]
 pub struct GridRun {
     pub text: String,
+    pub column: usize,
+    pub columns: usize,
     pub fg: u32,
     pub bg: Option<u32>,
     pub bold: bool,
@@ -122,9 +125,14 @@ pub fn grid_rows(
         let fg = resolve_color(cell.fg, default_fg);
         let bg = (cell.bg != Color::Named(NamedColor::Background))
             .then(|| resolve_color(cell.bg, default_bg));
+        let selected = content.selection.is_some_and(|selection| {
+            selection.contains_cell(&indexed, *cursor, content.cursor.shape)
+        });
         let (fg, bg) = if is_cursor {
             let bg = bg.unwrap_or(default_bg);
             (bg, Some(fg))
+        } else if selected {
+            (TERM_FG, Some(SELECTION_BG))
         } else {
             (fg, bg)
         };
@@ -135,17 +143,32 @@ pub fn grid_rows(
             italic: cell.flags.contains(Flags::ITALIC),
         };
         let row_runs = &mut rows[row];
-        if let Some(last) = row_runs.last_mut()
+        let mut text = cell.c.to_string();
+        if let Some(zerowidth) = cell.zerowidth() {
+            text.extend(zerowidth)
+        }
+        if !cell.flags.contains(Flags::WIDE_CHAR)
+            && cell.zerowidth().is_none()
+            && let Some(last) = row_runs.last_mut()
+            && last.column + last.columns == indexed.point.column.0
+            && last.text.chars().count() == last.columns
             && last.fg == style.fg
             && last.bg == style.bg
             && last.bold == style.bold
             && last.italic == style.italic
         {
             last.text.push(cell.c);
+            last.columns += 1;
             continue;
         }
         row_runs.push(GridRun {
-            text: cell.c.to_string(),
+            text,
+            column: indexed.point.column.0,
+            columns: if cell.flags.contains(Flags::WIDE_CHAR) {
+                2
+            } else {
+                1
+            },
             fg: style.fg,
             bg: style.bg,
             bold: style.bold,
@@ -153,15 +176,19 @@ pub fn grid_rows(
         });
     }
     for row in &mut rows {
+        while row
+            .last()
+            .is_some_and(|last| last.bg.is_none() && last.text.trim().is_empty())
+        {
+            row.pop();
+        }
         if let Some(last) = row.last_mut()
             && last.bg.is_none()
         {
-            let trimmed = last.text.trim_end().to_string();
-            if trimmed.is_empty() {
-                row.pop();
-            } else {
-                last.text = trimmed;
-            }
+            let trimmed = last.text.trim_end();
+            let removed = last.text[trimmed.len()..].chars().count();
+            last.columns = last.columns.saturating_sub(removed);
+            last.text = trimmed.to_string();
         }
     }
     rows

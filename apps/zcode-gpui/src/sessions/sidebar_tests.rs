@@ -1,7 +1,7 @@
 use super::*;
 use crate::sessions::items::{
     SESSION_EXTENDED_ROWS, SESSION_PREVIEW_ROWS, load_more_label, next_limit_step,
-    visible_session_count,
+    visible_row_indices, visible_session_count,
 };
 use std::collections::HashSet;
 
@@ -52,20 +52,25 @@ fn filter_session_indices_with_search_and_subagents() {
 #[test]
 fn session_limits_progress_preview_extended_all() {
     // Initial: the 3 latest threads only.
-    assert_eq!(visible_session_count(0, 100, false), SESSION_PREVIEW_ROWS);
-    assert_eq!(
-        visible_session_count(0, 2, false),
-        2,
-        "no padding of short lists"
-    );
+    assert_eq!(visible_session_count(0, 100), SESSION_PREVIEW_ROWS);
+    assert_eq!(visible_session_count(0, 2), 2, "no padding of short lists");
     // First "Load more" click: the extended window.
-    assert_eq!(visible_session_count(1, 100, false), SESSION_EXTENDED_ROWS);
-    assert_eq!(visible_session_count(1, 10, false), 10);
+    assert_eq!(visible_session_count(1, 100), SESSION_EXTENDED_ROWS);
+    assert_eq!(visible_session_count(1, 10), 10);
     // Second click: everything.
-    assert_eq!(visible_session_count(2, 100, false), 100);
-    assert_eq!(visible_session_count(3, 100, false), 100, "clamped at all");
-    // Searching shows all matches regardless of the step.
-    assert_eq!(visible_session_count(0, 100, true), 100);
+    assert_eq!(visible_session_count(2, 100), 100);
+    assert_eq!(visible_session_count(3, 100), 100, "clamped at all");
+}
+
+#[test]
+fn old_active_row_is_pinned_without_stretching_the_cap() {
+    // Review 12.1: active index 900 must not render 901 rows.
+    let (visible, pinned) = visible_row_indices(0, 1000, Some(900));
+    assert_eq!(visible, SESSION_PREVIEW_ROWS);
+    assert_eq!(pinned, Some(900));
+    let (visible, pinned) = visible_row_indices(0, 1000, Some(1));
+    assert_eq!(visible, SESSION_PREVIEW_ROWS);
+    assert_eq!(pinned, None, "in-window active is not double-rendered");
 }
 
 #[test]

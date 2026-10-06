@@ -1,8 +1,9 @@
 //! File preview reader and UI rendering (markdown, text, external Office/PDF launcher).
 
-use crate::shared::os::file_launcher;
 use crate::shared::theme::{ACCENT, BORDER, CARD, HOVER, MUTED, TEXT};
-use gpui::{AnyElement, CursorStyle, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb};
+use crate::shared::theme_colors::color as rgb;
+use crate::shared::{i18n::label, os::file_launcher, theme::ui_size};
+use gpui::{AnyElement, CursorStyle, IntoElement, ParentElement, Styled, div, prelude::*, px};
 use std::path::Path;
 
 const MAX_PREVIEW_BYTES: u64 = 256 * 1024;
@@ -10,18 +11,41 @@ const MAX_PREVIEW_BYTES: u64 = 256 * 1024;
 /// What the preview pane shows for the selected file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Preview {
+    Image(crate::files::image_preview::ImagePreview),
     Markdown(String),
     Text(String),
     External { kind: String, extension: String },
     Binary,
     TooLarge(u64),
-    Error(String),
+    Error(PreviewError),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PreviewError {
+    Unavailable,
+    NotRegular,
+    ReadFailed,
+    InvalidImage,
+}
+
+impl PreviewError {
+    pub(crate) fn label(&self) -> &'static str {
+        match self {
+            Self::Unavailable => label("File is unavailable", "文件不可用"),
+            Self::NotRegular => label("Not a regular file", "不是普通文件"),
+            Self::ReadFailed => label("File could not be read", "无法读取文件"),
+            Self::InvalidImage => label(
+                "Image is invalid or exceeds preview limits",
+                "图片无效或超出预览限制",
+            ),
+        }
+    }
 }
 
 pub fn pane_note(text: &str) -> AnyElement {
     div()
         .p_3()
-        .text_size(px(12.))
+        .text_size(px(ui_size(12.)))
         .text_color(rgb(MUTED))
         .child(text.to_string())
         .into_any_element()
@@ -32,16 +56,21 @@ pub fn preview_element(path: &Path, preview: &Preview) -> AnyElement {
     let header = div()
         .px_2()
         .py_1()
-        .text_size(px(11.))
+        .text_size(px(ui_size(11.)))
         .text_color(rgb(MUTED))
         .border_b_1()
         .border_color(rgb(BORDER))
         .child(path.display().to_string());
 
     let body: AnyElement = match preview {
-        Preview::Error(e) => pane_note(&format!("Cannot read: {e}")),
-        Preview::Binary => pane_note("Binary file"),
-        Preview::TooLarge(size) => pane_note(&format!("File too large ({size} bytes)")),
+        Preview::Image(image) => crate::files::image_preview::element(image),
+        Preview::Error(e) => pane_note(e.label()),
+        Preview::Binary => pane_note(label("Binary file", "二进制文件")),
+        Preview::TooLarge(size) => pane_note(&format!(
+            "{} ({size} {})",
+            label("File too large", "文件过大"),
+            label("bytes", "字节")
+        )),
         Preview::Text(text) => div()
             .p_2()
             .font_family(crate::shared::theme::MONO_FONT)
@@ -141,11 +170,35 @@ fn preview_action_btn(
 
 /// Sniff file extension and contents for preview classification.
 pub fn read_preview(path: &Path) -> Preview {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return Preview::Error("not found".into());
+    use std::io::Read;
+    let Ok(file) = std::fs::File::open(path) else {
+        return Preview::Error(PreviewError::Unavailable);
     };
-    if meta.len() > MAX_PREVIEW_BYTES {
+    let Ok(meta) = file.metadata() else {
+        return Preview::Error(PreviewError::Unavailable);
+    };
+    if !meta.is_file() {
+        return Preview::Error(PreviewError::NotRegular);
+    }
+    let format = crate::files::image_preview::format(path);
+    let limit = if format.is_some() {
+        crate::files::image_preview::MAX_IMAGE_BYTES
+    } else {
+        MAX_PREVIEW_BYTES
+    };
+    if meta.len() > limit {
         return Preview::TooLarge(meta.len());
+    }
+    let mut bytes = Vec::new();
+    // 文件在 metadata 后仍可增长；从同一 handle 限长读取，不能让变化绕过预览上界。
+    if file.take(limit + 1).read_to_end(&mut bytes).is_err() {
+        return Preview::Error(PreviewError::ReadFailed);
+    }
+    if bytes.len() as u64 > limit {
+        return Preview::TooLarge(bytes.len() as u64);
+    }
+    if let Some(format) = format {
+        return crate::files::image_preview::decode(bytes, format);
     }
 
     if let Some(ext) = path
@@ -178,27 +231,16 @@ pub fn read_preview(path: &Path) -> Preview {
                     extension: ext,
                 };
             }
-            "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "ico" => {
-                return Preview::External {
-                    kind: "Image".into(),
-                    extension: ext,
-                };
-            }
             _ => {}
         }
     }
 
-    match std::fs::read(path) {
-        Ok(bytes) => {
-            if bytes.contains(&0) {
-                return Preview::Binary;
-            }
-            let text = String::from_utf8_lossy(&bytes).into_owned();
-            match path.extension().and_then(|e| e.to_str()) {
-                Some("md") | Some("markdown") => Preview::Markdown(text),
-                _ => Preview::Text(text),
-            }
-        }
-        Err(e) => Preview::Error(e.to_string()),
+    if bytes.contains(&0) {
+        return Preview::Binary;
+    }
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("md") | Some("markdown") => Preview::Markdown(text),
+        _ => Preview::Text(text),
     }
 }

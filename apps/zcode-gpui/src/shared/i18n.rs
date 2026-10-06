@@ -88,14 +88,22 @@ pub fn current_locale() -> Locale {
 
 /// Detect host system locale on Windows, macOS, or Linux.
 pub fn detect_system_locale() -> Locale {
-    #[cfg(windows)]
-    {
-        // Check Windows environment variables or system locale
-        if let Ok(lang) = std::env::var("LC_ALL")
-            .or_else(|_| std::env::var("LC_MESSAGES"))
-            .or_else(|_| std::env::var("LANG"))
+    for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+        if let Ok(lang) = std::env::var(key)
+            && !lang.trim().is_empty()
         {
             return Locale::from_str_lenient(&lang);
+        }
+    }
+    #[cfg(windows)]
+    {
+        let mut name = [0u16; 85];
+        // Windows 通常没有 LANG；读取用户区域设置才能兑现 System 语言偏好。
+        let length = unsafe { windows::Win32::Globalization::GetUserDefaultLocaleName(&mut name) };
+        if length > 1 {
+            return Locale::from_str_lenient(&String::from_utf16_lossy(
+                &name[..length as usize - 1],
+            ));
         }
     }
     Locale::EnUs
@@ -120,6 +128,13 @@ pub fn t_locale(key: &str, locale: Locale) -> &str {
     }
 
     key
+}
+
+pub fn label<'a>(english: &'a str, chinese: &'a str) -> &'a str {
+    match current_locale() {
+        Locale::EnUs => english,
+        Locale::ZhCn => chinese,
+    }
 }
 
 /// Look up a localized string in the active locale.

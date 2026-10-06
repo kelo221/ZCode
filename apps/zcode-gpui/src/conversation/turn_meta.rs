@@ -2,9 +2,11 @@
 //!
 //! Spec source: packages/shared/src/zcode-protocol-v4/ (rows.ts:56-97, snapshot.ts:405-449).
 
+use crate::shared::theme::ui_size;
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString, Styled, div,
-    prelude::*, px, rgb,
+    prelude::*, px,
 };
 use serde_json::Value;
 
@@ -139,7 +141,7 @@ pub fn render_turn_header(
                 .when(!info_text.is_empty(), |el| {
                     el.child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .text_color(rgb(MUTED))
                             .child(info_text.join(" · ")),
                     )
@@ -147,7 +149,7 @@ pub fn render_turn_header(
                 .when(failed, |el| {
                     el.child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .text_color(rgb(DANGER))
                             .child(state.to_string()),
                     )
@@ -166,7 +168,7 @@ pub fn render_turn_header(
                     .items_center()
                     .justify_center()
                     .gap_3()
-                    .text_size(px(11.))
+                    .text_size(px(ui_size(11.)))
                     .child(div().text_color(rgb(MUTED)).child(changes_desc))
                     .when(fc.additions > 0, |e| {
                         e.child(
@@ -230,20 +232,20 @@ pub fn render_plan_checklist(
                 }))
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(px(ui_size(12.)))
                         .text_color(rgb(TEXT))
                         .child("Progress"),
                 )
                 .child(
                     div()
-                        .text_size(px(11.))
+                        .text_size(px(ui_size(11.)))
                         .text_color(rgb(MUTED))
                         .child(if expanded { "▾" } else { "▸" }),
                 )
                 .child(div().flex_1())
                 .child(
                     div()
-                        .text_size(px(12.))
+                        .text_size(px(ui_size(12.)))
                         .text_color(rgb(counter_color))
                         .child(format!("{completed}/{total}")),
                 ),
@@ -270,7 +272,7 @@ pub fn render_plan_checklist(
                             .flex()
                             .items_start()
                             .gap_2()
-                            .text_size(px(11.5))
+                            .text_size(px(ui_size(11.5)))
                             .child(div().text_color(rgb(color)).child(icon))
                             .child(
                                 div()

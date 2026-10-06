@@ -67,3 +67,15 @@ fn only_the_gpui_variable_overrides() {
     assert!(is_override(first));
     assert_eq!(first.program, "custom-agent");
 }
+
+#[test]
+fn agent_args_prefer_json_array_so_quoted_paths_survive() {
+    assert_eq!(
+        parse_agent_args(r#"["app-server","--stdio","C:\\Program Files\\zcode"]"#),
+        ["app-server", "--stdio", r"C:\Program Files\zcode"]
+    );
+    assert_eq!(
+        parse_agent_args("app-server --stdio"),
+        ["app-server", "--stdio"]
+    );
+}

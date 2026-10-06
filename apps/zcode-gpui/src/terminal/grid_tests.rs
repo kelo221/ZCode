@@ -93,6 +93,36 @@ fn scrollback_maps_to_viewport_rows() {
 }
 
 #[test]
+fn selection_highlights_fixed_columns_without_losing_ansi_or_wide_cells() {
+    use alacritty_terminal::{
+        event::VoidListener,
+        index::{Column, Line, Point, Side},
+        selection::{Selection, SelectionType},
+        term::{Config, Term},
+        vte::ansi::Processor,
+    };
+    let mut term = Term::new(Config::default(), &Dims(20, 2), VoidListener);
+    let mut processor: Processor = Processor::default();
+    processor.advance(&mut term, "\x1b[1;31m中e\u{301}x\x1b[0m\r\n".as_bytes());
+    let mut selection = Selection::new(
+        SelectionType::Simple,
+        Point::new(Line(0), Column(0)),
+        Side::Left,
+    );
+    selection.update(Point::new(Line(0), Column(2)), Side::Right);
+    term.selection = Some(selection);
+    let rows = grid_rows(term.renderable_content(), TERM_FG, 0);
+    assert_eq!(row_text(&rows[0]), "中e\u{301}x");
+    assert_eq!((rows[0][0].column, rows[0][0].columns), (0, 2));
+    assert_eq!(rows[0][1].column, 2);
+    assert_eq!(rows[0][0].bg, Some(SELECTION_BG));
+    assert_eq!(rows[0][1].bg, Some(SELECTION_BG));
+    assert!(rows[0][0].bold);
+    assert_eq!(rows[0][2].fg, 0xbf616a);
+    assert_ne!(rows[0][2].bg, Some(SELECTION_BG));
+}
+
+#[test]
 fn wide_char_spacers_are_skipped() {
     use alacritty_terminal::event::VoidListener;
     use alacritty_terminal::term::{Config, Term};

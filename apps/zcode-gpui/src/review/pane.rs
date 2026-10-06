@@ -3,11 +3,10 @@
 
 use crate::app::root::RootView;
 use crate::review::git::{self, DiffSide};
-use crate::shared::theme::{BORDER, CARD, DANGER, HOVER, MUTED, SUCCESS, TEXT};
-use gpui::{
-    AnyElement, Context, CursorStyle, IntoElement, ParentElement, Stateful, Styled, div,
-    prelude::*, px, rgb,
-};
+use crate::shared::theme::ui_size;
+use crate::shared::theme::{DANGER, MUTED, SUCCESS, TEXT};
+use crate::shared::theme_colors::color as rgb;
+use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div, prelude::*, px};
 
 /// What to do with a finished `run_git` result.
 #[derive(Clone)]
@@ -36,9 +35,9 @@ impl RootView {
             let res = cx
                 .background_spawn(async move {
                     (
-                        git::run_git(&path, &["status", "--porcelain=v1", "-b"]),
-                        git::run_git(&path, &["diff", "--numstat"]),
-                        git::run_git(&path, &["diff", "--cached", "--numstat"]),
+                        git::run_git(&path, &["status", "--porcelain=v1", "-z", "-b"]),
+                        git::run_git(&path, &["diff", "--numstat", "-z"]),
+                        git::run_git(&path, &["diff", "--cached", "--numstat", "-z"]),
                         git::run_git(&path, &["branch", "--list", "--format=%(refname:short)"]),
                     )
                 })
@@ -103,6 +102,8 @@ impl RootView {
         let Some(path) = self.active_workspace_path(cx) else {
             return;
         };
+        self.git.generation += 1;
+        let generation = self.git.generation;
         self.git.busy = true;
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -112,6 +113,9 @@ impl RootView {
                 })
                 .await;
             this.update(cx, |v, cx| {
+                if v.git.generation != generation {
+                    return;
+                }
                 v.git.busy = false;
                 match action {
                     GitAction::ThenRefresh(label) => {
@@ -308,7 +312,7 @@ impl RootView {
             div()
                 .px_2()
                 .py_1()
-                .text_size(px(11.))
+                .text_size(px(ui_size(11.)))
                 .text_color(rgb(if *ok { SUCCESS } else { DANGER }))
                 .child(msg.clone())
                 .into_any_element(),
@@ -342,7 +346,9 @@ impl RootView {
             .children(plan.as_ref().map(|p| {
                 crate::conversation::turn_meta::render_plan_checklist(p, self.plan_expanded, cx)
             }))
+            .children(self.goal_section(cx))
             .child(self.render_agents_section(cx))
+            .child(self.render_background_activity(cx))
             .child(self.review_header(&branch, files_n, add, del, cx))
             .children(self.notice_banner())
             .child(
@@ -362,32 +368,11 @@ impl RootView {
                 div()
                     .px_2()
                     .py_0p5()
-                    .text_size(px(11.))
+                    .text_size(px(ui_size(11.)))
                     .text_color(rgb(MUTED))
                     .child("git running…")
             }))
             .child(self.commit_bar(cx))
             .into_any_element()
     }
-}
-
-pub(crate) fn side_btn(
-    id: &'static str,
-    label: &'static str,
-    on_click: impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
-) -> Stateful<gpui::Div> {
-    div()
-        .id(id)
-        .px_2()
-        .py_0p5()
-        .rounded_sm()
-        .bg(rgb(CARD))
-        .border_1()
-        .border_color(rgb(BORDER))
-        .text_size(px(11.))
-        .text_color(rgb(TEXT))
-        .cursor(CursorStyle::PointingHand)
-        .hover(|h| h.bg(rgb(HOVER)))
-        .child(label)
-        .on_click(on_click)
 }

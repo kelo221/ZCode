@@ -7,11 +7,13 @@ use crate::composer::input::Composer;
 use crate::conversation::model::format_preview;
 use crate::files::pane::FilesState;
 use crate::review::git::GitState;
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{BG, BORDER, MUTED, PANEL, TEXT};
+use crate::shared::theme_colors::color as rgb;
 use crate::terminal::pane::{TermPane, ToggleTerminal};
 use gpui::{
     Context, Entity, IntoElement, ListState, MouseButton, ParentElement, Render, SharedString,
-    Styled, Window, div, prelude::*, px, rgb,
+    Styled, Window, div, prelude::*, px,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -34,7 +36,6 @@ pub struct RootView {
     pub(crate) last_first_row_id: u64,
     pub(crate) expanded_reasonings: HashSet<u64>,
     pub(crate) expanded_tools: HashSet<u64>,
-    pub(crate) session_search: String,
     pub(crate) plan_expanded: bool,
     pub(crate) agents_expanded: bool,
     /// Destructive action awaiting a second click ("del:<sid>", "undo:<rowId>").
@@ -62,22 +63,30 @@ pub struct RootView {
     pub(crate) quickpick_selected: usize,
     pub(crate) os_lifecycle: crate::app::os_lifecycle::OsLifecycleState,
     pub(crate) plugin_segment: crate::app::plugin_pane::PluginSegment,
-    /// Projects the user explicitly closed (the active folder toggles, see
-    /// sessions/sidebar.rs). Pure view state — never a server fact.
+    /// Closed folders (active folder toggles; sessions/sidebar.rs). View state.
     pub(crate) ws_collapsed: HashSet<String>,
-    /// Per-workspace progressive-loading step for session rows
-    /// (0 = 3 latest, 1 = extended, 2 = all; sessions/items.rs).
+    /// Per-workspace session-row step (0=3 latest, 1=extended, 2=all).
     pub(crate) session_limit_step: HashMap<String, u8>,
+    pub(crate) settings: crate::app::settings::SettingsView,
+    pub(crate) composer_compact: bool,
 }
 
 impl RootView {
     pub fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
+        cx.observe_global::<ely_gpui_component::theme::Theme>(|_, cx| cx.notify())
+            .detach();
+        let preferences = cx
+            .global::<crate::shared::preferences::PreferenceOwner>()
+            .0
+            .clone();
+        cx.observe(&preferences, |_, _, cx| cx.notify()).detach();
         let composer = state.read(cx).composer.clone();
         let (list_state, follow_bottom) = crate::transcript::list::new_list_state();
         let commit_input = cx.new(|cx| Composer::new_single_line("Commit message", cx));
         Self::wire_submit_events(&composer, &commit_input, cx);
         Self {
             state,
+            composer_compact: true,
             list_state,
             row_index: Vec::new(),
             last_bounds: (0, 0),
@@ -87,7 +96,6 @@ impl RootView {
             last_first_row_id: 0,
             expanded_reasonings: HashSet::new(),
             expanded_tools: HashSet::new(),
-            session_search: String::new(),
             plan_expanded: false,
             agents_expanded: true,
             confirm: None,
@@ -111,12 +119,19 @@ impl RootView {
             plugin_segment: crate::app::plugin_pane::PluginSegment::Public,
             ws_collapsed: HashSet::new(),
             session_limit_step: HashMap::new(),
+            settings: crate::app::settings::SettingsView {
+                open: false,
+                section: Default::default(),
+                focus: cx.focus_handle(),
+            },
         }
     }
 }
 
 impl Render for RootView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.restore_settings_focus(window, cx);
+        self.guard_input_ownership(window, cx);
         let state = self.state.read(cx);
         let is_read_only = state.is_read_only_view();
         let active_sid = state.active.clone();
@@ -172,17 +187,19 @@ impl Render for RootView {
             None
         };
 
-        crate::app::os_lifecycle::sync_window_state(
-            window,
-            &mut self.os_lifecycle.last_saved_bounds,
-        );
-        crate::app::os_lifecycle::sync_keep_awake(&mut self.os_lifecycle.keep_awake, running);
-        crate::app::os_lifecycle::check_turn_completion_notification(
-            &self.last_phase,
-            &phase,
-            &title,
-            window.is_window_active(),
-        );
+        if !cfg!(test) {
+            crate::app::os_lifecycle::sync_window_state(
+                window,
+                &mut self.os_lifecycle.last_saved_bounds,
+            );
+            crate::app::os_lifecycle::sync_keep_awake(&mut self.os_lifecycle.keep_awake, running);
+            crate::app::os_lifecycle::check_turn_completion_notification(
+                &self.last_phase,
+                &phase,
+                &title,
+                window.is_window_active(),
+            );
+        }
         let composer = state.composer.clone();
         let first_row_id = state
             .active_conversation()
@@ -259,32 +276,16 @@ impl Render for RootView {
                 }
                 cx.notify();
             }))
-            .on_action(
-                cx.listener(|this, _: &crate::app::quickpick::ToggleQuickPick, _, cx| {
-                    this.quickpick_open = !this.quickpick_open;
-                    this.quickpick_query.clear();
-                    this.quickpick_selected = 0;
-                    cx.notify();
-                }),
-            )
             .on_action(cx.listener(
-                |_this, _: &crate::app::quickpick::SwitchThemeAction, _, cx| {
-                    let next = match crate::shared::theme::theme_mode() {
-                        crate::shared::theme::ThemeMode::ZaiLight => {
-                            crate::shared::theme::ThemeMode::ZaiDark
-                        }
-                        _ => crate::shared::theme::ThemeMode::ZaiLight,
-                    };
-                    crate::shared::theme::set_theme_mode(next);
-                    cx.notify();
+                |this, _: &crate::app::quickpick::ToggleQuickPick, window, cx| {
+                    if this.quickpick_open {
+                        this.close_command_center(window, cx);
+                    } else {
+                        this.open_command_center(window, cx);
+                    }
                 },
             ))
-            .on_key_down(cx.listener(|this, ev: &gpui::KeyDownEvent, _, cx| {
-                if this.quickpick_open && crate::app::quickpick::handle_quickpick_key(this, ev, cx)
-                {
-                    cx.stop_propagation();
-                }
-            }))
+            .map(|el| self.navigation_handlers(el, cx))
             // Autoscroll gestures are window-wide: any other button cancels
             // (capture phase, so buttons that stop propagation still cancel),
             // and move/release keep tracking outside the transcript.
@@ -305,7 +306,9 @@ impl Render for RootView {
             .child(self.sidebar(cx))
             // Main column: a rounded panel inset from the window edge, as in
             // the desktop workspace layout.
-            .child(
+            .child(if self.settings.open {
+                self.render_settings(window, cx)
+            } else {
                 div()
                     .flex_1()
                     .min_w_0()
@@ -353,19 +356,23 @@ impl Render for RootView {
                                     .items_center()
                                     .justify_center()
                                     .text_color(rgb(MUTED))
-                                    .text_size(px(13.))
-                                    .child("Start a new conversation")
+                                    .text_size(px(ui_size(13.)))
+                                    .child(crate::shared::i18n::label(
+                                        "Start a new conversation",
+                                        "开始新对话",
+                                    ))
                                     .into_any_element()
                             } else {
                                 self.transcript_list(cx)
                             })
                             // Floating tool dock draws over the transcript.
-                            .when(self.dock_open, |el| el.child(self.dock_pane(cx))),
+                            .when(self.dock_open, |el| el.child(self.dock_pane(window, cx))),
                     )
                     .child(
                         div()
                             .w_full()
                             .max_w(px(CONTENT_WIDTH))
+                            .min_w_0()
                             .px_6()
                             .flex()
                             .flex_col()
@@ -373,18 +380,17 @@ impl Render for RootView {
                             .pt_1()
                             .pb_3()
                             .when(!is_read_only, |el| {
-                                el.children(queue.as_ref().and_then(|q| {
-                                    crate::conversation::queue::render_queue_panel(q, cx)
-                                }))
-                                .children(self.intent_banner(&intent, cx))
-                                .child(self.composer_card(composer, running, cx))
+                                el.children(self.queue_panel(queue.as_ref(), cx))
+                                    .children(self.intent_banner(&intent, cx))
+                                    .child(self.composer_card(composer, running, cx))
                             })
                             .when(is_read_only, |el| {
                                 el.child(self.subagent_read_only_banner(cx))
                             }),
                     )
-                    .when(self.term_open, |el| el.child(self.term_drawer(window, cx))),
-            )
+                    .when(self.term_open, |el| el.child(self.term_drawer(window, cx)))
+                    .into_any_element()
+            })
             .children(
                 self.quickpick_open
                     .then(|| crate::app::quickpick::render_quickpick_modal(self, window, cx)),

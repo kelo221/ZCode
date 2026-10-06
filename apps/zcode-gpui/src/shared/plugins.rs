@@ -77,6 +77,7 @@ pub struct PluginMarketplaceSummary {
     pub plugin_count: u64,
     pub is_official: bool,
     pub featured: Option<Vec<String>>,
+    pub refresh_failure: Option<String>,
 }
 
 impl PluginMarketplaceSummary {
@@ -115,6 +116,10 @@ impl PluginMarketplaceSummary {
             plugin_count,
             is_official,
             featured,
+            refresh_failure: v
+                .pointer("/refreshFailure/message")
+                .and_then(Value::as_str)
+                .map(crate::shared::redact::scrub),
         })
     }
 }
@@ -285,6 +290,7 @@ pub struct PluginsOverviewResult {
     pub installed_plugins: Vec<InstalledPluginSummary>,
     pub restorable_builtins: Vec<AvailablePluginSummary>,
     pub capability_supported: bool,
+    pub errors: Vec<String>,
 }
 
 impl PluginsOverviewResult {
@@ -341,6 +347,15 @@ impl PluginsOverviewResult {
             installed_plugins,
             restorable_builtins,
             capability_supported,
+            errors: v
+                .get("diagnostics")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter(|d| d["severity"] == "error")
+                .filter_map(|d| d["message"].as_str())
+                .map(crate::shared::redact::scrub)
+                .collect(),
         }
     }
 }

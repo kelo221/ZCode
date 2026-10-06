@@ -1,7 +1,9 @@
 //! Sidebar row and filtering items.
 
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{HOVER, SELECTED};
-use gpui::{CursorStyle, SharedString, div, prelude::*, px, rgb};
+use crate::shared::theme_colors::color as rgb;
+use gpui::{CursorStyle, SharedString, div, prelude::*, px};
 
 pub(crate) const ROW_GROUP: &str = "session-row";
 
@@ -37,7 +39,7 @@ pub(crate) fn nav_row(id: SharedString, selected: bool) -> gpui::Stateful<gpui::
         .items_center()
         .gap_2()
         .rounded_md()
-        .text_size(px(13.))
+        .text_size(px(ui_size(13.)))
         .cursor(CursorStyle::PointingHand)
         .when(selected, |el| el.bg(rgb(SELECTED)))
         .when(!selected, |el| el.hover(|s| s.bg(rgb(HOVER))))
@@ -77,11 +79,9 @@ pub const SESSION_EXTENDED_ROWS: usize = 25;
 /// Limit steps: 0 = preview, 1 = extended, ≥2 = everything.
 pub const SESSION_LIMIT_ALL: u8 = 2;
 
-/// How many of `total` filtered rows to render at `step`. While searching,
-/// all matches are shown — the query is explicit intent and result sets are
-/// small.
-pub(crate) fn visible_session_count(step: u8, total: usize, searching: bool) -> usize {
-    if searching || step >= SESSION_LIMIT_ALL {
+/// How many of `total` filtered rows to render at `step`.
+pub(crate) fn visible_session_count(step: u8, total: usize) -> usize {
+    if step >= SESSION_LIMIT_ALL {
         return total;
     }
     let cap = if step == 0 {
@@ -90,6 +90,18 @@ pub(crate) fn visible_session_count(step: u8, total: usize, searching: bool) -> 
         SESSION_EXTENDED_ROWS
     };
     cap.min(total)
+}
+
+/// Cap-preserving row set: the preview window plus a separately pinned
+/// active index when it sits past the window (review finding 12.1).
+pub(crate) fn visible_row_indices(
+    step: u8,
+    total: usize,
+    active_index: Option<usize>,
+) -> (usize, Option<usize>) {
+    let visible = visible_session_count(step, total);
+    let pinned = active_index.filter(|&ai| ai >= visible && ai < total);
+    (visible, pinned)
 }
 
 /// The step after one "Load more" click.

@@ -14,9 +14,12 @@ impl AppState {
         };
         if ws.inbound.is_none() {
             ws.status = "not connected".into();
+            ws.pending.remove(&id);
             return;
         }
-        ws.send_line(json!({"id": id, "method": method, "params": params}).to_string());
+        if !ws.send_line(json!({"id": id, "method": method, "params": params}).to_string()) {
+            ws.pending.remove(&id);
+        }
     }
 
     pub(crate) fn send_command(
@@ -27,7 +30,7 @@ impl AppState {
         payload: Value,
         base_revision: Option<u64>,
         pending: Pending,
-    ) {
+    ) -> bool {
         let params = crate::backend::session_cmds::command_params(
             &self.client_id,
             sid.as_deref(),
@@ -38,7 +41,7 @@ impl AppState {
             new_command_id(),
             now_ms(),
         );
-        self.send_envelope(ws_key, params, pending);
+        self.send_envelope(ws_key, params, pending)
     }
 
     /// Write one `v4/command` envelope and register its pending entry.
@@ -54,7 +57,11 @@ impl AppState {
         }
         let id = ws.next_id();
         ws.pending.insert(id, pending);
-        ws.send_line(json!({"id": id, "method": "v4/command", "params": params}).to_string());
+        if !ws.send_line(json!({"id": id, "method": "v4/command", "params": params}).to_string()) {
+            ws.pending.remove(&id);
+            self.push_error("Workspace agent input closed; your message was not sent".into());
+            return false;
+        }
         true
     }
 
@@ -231,126 +238,6 @@ impl AppState {
             self.restore_draft(&format!("draft:{key}"), cx);
             cx.notify();
         }
-    }
-
-    pub fn new_chat(&mut self, cx: &mut Context<Self>) {
-        self.save_current_draft(cx);
-        self.clear_subagent_view();
-        if let Some(key) = self.active_ws_key() {
-            self.ensure_spawned(&key, cx);
-        }
-        self.active = None;
-        self.draft = true;
-        self.ui_model_value = None;
-        self.ui_mode = None;
-        let draft_key = format!("draft:{}", self.active_workspace.as_deref().unwrap_or(""));
-        self.restore_draft(&draft_key, cx);
-        cx.notify();
-    }
-
-    #[allow(dead_code)]
-    pub fn send(&mut self, text: &str, cx: &mut Context<Self>) {
-        self.send_with_attachments(text, Vec::new(), cx);
-    }
-
-    pub fn send_with_attachments(
-        &mut self,
-        text: &str,
-        attachments: Vec<crate::composer::attachment::AttachmentRef>,
-        cx: &mut Context<Self>,
-    ) {
-        let text = text.trim();
-        if text.is_empty() && attachments.is_empty() {
-            return;
-        }
-        if self.composer_intent != crate::conversation::msg_actions::ComposerIntent::Send {
-            self.submit_intent(text, cx);
-            return;
-        }
-
-        // Handle slash commands (/compact, /goal <desc>, etc.)
-        if text.starts_with('/') {
-            match crate::composer::slash::classify_slash_command(text) {
-                crate::composer::slash::SlashAction::Compact => {
-                    if self.active.is_some() {
-                        self.compact_session(cx);
-                        return;
-                    }
-                }
-                crate::composer::slash::SlashAction::Goal(desc) => {
-                    if self.active.is_some() {
-                        self.send_goal_command(&desc, cx);
-                        return;
-                    }
-                }
-                crate::composer::slash::SlashAction::Plain(_) => {}
-            }
-        }
-
-        let Some(ws_key) = self.active_ws_key() else {
-            self.push_log("no workspace selected".into());
-            return;
-        };
-
-        let draft_key = self
-            .active
-            .clone()
-            .unwrap_or_else(|| format!("draft:{}", self.active_workspace.as_deref().unwrap_or("")));
-        self.session_drafts.remove(&draft_key);
-        self.ensure_spawned(&ws_key, cx);
-        let ready = self
-            .ws(&ws_key)
-            .map(|w| w.started && w.inbound.is_some())
-            .unwrap_or(false);
-        if !ready {
-            self.push_log("backend still starting — try again in a moment".into());
-            cx.notify();
-            return;
-        }
-        if self.draft || self.active.is_none() {
-            // Draft selections (model/mode) ride into createSession.config —
-            // CAS config commands need a live session.
-            let config = self.draft_config();
-            let mut first_input = json!({ "text": text });
-            if !attachments.is_empty() {
-                first_input["attachments"] = json!(attachments);
-            }
-            let mut payload = json!({
-                "workspaceId": self.ws(&ws_key).map(|w| w.key.clone()).unwrap_or_default(),
-                "firstInput": first_input,
-            });
-            if !config.is_null() {
-                payload["config"] = config;
-            }
-            self.send_command(
-                &ws_key,
-                None,
-                "createSession",
-                payload,
-                None,
-                Pending::CreateSession,
-            );
-            self.push_log("creating session…".into());
-        } else if let Some(sid) = self.active.clone() {
-            let mut text_payload = json!({ "text": text });
-            if !attachments.is_empty() {
-                text_payload["attachments"] = json!(attachments);
-            }
-            if let Some(c) = self.conversations.get(&sid)
-                && c.config.followup_mode == "guide"
-            {
-                text_payload["requestedDelivery"] = json!("guide");
-            }
-            self.send_command(
-                &ws_key,
-                Some(sid),
-                "sendText",
-                text_payload,
-                None,
-                Pending::SendText,
-            );
-        }
-        cx.notify();
     }
 
     pub fn stop(&mut self, cx: &mut Context<Self>) {

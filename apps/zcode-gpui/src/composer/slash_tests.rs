@@ -27,6 +27,26 @@ fn test_filter_slash_commands() {
 fn test_classify_slash_command() {
     assert_eq!(classify_slash_command("/compact"), SlashAction::Compact);
     assert_eq!(
+        classify_slash_command("/plan"),
+        SlashAction::Plan(String::new())
+    );
+    assert_eq!(
+        classify_slash_command(" /PLAN task\n  detail "),
+        SlashAction::Plan("task\n  detail".into())
+    );
+    assert_eq!(
+        classify_slash_command("/goal resume"),
+        SlashAction::ResumeGoal
+    );
+    assert_eq!(
+        classify_slash_command(" /TARGET ReSuMe "),
+        SlashAction::ResumeGoal
+    );
+    assert_eq!(
+        classify_slash_command("/goal resume the task"),
+        SlashAction::Goal("resume the task".into())
+    );
+    assert_eq!(
         classify_slash_command("  /compress  "),
         SlashAction::Compact
     );
@@ -41,6 +61,10 @@ fn test_classify_slash_command() {
     assert_eq!(
         classify_slash_command("hello world"),
         SlashAction::Plain("hello world".into())
+    );
+    assert_eq!(
+        classify_slash_command("/init extra notes"),
+        SlashAction::Plain("/init extra notes".into())
     );
     assert_eq!(
         classify_slash_command("/custom arg"),

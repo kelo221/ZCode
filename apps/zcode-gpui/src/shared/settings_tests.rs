@@ -88,6 +88,24 @@ fn unparseable_file_is_never_overwritten() {
 }
 
 #[test]
+fn failed_replacement_cleans_temporary_file() {
+    let dir = scratch("replace-failed");
+    let file = dir.join("setting.json");
+    let result = update_settings_at(
+        &file,
+        || false,
+        |s| {
+            s.ui_font_size = Some(16.0);
+            std::fs::create_dir(&file).unwrap();
+        },
+    );
+    assert!(matches!(result, Err(SettingsError::Io(_))));
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    assert!(file.is_dir());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn missing_file_is_created() {
     let dir = scratch("fresh");
     let file = dir.join("v2").join("setting.json");
