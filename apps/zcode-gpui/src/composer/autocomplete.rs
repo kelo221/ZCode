@@ -1,9 +1,11 @@
 //! Autocomplete popup for slash commands (/compact, /goal) and mentions (@file, @session, @skill, @plugin).
 
 use crate::composer::slash::{SlashCommand, filter_slash_commands};
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{ACCENT, BORDER, CARD, CARD_HOVER, MUTED, TEXT, TOOL};
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
-    AnyElement, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px, rgb,
+    AnyElement, Context, IntoElement, ParentElement, SharedString, Styled, div, prelude::*, px,
 };
 use std::path::Path;
 
@@ -143,59 +145,6 @@ pub fn detect_autocomplete(
                     }
                 }
 
-                // 3. Builtin and standard skills
-                for (name, desc) in [
-                    ("agent-browser", "Browser automation"),
-                    ("architecture-governance", "Architecture boundaries"),
-                    ("dogfood", "Exploratory testing"),
-                    ("feature-boundary-planner", "Feature impact mapping"),
-                    ("dynamic-workflows", "Workflow orchestration"),
-                    ("dep-refs", "Export references inspection"),
-                    ("ai-elements", "Chat interface elements"),
-                ] {
-                    if q_lower.is_empty() || name.to_lowercase().contains(&q_lower) {
-                        list.push(AutocompleteSuggestion::Mention {
-                            category: "skill",
-                            label: format!("${name}"),
-                            description: desc.to_string(),
-                            insert_text: format!("${name}"),
-                        });
-                    }
-                }
-
-                // 4. Official plugins
-                for (name, desc, id) in [
-                    (
-                        "browser-use",
-                        "Browser Use automation",
-                        "zcode-plugins-official/browser-use",
-                    ),
-                    (
-                        "documents",
-                        "DOCX & Office analysis",
-                        "zcode-plugins-official/documents",
-                    ),
-                    (
-                        "pdf",
-                        "PDF generation & analysis",
-                        "zcode-plugins-official/pdf",
-                    ),
-                    (
-                        "presentations",
-                        "PPTX slides generation",
-                        "zcode-plugins-official/presentations",
-                    ),
-                ] {
-                    if q_lower.is_empty() || name.to_lowercase().contains(&q_lower) {
-                        list.push(AutocompleteSuggestion::Mention {
-                            category: "plugin",
-                            label: format!("@{name}"),
-                            description: desc.to_string(),
-                            insert_text: format!("[@{name}](plugin://{id})"),
-                        });
-                    }
-                }
-
                 if !list.is_empty() {
                     list.truncate(8);
                     return Some(list);
@@ -228,6 +177,7 @@ impl crate::app::root::RootView {
             .mb_1()
             .children(suggestions.iter().enumerate().map(|(idx, item)| {
                 let item_clone = item.clone();
+                let slash_receipt = self.state.read(cx).slash_catalog_receipt(cx);
                 let (prefix, icon, lead_color) = match item {
                     AutocompleteSuggestion::Slash(_) => ("/", "⚡", ACCENT),
                     AutocompleteSuggestion::Mention { category, .. } => match *category {
@@ -239,7 +189,7 @@ impl crate::app::root::RootView {
                     },
                 };
 
-                div()
+                let row = div()
                     .id(SharedString::from(format!("auto-item-{idx}")))
                     .flex()
                     .items_center()
@@ -255,28 +205,43 @@ impl crate::app::root::RootView {
                             .gap_2()
                             .child(
                                 div()
-                                    .text_size(px(11.))
+                                    .text_size(px(ui_size(11.)))
                                     .text_color(rgb(lead_color))
                                     .child(icon),
                             )
                             .child(
                                 div()
-                                    .text_size(px(12.5))
+                                    .text_size(px(ui_size(12.5)))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(rgb(lead_color))
                                     .child(format!("{prefix}{}", item.label())),
                             )
                             .child(
                                 div()
-                                    .text_size(px(11.))
+                                    .text_size(px(ui_size(11.)))
                                     .text_color(rgb(MUTED))
                                     .child(item.description().to_string()),
                             ),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.apply_autocomplete(&item_clone, cx);
-                    }))
+                        if let AutocompleteSuggestion::Slash(command) = &item_clone {
+                            if let Some(receipt) = &slash_receipt {
+                                this.state.update(cx, |state, cx| {
+                                    state.apply_slash_suggestion(receipt, command, cx);
+                                });
+                            }
+                        } else {
+                            this.apply_autocomplete(&item_clone, cx);
+                        }
+                    }));
+                let wrapper = div().child(row);
+                #[cfg(test)]
+                let wrapper = crate::app::test_support::track_children(
+                    wrapper,
+                    vec![format!("auto-item-{idx}")],
+                );
+                wrapper
             }))
             .into_any_element()
     }
@@ -288,16 +253,22 @@ impl crate::app::root::RootView {
         cx: &mut Context<Self>,
     ) {
         self.state.update(cx, |s, cx| {
+            if let AutocompleteSuggestion::Slash(command) = suggestion {
+                if let Some(receipt) = s.slash_catalog_receipt(cx) {
+                    s.apply_slash_suggestion(&receipt, command, cx);
+                }
+                return;
+            }
             s.composer.update(cx, |c, _ccx| {
                 let text = c.text().to_string();
                 match suggestion {
-                    AutocompleteSuggestion::Slash(cmd) => {
-                        c.set_text(&format!("/{} ", cmd.name));
-                    }
+                    AutocompleteSuggestion::Slash(_) => {}
                     // Mentions become atomic chips (side-table ranges), so
                     // backspace / IME never leave half a link behind.
                     AutocompleteSuggestion::Mention { insert_text, .. } => {
-                        let start = text.rfind('@').unwrap_or(text.len());
+                        let start = crate::composer::references::reference_query(&text)
+                            .map(|(_, _, idx)| idx)
+                            .unwrap_or(text.len());
                         c.insert_chip(start..text.len(), insert_text);
                     }
                 }

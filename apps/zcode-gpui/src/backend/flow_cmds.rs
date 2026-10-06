@@ -20,7 +20,7 @@ impl AppState {
             return;
         };
         let id = ws.next_id();
-        ws.pending.insert(id, Pending::Resync);
+        ws.pending.insert(id, Pending::Resync(topic.to_string()));
         let conn_id = ws.connection_id.clone();
         let base = Value::Null;
         self.push_log(format!("resyncing {topic}"));
@@ -36,18 +36,6 @@ impl AppState {
             }),
             id,
         );
-    }
-
-    /// Resync every subscribed topic of a workspace (backlog-overflow
-    /// recovery: dropped data lines leave holes no delta can fill).
-    pub(crate) fn resync_all(&mut self, ws_key: &str) {
-        let topics: Vec<String> = self
-            .ws(ws_key)
-            .map(|w| w.subscriptions.keys().cloned().collect())
-            .unwrap_or_default();
-        for topic in topics {
-            self.resync_topic(ws_key, &topic);
-        }
     }
 
     /// Background freshness probe for the open conversation (cursorless
@@ -82,7 +70,8 @@ impl AppState {
         }
         let id = ws.next_id();
         ws.pending.insert(id, Pending::PollRows(sid.clone()));
-        ws.send_line(
+        ws.send_pending_line(
+            id,
             json!({
                 "id": id,
                 "method": "v4/conversation/rowsRange",
@@ -118,7 +107,8 @@ impl AppState {
         };
         let id = ws.next_id();
         ws.pending.insert(id, Pending::FetchRows(sid.clone()));
-        ws.send_line(
+        ws.send_pending_line(
+            id,
             json!({
                 "id": id,
                 "method": "v4/conversation/rowsRange",
@@ -147,7 +137,8 @@ impl AppState {
         // carries no pending entry and is ignored by the correlation layer.
         let id = ws.next_id();
         let state = if saturated { "saturated" } else { "drained" };
-        ws.send_line(
+        ws.send_pending_line(
+            id,
             json!({
                 "id": id,
                 "method": "v4/connection/flow",

@@ -137,6 +137,7 @@ pub fn get_quickpick_items(workspaces: &[WorkspaceHandle], query: &str) -> Vec<Q
         }
     }
 
+    apply_shortcut_labels(&mut items, None);
     if query.is_empty() {
         items
     } else {
@@ -152,9 +153,70 @@ pub fn get_quickpick_items(workspaces: &[WorkspaceHandle], query: &str) -> Vec<Q
     }
 }
 
+pub(crate) fn apply_shortcut_labels(
+    items: &mut [QuickPickItem],
+    overrides: Option<&std::collections::HashMap<String, Vec<String>>>,
+) {
+    use crate::shared::shortcuts::ShortcutCommandId as Command;
+    for item in items {
+        let command = match &item.action {
+            QuickPickItemAction::Command(action) => match action {
+                QuickPickAction::NewTask => Some(Command::NewTask),
+                QuickPickAction::OpenWorkspace => Some(Command::OpenWorkspace),
+                QuickPickAction::ToggleSidePane => Some(Command::ToggleSidePane),
+                QuickPickAction::ToggleTerminal => Some(Command::ToggleTerminal),
+                QuickPickAction::SwitchTheme => Some(Command::SwitchTheme),
+                QuickPickAction::OpenSettings => Some(Command::OpenSettings),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let Some(command) = command {
+            item.shortcut = crate::shared::shortcut_runtime::bindings(command, overrides)
+                .first()
+                .map(|binding| {
+                    binding.replace(
+                        "CmdOrCtrl",
+                        if cfg!(target_os = "macos") {
+                            "Cmd"
+                        } else {
+                            "Ctrl"
+                        },
+                    )
+                });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shortcut_labels_follow_overrides_and_disable() {
+        let mut items = get_quickpick_items(&[], "");
+        let mut overrides = std::collections::HashMap::new();
+        overrides.insert("openSettings".into(), vec!["Ctrl+q".into()]);
+        overrides.insert("toggleSidePane".into(), vec![]);
+        apply_shortcut_labels(&mut items, Some(&overrides));
+        assert_eq!(
+            items
+                .iter()
+                .find(|i| i.id == "settings")
+                .unwrap()
+                .shortcut
+                .as_deref(),
+            Some("Ctrl+q")
+        );
+        assert!(
+            items
+                .iter()
+                .find(|i| i.id == "toggle-sidepane")
+                .unwrap()
+                .shortcut
+                .is_none()
+        );
+    }
 
     #[test]
     fn test_quickpick_items_filter() {

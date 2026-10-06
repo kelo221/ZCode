@@ -5,7 +5,7 @@
 
 #![allow(dead_code)]
 
-use gpui::{AnyElement, Div, IntoElement, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Div, IntoElement, div, prelude::*, px};
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 /// Families registered by `ely_gpui_component::init` — use these, not system
@@ -154,12 +154,14 @@ impl ThemePalette {
     }
 }
 
-static ACTIVE_THEME: AtomicU8 = AtomicU8::new(0); // 0 = ZaiDark, 1 = ZaiLight
+static ACTIVE_THEME: AtomicU8 = AtomicU8::new(2); // preference: dark, light, system
+static EFFECTIVE_LIGHT: AtomicU8 = AtomicU8::new(0);
 
 pub fn set_theme_mode(mode: ThemeMode) {
     let val = match mode {
         ThemeMode::ZaiLight => 1,
-        _ => 0,
+        ThemeMode::ZaiDark => 0,
+        ThemeMode::System => 2,
     };
     ACTIVE_THEME.store(val, Ordering::Relaxed);
 }
@@ -167,15 +169,42 @@ pub fn set_theme_mode(mode: ThemeMode) {
 pub fn theme_mode() -> ThemeMode {
     match ACTIVE_THEME.load(Ordering::Relaxed) {
         1 => ThemeMode::ZaiLight,
-        _ => ThemeMode::ZaiDark,
+        0 => ThemeMode::ZaiDark,
+        _ => ThemeMode::System,
     }
 }
 
 pub fn active_theme() -> ThemePalette {
-    match theme_mode() {
-        ThemeMode::ZaiLight => ThemePalette::zai_light(),
-        _ => ThemePalette::zai_dark(),
+    if EFFECTIVE_LIGHT.load(Ordering::Relaxed) == 1 {
+        ThemePalette::zai_light()
+    } else {
+        ThemePalette::zai_dark()
     }
+}
+
+pub fn apply_appearance(appearance: gpui::WindowAppearance, cx: &mut gpui::App) {
+    let system_light = matches!(
+        appearance,
+        gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight
+    );
+    let light = match theme_mode() {
+        ThemeMode::ZaiLight => true,
+        ThemeMode::ZaiDark => false,
+        ThemeMode::System => system_light,
+    };
+    EFFECTIVE_LIGHT.store(u8::from(light), Ordering::Relaxed);
+    ely_gpui_component::theme::Theme::set_mode_now(
+        if light {
+            ely_gpui_component::theme::Mode::Light
+        } else {
+            ely_gpui_component::theme::Mode::Dark
+        },
+        cx,
+    );
+}
+
+pub fn ui_size(original: f32) -> f32 {
+    original + font_size_base() - 14.0
 }
 
 // ============================================================================
@@ -241,7 +270,7 @@ pub fn icon(glyph: char, size: f32, color: u32) -> Div {
     div()
         .font_family(ICON_FONT)
         .text_size(px(size))
-        .text_color(rgb(color))
+        .text_color(crate::shared::theme_colors::color(color))
         .child(glyph.to_string())
 }
 
@@ -254,11 +283,11 @@ pub fn phase_badge(phase: &str) -> Option<AnyElement> {
     };
     Some(
         div()
-            .text_size(px(11.))
+            .text_size(px(ui_size(11.)))
             .px_1p5()
             .rounded_sm()
-            .bg(rgb(CARD))
-            .text_color(rgb(color))
+            .bg(crate::shared::theme_colors::color(CARD))
+            .text_color(crate::shared::theme_colors::color(color))
             .child(label)
             .into_any_element(),
     )

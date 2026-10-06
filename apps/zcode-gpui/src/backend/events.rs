@@ -4,60 +4,97 @@
 //! correlation lives in backend/responses.rs.
 
 use crate::app::store::AppState;
-use crate::backend::conn::EventBacklog;
+use crate::backend::backlog::EventBacklog;
 use crate::backend::launcher::ConnEvent;
 use futures::StreamExt;
-use gpui::{AppContext, Context};
+use gpui::Context;
 use serde_json::Value;
 
-/// Producer-side backlog at which we tell the CLI to stop streaming frames.
+/// Producer-side backlog at which we tell the CLI to stop streaming frames:
+/// either watermark triggers the pause (follow-up review finding 6 —
+/// count-only flow control let near-1 MiB frames hit the byte cap after
+/// ~60 events, long before the count pause).
 const FLOW_HIGH: usize = 2000;
-/// Backlog at which streaming may resume.
+const FLOW_HIGH_BYTES: usize = 32 * 1024 * 1024;
+/// Backlog at which streaming may resume (both watermarks below the low line).
 const FLOW_LOW: usize = 200;
+const FLOW_LOW_BYTES: usize = 4 * 1024 * 1024;
 /// Consecutive agent crashes before we give up and ask the user to reconnect.
 const MAX_RESTARTS: u32 = 3;
-/// Raw lines above twice the physical frame budget are never parsed — the
-/// assembler would reject them anyway, so skip the allocation up front.
-const MAX_RAW_LINE_BYTES: usize = crate::backend::wire::MAX_FRAME_BYTES * 2;
 
 /// Attach the event pump for a workspace's agent connection. Backlog is
 /// counted on the producer side (each enqueued event), so the flow signal
 /// reflects real queue depth even when the serial consumer lags behind
-/// (2026-10-05 audit P0.3).
+/// (2026-10-05 audit P0.3). Protocol overflow (dropped stdout lines) is a
+/// desynchronized connection: the pump restarts it instead of resyncing
+/// routes, because route resync cannot repair lost control envelopes.
 pub(crate) fn attach_pump(
     cx: &mut Context<AppState>,
     ws_key: String,
+    generation: u64,
     backlog: EventBacklog,
+    log_backlog: EventBacklog,
     mut events: futures::channel::mpsc::UnboundedReceiver<ConnEvent>,
 ) {
     cx.spawn(async move |this, cx| {
         while let Some(ev) = events.next().await {
+            let current = this
+                .update(cx, |s, _| {
+                    s.ws(&ws_key).is_some_and(|w| w.generation == generation)
+                })
+                .unwrap_or(false);
+            if !current {
+                break;
+            }
             // Depth includes everything the producer queued and we have not
             // released yet — the true producer backlog.
-            if backlog.depth() >= FLOW_HIGH {
+            if backlog.depth() >= FLOW_HIGH || backlog.bytes() >= FLOW_HIGH_BYTES {
                 let key = ws_key.clone();
-                let _ = this.update(cx, |s, _| s.flow_latch(&key, true));
+                let _ = this.update(cx, |s, _| {
+                    if s.ws(&key).is_some_and(|w| w.generation == generation) {
+                        s.flow_latch(&key, true)
+                    }
+                });
             }
             let len = event_len(&ev);
             let is_exit = matches!(ev, ConnEvent::Exited);
+            let is_log = matches!(ev, ConnEvent::Log(_));
             let keep_going = this
-                .update(cx, |state, cx| state.handle_conn(&ws_key, ev, cx))
+                .update(cx, |state, cx| {
+                    if state
+                        .ws(&ws_key)
+                        .is_some_and(|w| w.generation == generation)
+                    {
+                        state.handle_conn(&ws_key, ev, cx)
+                    } else {
+                        false
+                    }
+                })
                 .unwrap_or(false);
-            // Exited bypassed producer admission, so it is never released.
+            // Exited bypassed producer admission, so it is never released;
+            // logs release against the independent stderr backlog.
             let depth = if is_exit {
                 backlog.depth()
+            } else if is_log {
+                log_backlog.release(len)
             } else {
                 backlog.release(len)
             };
-            if depth <= FLOW_LOW {
+            if depth <= FLOW_LOW && backlog.bytes() <= FLOW_LOW_BYTES {
                 let key = ws_key.clone();
-                let _ = this.update(cx, |s, _| s.flow_latch(&key, false));
+                let _ = this.update(cx, |s, _| {
+                    if s.ws(&key).is_some_and(|w| w.generation == generation) {
+                        s.flow_latch(&key, false)
+                    }
+                });
             }
-            // Overflow means data lines were dropped at the hard byte bound;
-            // the mirrored state is now holey — resync every route.
             if backlog.take_overflow() && keep_going {
                 let key = ws_key.clone();
-                let _ = this.update(cx, |s, _| s.resync_all(&key));
+                let _ = this.update(cx, |state, cx| {
+                    if state.ws(&key).is_some_and(|w| w.generation == generation) {
+                        state.restart_connection(&key, cx)
+                    }
+                });
             }
             if !keep_going {
                 break;
@@ -124,8 +161,19 @@ impl AppState {
                     self.push_log(format!(
                         "backend for {ws_key} died before startup, trying next candidate"
                     ));
-                    if let Some(backlog) = self.ws(ws_key).and_then(|w| w.backlog.clone()) {
-                        attach_pump(cx, ws_key.to_string(), backlog, events);
+                    if let Some((backlog, log_backlog)) = self
+                        .ws(ws_key)
+                        .and_then(|w| Some((w.backlog.clone()?, w.log_backlog.clone()?)))
+                    {
+                        let generation = self.ws(ws_key).map_or(0, |w| w.generation);
+                        attach_pump(
+                            cx,
+                            ws_key.to_string(),
+                            generation,
+                            backlog,
+                            log_backlog,
+                            events,
+                        );
                     }
                 }
                 None => {
@@ -163,12 +211,20 @@ impl AppState {
             "agent for {ws_key} exited; restarting in {delay_ms}ms"
         ));
         let key = ws_key.to_string();
+        let generation = self.ws(ws_key).map_or(0, |w| w.generation);
         cx.spawn(async move |this, cx| {
-            cx.background_spawn(async move {
-                std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-            })
-            .await;
-            let _ = this.update(cx, |state, cx| state.spawn_workspace(&key, cx));
+            // 重启等待用 executor timer，避免占用 IO worker，并可确定性验证旧代失效。
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(delay_ms))
+                .await;
+            let _ = this.update(cx, |state, cx| {
+                if state
+                    .ws(&key)
+                    .is_some_and(|w| w.generation == generation && !w.pumping)
+                {
+                    state.spawn_workspace(&key, cx)
+                }
+            });
         })
         .detach();
         cx.notify();
@@ -176,48 +232,27 @@ impl AppState {
     }
 
     /// Clear per-connection mirrors so a fresh subscribe rebuilds them:
-    /// pending rpcs, subscription ids, route cursors, fragment state.
+    /// pending rpcs, subscription ids, route cursors, fragment state. Topic
+    /// cleanup goes through the shared transport-state reset (follow-up
+    /// review finding 2) so child and non-indexed routes die with the
+    /// connection too.
     pub(crate) fn reset_connection_state(&mut self, ws_key: &str) {
-        let sids: Vec<String> = match self.ws_mut(ws_key) {
-            Some(ws) => {
-                ws.inbound = None;
-                ws.started = false;
-                ws.pumping = false; // the old pump is ending; allow respawn
-                ws.prepare_respawn();
-                ws.pending.clear();
-                ws.subscriptions.clear();
-                ws.desired_conversation = None;
-                ws.sessions.iter().map(|s| s.session_id.clone()).collect()
-            }
-            None => return,
-        };
-        let mut stale = vec![
-            format!("sessions-index/{ws_key}"),
-            format!("workspace-config/{ws_key}"),
-        ];
-        for sid in &sids {
-            stale.push(format!("conversation/{sid}"));
+        if let Some(ws) = self.ws_mut(ws_key) {
+            ws.invalidate_connection();
+            ws.inbound = None;
+            ws.started = false;
+            ws.pumping = false; // the old pump is ending; allow respawn
+            ws.prepare_respawn();
+            ws.pending.clear();
+            ws.desired_conversation = None;
         }
-        // Cursors AND fragment state die with the connection: a stale frame
-        // from the old generation must never be applied to the new one
-        // (2026-10-05 audit P0.1, "clear on route replacement").
-        for topic in &stale {
-            self.route_cursors.remove(topic);
-        }
-        self.assembler.forget_topics(&stale);
-        for sid in sids {
-            if let Some(c) = self.conversations.get_mut(&sid) {
-                c.subscribed = false;
-            }
-        }
+        self.clear_workspace_transport_state(ws_key);
+        self.flow_saturated.remove(ws_key);
     }
 
     fn handle_line(&mut self, ws_key: &str, line: String, cx: &mut Context<Self>) -> bool {
-        if line.len() > MAX_RAW_LINE_BYTES {
-            self.push_log(format!(
-                "dropped oversized line ({} bytes > {MAX_RAW_LINE_BYTES})",
-                line.len()
-            ));
+        if line.len() > crate::backend::backlog::MAX_RAW_LINE_BYTES {
+            self.push_log(format!("dropped oversized line ({} bytes)", line.len()));
             return true;
         }
         let Some(incoming) = crate::backend::wire::parse_line(&line) else {
@@ -226,8 +261,16 @@ impl AppState {
         };
         match incoming {
             crate::backend::wire::Incoming::AgentRequest { id, method, params } => {
-                let action =
-                    crate::backend::reverse_rpc::dispatch_reverse_rpc(&id, &method, &params);
+                // 未提交或失败的偏好不能影响运行时；仅从唯一 owner 的已提交快照读取。
+                let memory_enabled = cx
+                    .try_global::<crate::shared::preferences::PreferenceOwner>()
+                    .is_some_and(|owner| owner.0.read(cx).snapshot.memory_enabled.unwrap_or(false));
+                let action = crate::backend::reverse_rpc::dispatch_reverse_rpc(
+                    &id,
+                    &method,
+                    &params,
+                    memory_enabled,
+                );
                 match action {
                     crate::backend::reverse_rpc::ReverseRpcAction::Raced => true,
                     crate::backend::reverse_rpc::ReverseRpcAction::Respond(resp) => {
@@ -265,21 +308,33 @@ impl AppState {
                             }
                         }
                     }
-                    "v4/conversation/frame" => match self.assembler.ingest(&params) {
-                        Ok(Some(frame)) => self.route_frame(frame, cx),
-                        Ok(None) => {}
-                        Err(e) => {
-                            // Corrupt frame (CRC/schema/ordinal conflict):
-                            // request a fresh snapshot for that route.
-                            let topic = params
-                                .get("topic")
-                                .and_then(Value::as_str)
-                                .unwrap_or("")
-                                .to_string();
-                            self.push_log(format!("frame error: {e}"));
-                            self.resync_topic(ws_key, &topic);
+                    "v4/conversation/frame" => {
+                        // Surface timed-out assemblies BEFORE ingesting: the
+                        // sweep inside ingest used to discard the topics, so
+                        // an expiration performed by an unrelated incoming
+                        // frame was never resynced (review finding 5).
+                        for topic in self.assembler.sweep_timeouts() {
+                            self.push_log(format!("assembly timed out on {topic}"));
+                            if let Some(k) = self.ws_for_topic(&topic) {
+                                self.resync_topic(&k, &topic);
+                            }
                         }
-                    },
+                        match self.assembler.ingest(&params) {
+                            Ok(Some(frame)) => self.route_frame(frame, cx),
+                            Ok(None) => {}
+                            Err(e) => {
+                                // Corrupt frame (CRC/schema/ordinal conflict):
+                                // request a fresh snapshot for that route.
+                                let topic = params
+                                    .get("topic")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_string();
+                                self.push_log(format!("frame error: {e}"));
+                                self.resync_topic(ws_key, &topic);
+                            }
+                        }
+                    }
                     _ => {}
                 }
                 true

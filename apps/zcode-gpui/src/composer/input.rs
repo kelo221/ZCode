@@ -3,32 +3,34 @@
 
 use crate::composer::attachment::AttachmentRef;
 use crate::composer::chips::{self, ChipTable};
+use crate::shared::theme::ui_size;
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
     ClickEvent, Context, CursorStyle, EventEmitter, FocusHandle, KeyDownEvent, Keystroke, Render,
-    Window, canvas, div, prelude::*, px, rgb,
+    Window, canvas, div, prelude::*, px,
 };
 use std::ops::Range;
 use std::path::PathBuf;
 
 pub enum ComposerEvent {
-    Submitted,
+    Submitted(crate::composer::delivery::SubmitTrigger),
+    ImagePasted {
+        bytes: Vec<u8>,
+        format: gpui::ImageFormat,
+        replacement: u64,
+    },
 }
 
 pub struct Composer {
     pub(crate) content: String,
-    /// Byte offset into `content`, always on a char boundary.
+    pub(crate) replacement_generation: u64,
     pub(crate) caret: usize,
-    /// Active IME composition range in UTF-16 code units.
     pub(crate) marked_utf16: Option<Range<usize>>,
     pub(crate) focus: FocusHandle,
-    /// Single-line mode (commit box): Enter submits, newlines are stripped.
     pub(crate) single_line: bool,
     pub(crate) placeholder: &'static str,
     pub(crate) attachments: Vec<AttachmentRef>,
-    /// Temp files this composer created for pasted images (owned: deleted on
-    /// remove; retired to the app on submit; 2026-10-05 audit P1.7).
     pub(crate) temp_owned: Vec<PathBuf>,
-    /// Atomic mention/skill chips (byte ranges into `content`).
     pub(crate) chips: ChipTable,
 }
 
@@ -36,6 +38,7 @@ impl Composer {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             content: String::new(),
+            replacement_generation: 0,
             caret: 0,
             marked_utf16: None,
             focus: cx.focus_handle(),
@@ -47,7 +50,6 @@ impl Composer {
         }
     }
 
-    /// One-line variant reused for the commit-message input.
     pub fn new_single_line(placeholder: &'static str, cx: &mut Context<Self>) -> Self {
         Self {
             single_line: true,
@@ -57,6 +59,10 @@ impl Composer {
     }
 
     pub fn take_text(&mut self) -> String {
+        self.replacement_generation = self
+            .replacement_generation
+            .checked_add(1)
+            .expect("composer generation exhausted");
         self.caret = 0;
         self.marked_utf16 = None;
         self.chips.clear();
@@ -67,68 +73,49 @@ impl Composer {
         std::mem::take(&mut self.attachments)
     }
 
-    /// Hand over ownership of the temp files behind pasted images (call
-    /// alongside `take_attachments` on submit): the caller retires them so
-    /// they stay readable for the backend until app quit.
     pub fn drain_temp_ownership(&mut self) -> Vec<PathBuf> {
         std::mem::take(&mut self.temp_owned)
+    }
+
+    pub(crate) fn take_submission(&mut self) -> (String, Vec<AttachmentRef>, Vec<PathBuf>) {
+        (
+            self.take_text(),
+            self.take_attachments(),
+            self.drain_temp_ownership(),
+        )
+    }
+
+    pub(crate) fn restore_submission(
+        &mut self,
+        text: String,
+        attachments: Vec<AttachmentRef>,
+        temps: Vec<PathBuf>,
+    ) {
+        self.set_text(&text);
+        self.attachments = attachments;
+        self.temp_owned = temps;
     }
 
     pub fn attachments(&self) -> &[AttachmentRef] {
         &self.attachments
     }
 
-    /// True when the attachment's reference is a temp file this composer
-    /// created (content-hash name under the owned prefix).
-    fn is_owned_temp(att: &AttachmentRef) -> bool {
-        crate::shared::temp_attachments::is_owned_path(&att.reference)
-    }
-
-    pub fn add_attachment(&mut self, att: AttachmentRef, cx: &mut Context<Self>) {
-        let owned = Self::is_owned_temp(&att);
-        if !self
-            .attachments
-            .iter()
-            .any(|a| a.reference == att.reference)
-        {
-            if owned {
-                self.temp_owned.push(PathBuf::from(&att.reference));
-            }
-            self.attachments.push(att);
-            cx.notify();
-        }
-    }
-
-    pub fn remove_attachment(&mut self, index: usize, cx: &mut Context<Self>) {
-        if index < self.attachments.len() {
-            let removed = self.attachments.remove(index);
-            // A pasted-image temp file we created dies with the attachment.
-            if Self::is_owned_temp(&removed) {
-                self.temp_owned
-                    .retain(|p| p.as_os_str() != removed.reference.as_str());
-                crate::shared::temp_attachments::delete_owned(std::path::Path::new(
-                    &removed.reference,
-                ));
-            }
-            cx.notify();
-        }
-    }
-
     pub fn set_text(&mut self, text: &str) {
+        self.replacement_generation = self
+            .replacement_generation
+            .checked_add(1)
+            .expect("composer generation exhausted");
         self.content = text.to_string();
         self.caret = self.content.len();
         self.marked_utf16 = None;
         self.chips.clear();
     }
 
-    /// Replace `range` (bytes) with an atomic chip plus a trailing space.
     pub fn insert_chip(&mut self, range: Range<usize>, chip: &str) {
         self.marked_utf16 = None;
         self.caret = chips::insert_chip(&mut self.content, &mut self.chips, range, chip);
     }
 
-    /// Replace `range` (bytes) with `text`, chip-atomically. Returns the
-    /// byte range actually replaced (widened to whole chips).
     pub(crate) fn edit_range(&mut self, range: Range<usize>, text: &str) -> Range<usize> {
         chips::edit(&mut self.content, &mut self.chips, range, text)
     }
@@ -173,7 +160,6 @@ impl Composer {
 
     fn move_caret(&mut self, delta: isize, cx: &mut Context<Self>) {
         let bytes = &self.content;
-        // A chip is one caret stop: jump over it whole.
         let new = if delta < 0 {
             self.chips.chip_ending_at(self.caret).unwrap_or_else(|| {
                 bytes[..self.caret]
@@ -198,7 +184,6 @@ impl Composer {
 
     fn delete_at_caret(&mut self, backward: bool, cx: &mut Context<Self>) {
         if self.marked_utf16.take().is_some() {
-            // Composing: let the IME finish; just drop the mark.
             cx.notify();
             return;
         }
@@ -214,7 +199,6 @@ impl Composer {
                 .map(|c| self.caret..self.caret + c.len_utf8())
         };
         if let Some(r) = range {
-            // Touching a chip deletes the whole chip.
             let removed = self.edit_range(r, "");
             self.caret = removed.start;
         }
@@ -227,7 +211,14 @@ impl Composer {
         match key.as_str() {
             "enter" => {
                 if self.marked_utf16.is_none() && !modifiers.shift {
-                    cx.emit(ComposerEvent::Submitted);
+                    let trigger = if !self.single_line
+                        && crate::composer::delivery::primary_modifier(modifiers)
+                    {
+                        crate::composer::delivery::SubmitTrigger::ModifiedEnter
+                    } else {
+                        crate::composer::delivery::SubmitTrigger::Ordinary
+                    };
+                    cx.emit(ComposerEvent::Submitted(trigger));
                 } else if modifiers.shift {
                     self.insert_at_caret("\n", cx);
                 } else {
@@ -248,53 +239,34 @@ impl Composer {
                 self.marked_utf16 = None;
                 cx.notify();
             }
-            "v" if modifiers.control || modifiers.platform => {
-                if let Some(item) = cx.read_from_clipboard() {
-                    let mut has_image = false;
-                    for entry in item.entries() {
-                        if let gpui::ClipboardEntry::Image(img) = entry
-                            && !img.bytes.is_empty()
-                        {
-                            has_image = true;
-                            // Content-derived temp name, owned by this
-                            // composer (deleted on remove / retired on
-                            // submit / swept at startup — see
-                            // shared::temp_attachments; the old timestamp
-                            // naming leaked files on every paste).
-                            match crate::shared::temp_attachments::write_temp_image(
-                                &img.bytes, "png",
-                            ) {
-                                Ok(tmp_path) => {
-                                    let file_name = tmp_path
-                                        .file_name()
-                                        .map(|n| n.to_string_lossy().into_owned())
-                                        .unwrap_or_default();
-                                    let att = AttachmentRef {
-                                        reference: tmp_path.to_string_lossy().into_owned(),
-                                        file_name,
-                                        mime: "image/png".to_string(),
-                                        bytes: img.bytes.len() as u64,
-                                        preview_ref: None,
-                                    };
-                                    self.add_attachment(att, cx);
-                                }
-                                Err(e) => {
-                                    eprintln!("[zcode-gpui] paste temp file failed: {e}");
-                                }
-                            }
-                        }
-                    }
-                    if !has_image {
-                        let text = item.text().unwrap_or_default();
-                        self.marked_utf16 = None;
-                        self.insert_at_caret(&text, cx);
-                    }
-                }
-            }
+            "v" if modifiers.control || modifiers.platform => self.paste_clipboard(cx),
             _ => handled = false,
         }
         if handled {
             cx.stop_propagation();
+        }
+    }
+
+    fn paste_clipboard(&mut self, cx: &mut Context<Self>) {
+        let Some(item) = cx.read_from_clipboard() else {
+            return;
+        };
+        let mut has_image = false;
+        for entry in item.entries() {
+            if let gpui::ClipboardEntry::Image(img) = entry
+                && !img.bytes.is_empty()
+            {
+                has_image = true;
+                cx.emit(ComposerEvent::ImagePasted {
+                    bytes: img.bytes.clone(),
+                    format: img.format,
+                    replacement: self.replacement_generation,
+                });
+            }
+        }
+        if !has_image {
+            self.marked_utf16 = None;
+            self.insert_at_caret(&item.text().unwrap_or_default(), cx);
         }
     }
 }
@@ -302,22 +274,34 @@ impl Composer {
 impl EventEmitter<ComposerEvent> for Composer {}
 
 impl crate::app::root::RootView {
-    /// Submit plumbing (split from app/root.rs for the 400-line cap): both
-    /// composer entities bubble `Submitted` into the root's submit/commit
-    /// actions.
     pub(crate) fn wire_submit_events(
         composer: &gpui::Entity<Composer>,
         commit_input: &gpui::Entity<Composer>,
         cx: &mut Context<Self>,
     ) {
-        cx.subscribe(composer, |this, _composer, ev: &ComposerEvent, cx| {
-            if matches!(ev, ComposerEvent::Submitted) {
-                this.submit(cx);
-            }
-        })
+        cx.subscribe(
+            composer,
+            |this, _composer, ev: &ComposerEvent, cx| match ev {
+                ComposerEvent::Submitted(trigger)
+                    if *trigger == crate::composer::delivery::SubmitTrigger::Ordinary =>
+                {
+                    this.submit(cx)
+                }
+                ComposerEvent::Submitted(trigger) => this
+                    .state
+                    .update(cx, |s, cx| s.submit_composer_with_trigger(*trigger, cx)),
+                ComposerEvent::ImagePasted {
+                    bytes,
+                    format,
+                    replacement,
+                } => this.state.update(cx, |s, cx| {
+                    s.start_image_upload(bytes.clone(), *format, *replacement, cx)
+                }),
+            },
+        )
         .detach();
         cx.subscribe(commit_input, |this, _composer, ev: &ComposerEvent, cx| {
-            if matches!(ev, ComposerEvent::Submitted) {
+            if matches!(ev, ComposerEvent::Submitted(_)) {
                 this.do_commit(cx);
             }
         })
@@ -342,7 +326,7 @@ impl Render for Composer {
             .min_w_0()
             .min_h(px(44.))
             .px_1()
-            .text_size(px(14.))
+            .text_size(px(ui_size(14.)))
             .text_color(rgb(crate::shared::theme::TEXT))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 window.focus(&this.focus, cx);
@@ -372,9 +356,16 @@ impl Render for Composer {
                         .size_full(),
                     )
                     .children(empty.then(|| {
-                        div()
-                            .text_color(rgb(crate::shared::theme::MUTED))
-                            .child(self.placeholder)
+                        div().text_color(rgb(crate::shared::theme::MUTED)).child(
+                            if self.single_line {
+                                self.placeholder
+                            } else {
+                                crate::shared::i18n::label(
+                                    "Ask for follow-up changes",
+                                    "请求后续修改",
+                                )
+                            },
+                        )
                     })),
             )
             .children((!empty).then(|| {

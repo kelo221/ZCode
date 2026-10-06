@@ -5,9 +5,11 @@
 
 use crate::app::root::RootView;
 use crate::conversation::model::Row;
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{ACCENT, BORDER, CARD, CARD_HOVER, DANGER, MUTED, PANEL, SUCCESS, TEXT};
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
-    AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb,
+    AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px,
 };
 
 impl RootView {
@@ -90,31 +92,16 @@ impl RootView {
             && cancellable
             && let Some(wid) = effective_work_id
         {
-            Some(
-                div()
-                    .id(ElementId::NamedInteger("stop-subagent".into(), r_id))
-                    .px_2()
-                    .py_0p5()
-                    .rounded_sm()
-                    .bg(rgb(PANEL))
-                    .border_1()
-                    .border_color(rgb(BORDER))
-                    .text_size(px(10.5))
-                    .text_color(rgb(DANGER))
-                    .hover(|h| h.bg(rgb(CARD_HOVER)))
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        let wid_clone = wid.clone();
-                        this.state
-                            .update(cx, |s, cx| s.cancel_background_work(&wid_clone, cx));
-                    }))
-                    .child("Stop"),
-            )
+            self.activity_cancel_button(format!("stop-subagent-{r_id}"), wid, cx)
         } else {
             None
         };
 
+        let owner = self
+            .state
+            .read(cx)
+            .active_ws_key()
+            .zip(self.state.read(cx).active.clone());
         let open_button = child_session_id.as_ref().map(|sid| {
             let sid_clone = sid.clone();
             div()
@@ -125,15 +112,15 @@ impl RootView {
                 .bg(rgb(PANEL))
                 .border_1()
                 .border_color(rgb(BORDER))
-                .text_size(px(10.5))
+                .text_size(px(ui_size(10.5)))
                 .text_color(rgb(ACCENT))
                 .hover(|h| h.bg(rgb(CARD_HOVER)))
                 .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, cx| {
+                .on_click(cx.listener(move |this, _, window, cx| {
                     cx.stop_propagation();
-                    let sid_target = sid_clone.clone();
-                    this.state
-                        .update(cx, |s, cx| s.open_subagent(&sid_target, cx));
+                    if let Some((workspace, parent)) = &owner {
+                        this.open_child_conversation(workspace, parent, &sid_clone, window, cx);
+                    }
                 }))
                 .child("Open")
         });
@@ -149,7 +136,7 @@ impl RootView {
             Some(
                 div()
                     .mt_1()
-                    .text_size(px(11.5))
+                    .text_size(px(ui_size(11.5)))
                     .text_color(rgb(MUTED))
                     .child(text),
             )
@@ -190,7 +177,7 @@ impl RootView {
                         .child(
                             div()
                                 .font_family(crate::shared::theme::MONO_FONT)
-                                .text_size(px(12.))
+                                .text_size(px(ui_size(12.)))
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .text_color(rgb(TEXT))
                                 .child(format!("{subagent_type} · {status}")),
@@ -198,7 +185,7 @@ impl RootView {
                         .when_some(elapsed, |el, dur| {
                             el.child(
                                 div()
-                                    .text_size(px(11.))
+                                    .text_size(px(ui_size(11.)))
                                     .text_color(rgb(MUTED))
                                     .child(format!("({dur})")),
                             )
@@ -260,19 +247,19 @@ impl RootView {
                                 .bg(rgb(PANEL))
                                 .border_1()
                                 .border_color(rgb(BORDER))
-                                .text_size(px(11.5))
+                                .text_size(px(ui_size(11.5)))
                                 .text_color(rgb(ACCENT))
                                 .hover(|h| h.bg(rgb(CARD_HOVER)))
                                 .cursor_pointer()
-                                .on_click(cx.listener(|this, _, _, cx| {
+                                .on_click(cx.listener(|this, _, window, cx| {
                                     cx.stop_propagation();
-                                    this.state.update(cx, |s, cx| s.close_subagent(cx));
+                                    this.close_child_conversation(window, cx);
                                 }))
                                 .child(format!("← Back to {parent_title}")),
                         )
                         .child(
                             div()
-                                .text_size(px(11.))
+                                .text_size(px(ui_size(11.)))
                                 .text_color(rgb(MUTED))
                                 .child(format!("({child_sid})")),
                         ),
@@ -283,7 +270,7 @@ impl RootView {
                         .py_0p5()
                         .rounded_sm()
                         .bg(rgb(PANEL))
-                        .text_size(px(10.5))
+                        .text_size(px(ui_size(10.5)))
                         .text_color(rgb(MUTED))
                         .child("read-only"),
                 )
@@ -311,7 +298,7 @@ impl RootView {
                     .items_center()
                     .gap_2()
                     .child(div().w(px(6.5)).h(px(6.5)).rounded_full().bg(rgb(MUTED)))
-                    .child(div().text_size(px(12.)).text_color(rgb(MUTED)).child(
+                    .child(div().text_size(px(ui_size(12.))).text_color(rgb(MUTED)).child(
                         "Subagent session is read-only. Responses and commands are disabled.",
                     )),
             )
@@ -324,7 +311,7 @@ impl RootView {
                     .bg(rgb(PANEL))
                     .border_1()
                     .border_color(rgb(BORDER))
-                    .text_size(px(11.5))
+                    .text_size(px(ui_size(11.5)))
                     .text_color(rgb(ACCENT))
                     .hover(|h| h.bg(rgb(CARD_HOVER)))
                     .cursor_pointer()

@@ -1,16 +1,14 @@
 //! Plugin Store pane implementing the vocabulary and UX of CONTEXT.md:
-//! - Public Segment: Official Marketplace (zcode-plugins-official) with Featured and Categories
-//! - Personal Segment: User-added Personal Sources / third-party marketplaces
-//! - Installed Strip: Top horizontal bar showing installed plugins for quick access
-//! - Manage Installed View: Toggle enablement, check updates, uninstall
-//! - Restorable Builtins & Example Prompts.
+//! Public/Personal segments, Installed Strip, Manage Installed and detail/configuration.
 
 use crate::app::root::RootView;
 use crate::shared::plugins::PluginsOverviewResult;
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{ACCENT, BORDER, CARD, HOVER, MUTED, PANEL, SUCCESS, TEXT, WARNING};
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, Context, CursorStyle, ElementId, InteractiveElement, IntoElement, ParentElement,
-    Styled, div, prelude::*, px, rgb,
+    Styled, div, prelude::*, px,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -22,8 +20,19 @@ pub enum PluginSegment {
 }
 
 impl RootView {
-    pub(crate) fn plugins_pane(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        let overview = self.state.read(cx).plugins_overview.clone();
+    pub(crate) fn plugins_pane(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        self.ensure_inspection(crate::app::inspection_view::InspectionKind::Plugins, cx);
+        let feedback =
+            self.inspection_feedback(crate::app::inspection_view::InspectionKind::Plugins, cx);
+        let overview = self
+            .state
+            .read(cx)
+            .active_inspection()
+            .and_then(|i| i.plugins.value.clone());
 
         div()
             .id("plugins-pane")
@@ -33,49 +42,74 @@ impl RootView {
             .bg(rgb(PANEL))
             .min_h_0()
             .child(self.render_plugins_header(cx))
+            .child(feedback)
             .child(self.render_installed_strip(&overview, cx))
             .child(match overview {
                 Some(overview) => div()
                     .id("plugins-scroll")
                     .flex_1()
+                    .min_h_0()
                     .overflow_y_scroll()
                     .p_3()
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(match self.plugin_segment {
-                        PluginSegment::Public => self.render_public_segment(&overview, cx),
-                        PluginSegment::Personal => self.render_personal_segment(&overview, cx),
-                        PluginSegment::ManageInstalled => {
-                            self.render_manage_installed(&overview, cx)
-                        }
-                    }),
+                    .child(
+                        if let Some(config) = self.selected_plugin_config(window, cx) {
+                            config
+                        } else if let Some(detail) = self.selected_plugin_detail(cx) {
+                            detail
+                        } else {
+                            match if self.settings.open {
+                                PluginSegment::ManageInstalled
+                            } else {
+                                self.plugin_segment
+                            } {
+                                PluginSegment::Public => self.render_public_segment(&overview, cx),
+                                PluginSegment::Personal => {
+                                    self.render_personal_segment(&overview, cx)
+                                }
+                                PluginSegment::ManageInstalled => {
+                                    self.render_manage_installed(&overview, cx)
+                                }
+                            }
+                        },
+                    ),
                 None => div()
                     .id("plugins-loading")
                     .flex_1()
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_size(px(12.))
+                    .text_size(px(ui_size(12.)))
                     .text_color(rgb(MUTED))
-                    .child("Loading plugin store catalog…"),
+                    .child(crate::shared::i18n::label(
+                        "No plugin catalog loaded",
+                        "尚未加载插件目录",
+                    )),
             })
             .into_any_element()
     }
 
     fn render_plugins_header(&self, cx: &mut Context<Self>) -> AnyElement {
         let active = self.plugin_segment;
-        let tabs = [
-            (PluginSegment::Public, "Public (Official)"),
-            (PluginSegment::Personal, "Personal Sources"),
-            (PluginSegment::ManageInstalled, "Manage Installed"),
-        ];
+        let management = self.settings.open;
+        let tabs = if management {
+            &[(PluginSegment::ManageInstalled, "Manage Installed")][..]
+        } else {
+            &[
+                (PluginSegment::Public, "Public (Official)"),
+                (PluginSegment::Personal, "Personal Sources"),
+                (PluginSegment::ManageInstalled, "Manage Installed"),
+            ][..]
+        };
 
         div()
             .id("plugins-header")
             .flex()
-            .items_center()
-            .justify_between()
+            .flex_col()
+            .items_start()
+            .gap_1()
             .px_3()
             .py_2()
             .border_b_1()
@@ -92,7 +126,7 @@ impl RootView {
                             .px_2()
                             .py_1()
                             .rounded_sm()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .font_weight(if is_active {
                                 gpui::FontWeight::SEMIBOLD
                             } else {
@@ -110,23 +144,12 @@ impl RootView {
                             .child(label)
                     })),
             )
-            .child(
-                div()
-                    .id("refresh-plugins")
-                    .px_2()
-                    .py_1()
-                    .rounded_sm()
-                    .bg(rgb(CARD))
-                    .text_size(px(11.))
-                    .text_color(rgb(MUTED))
-                    .cursor(CursorStyle::PointingHand)
-                    .hover(|h| h.text_color(rgb(TEXT)).bg(rgb(HOVER)))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.state.update(cx, |s, cx| s.fetch_plugins_overview(cx));
-                    }))
-                    .child("⟳ Refresh"),
-            )
+            .child(self.plugin_mutation_button(
+                "refresh-plugins".into(),
+                crate::shared::i18n::label("Manual Refresh", "手动刷新").into(),
+                crate::app::plugin_controls::PluginMutation::Refresh,
+                cx,
+            ))
             .into_any_element()
     }
 
@@ -154,7 +177,7 @@ impl RootView {
             .border_color(rgb(BORDER))
             .child(
                 div()
-                    .text_size(px(10.))
+                    .text_size(px(ui_size(10.)))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(rgb(MUTED))
                     .child("INSTALLED:"),
@@ -163,6 +186,12 @@ impl RootView {
                 let name = p.display_label().to_string();
                 let enabled = p.enabled;
                 let strip_id = format!("strip-{}", p.id);
+                let owner = self.state.read(cx).active_ws_key();
+                let identity = crate::backend::plugin_detail::PluginDetailIdentity {
+                    id: p.id.clone(),
+                    name: p.name.clone(),
+                    marketplace: p.marketplace.clone(),
+                };
                 div()
                     .id(ElementId::Name(strip_id.into()))
                     .flex()
@@ -172,18 +201,23 @@ impl RootView {
                     .py_0p5()
                     .rounded_sm()
                     .bg(rgb(CARD))
-                    .text_size(px(10.))
+                    .text_size(px(ui_size(10.)))
                     .text_color(rgb(TEXT))
                     .cursor(CursorStyle::PointingHand)
                     .hover(|h| h.bg(rgb(HOVER)))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.plugin_segment = PluginSegment::ManageInstalled;
+                        if let Some(owner) = &owner {
+                            this.state.update(cx, |s, cx| {
+                                s.open_plugin_detail(owner, identity.clone(), cx)
+                            });
+                            this.restore_orphan_management(owner, &identity, cx);
+                        }
                         cx.notify();
                     }))
                     .child(
                         div()
-                            .text_size(px(8.))
+                            .text_size(px(ui_size(8.)))
                             .text_color(if enabled { rgb(SUCCESS) } else { rgb(MUTED) })
                             .child(if enabled { "●" } else { "○" }),
                     )
@@ -223,7 +257,7 @@ impl RootView {
                         .gap_1p5()
                         .child(
                             div()
-                                .text_size(px(11.))
+                                .text_size(px(ui_size(11.)))
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .text_color(rgb(ACCENT))
                                 .child("★ FEATURED PLUGINS"),
@@ -242,7 +276,7 @@ impl RootView {
                     .gap_1p5()
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(rgb(MUTED))
                             .child("ALL OFFICIAL PLUGINS"),
@@ -263,7 +297,7 @@ impl RootView {
                         .gap_1p5()
                         .child(
                             div()
-                                .text_size(px(11.))
+                                .text_size(px(ui_size(11.)))
                                 .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .text_color(rgb(WARNING))
                                 .child("RESTORABLE BUILTINS"),
@@ -280,7 +314,7 @@ impl RootView {
     }
 
     fn render_personal_segment(
-        &self,
+        &mut self,
         overview: &PluginsOverviewResult,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -296,17 +330,18 @@ impl RootView {
             .gap_3()
             .child(
                 div()
-                    .text_size(px(11.))
+                    .text_size(px(ui_size(11.)))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(rgb(MUTED))
                     .child("PERSONAL SOURCES"),
             )
+            .children(self.render_add_source(cx))
             .child(if personal_markets.is_empty() {
                 div()
                     .p_3()
                     .rounded_md()
                     .bg(rgb(CARD))
-                    .text_size(px(11.))
+                    .text_size(px(ui_size(11.)))
                     .text_color(rgb(MUTED))
                     .child("No personal marketplace sources added yet.")
                     .into_any_element()
@@ -315,11 +350,20 @@ impl RootView {
                     .flex()
                     .flex_col()
                     .gap_2()
-                    .children(
-                        personal_markets
-                            .into_iter()
-                            .map(|m| self.render_marketplace_card(m, cx)),
-                    )
+                    .children(personal_markets.into_iter().map(|m| {
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .child(self.render_marketplace_card(m, cx))
+                            .children(
+                                overview
+                                    .available_plugins
+                                    .iter()
+                                    .filter(|p| p.marketplace == m.id)
+                                    .map(|p| self.render_available_card(p, false, cx)),
+                            )
+                    }))
                     .into_any_element()
             })
             .into_any_element()
@@ -335,7 +379,7 @@ impl RootView {
                 .p_3()
                 .rounded_md()
                 .bg(rgb(CARD))
-                .text_size(px(11.))
+                .text_size(px(ui_size(11.)))
                 .text_color(rgb(MUTED))
                 .child("No installed plugins.")
                 .into_any_element();

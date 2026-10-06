@@ -80,6 +80,7 @@ impl AppState {
     }
 
     /// Open a child subagent conversation in read-only mode.
+    #[cfg(test)]
     pub fn open_subagent(&mut self, child_sid: &str, cx: &mut Context<Self>) {
         let Some(parent_sid) = self.active.clone() else {
             return;
@@ -88,8 +89,63 @@ impl AppState {
             return;
         };
 
-        self.child_owner
-            .insert(child_sid.to_string(), (ws_key.clone(), parent_sid));
+        self.open_subagent_for(&ws_key, &parent_sid, child_sid, cx);
+    }
+
+    pub(crate) fn open_subagent_for(
+        &mut self,
+        ws_key: &str,
+        parent_sid: &str,
+        child_sid: &str,
+        cx: &mut Context<Self>,
+    ) {
+        // 旧面板按钮不能把别的父会话的 child 重新归属；先核验捕获的 owner 与投影。
+        if self.active_ws_key().as_deref() != Some(ws_key)
+            || self.active.as_deref() != Some(parent_sid)
+            || child_sid.trim().is_empty()
+            || child_sid == parent_sid
+            || self
+                .child_owner
+                .get(child_sid)
+                .is_some_and(|(ws, parent)| ws != ws_key || parent != parent_sid)
+        {
+            return;
+        }
+        let known = self.child_owner.contains_key(child_sid)
+            || self
+                .ws(ws_key)
+                .and_then(|ws| ws.subagent_directories.get(parent_sid))
+                .is_some_and(|cache| {
+                    cache
+                        .items
+                        .iter()
+                        .any(|agent| agent.child_session_id == child_sid)
+                })
+            || self.conversations.get(parent_sid).is_some_and(|conv| {
+                conv.subagents.as_ref().is_some_and(|sub| {
+                    sub.child_session_ids.iter().any(|sid| sid == child_sid)
+                        || sub.running.iter().any(|sub| sub.child_session_id == child_sid)
+                }) || conv.background_works.iter().any(|work| {
+                    work.kind == "subagent" && work.child_session_id.as_deref() == Some(child_sid)
+                }) || conv.rows.values().any(|row| matches!(row,
+                    crate::conversation::model::Row::Subagent { child_session_id: Some(sid), .. }
+                    if sid == child_sid
+                ))
+            });
+        if !known {
+            return;
+        }
+        if self
+            .viewing_child
+            .as_deref()
+            .is_some_and(|sid| sid != child_sid)
+        {
+            self.clear_subagent_view();
+        }
+        self.child_owner.insert(
+            child_sid.to_string(),
+            (ws_key.to_string(), parent_sid.to_string()),
+        );
         self.viewing_child = Some(child_sid.to_string());
 
         // Subscribe to the child conversation if not already subscribed.
@@ -98,7 +154,7 @@ impl AppState {
             .get(child_sid)
             .is_some_and(|c| c.subscribed);
         if !is_subbed {
-            self.subscribe_conversation(&ws_key, child_sid);
+            self.subscribe_conversation(ws_key, child_sid);
         }
 
         cx.notify();

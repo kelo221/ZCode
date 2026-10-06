@@ -11,6 +11,10 @@ use std::ops::Range;
 pub struct ChipTable(Vec<Range<usize>>);
 
 impl ChipTable {
+    pub(crate) fn has_chips(&self) -> bool {
+        !self.0.is_empty()
+    }
+
     pub fn clear(&mut self) {
         self.0.clear();
     }

@@ -73,13 +73,10 @@ impl AppState {
             {
                 continue;
             }
-            let sids: Vec<String> = ws.sessions.iter().map(|s| s.session_id.clone()).collect();
-            self.ws_mut(&key).unwrap().unload();
-            for sid in sids {
-                if let Some(c) = self.conversations.get_mut(&sid) {
-                    c.subscribed = false;
-                }
-            }
+            // unload_workspace runs the shared transport-state reset, so
+            // subscriptions, cursors, fragment state and the flow latch die
+            // with the connection (review finding 2).
+            self.unload_workspace(&key);
             self.push_log(format!(
                 "unloaded idle agent for {}",
                 self.ws(&key).map(|w| w.display.clone()).unwrap_or(key)

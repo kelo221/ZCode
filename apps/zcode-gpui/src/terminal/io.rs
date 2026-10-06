@@ -2,7 +2,7 @@
 //! 400-line cap): shell command, reader thread, grid sizing and the ConPTY
 //! startup cursor-query handshake.
 
-use crate::terminal::pane::{CELL_H, CELL_W, SharedWriter, TermDims};
+use crate::terminal::pane::{SharedWriter, TermDims};
 use portable_pty::CommandBuilder;
 use std::io::Read;
 use std::path::Path;
@@ -16,9 +16,13 @@ const MAX_PENDING_BYTES: usize = 4 * 1024 * 1024;
 const MAX_DIM: usize = 1000;
 
 /// Grid size for a measured pixel area, clamped to sane PTY bounds.
-pub(crate) fn dims_for_pixels(width: f32, height: f32) -> TermDims {
-    let cols = ((width - 8.) / CELL_W).max(20.) as usize;
-    let rows = ((height - 8.) / CELL_H).max(8.) as usize;
+pub(crate) fn dims_for_pixels(
+    width: f32,
+    height: f32,
+    cell: crate::terminal::metrics::CellMetrics,
+) -> TermDims {
+    let cols = (width / cell.width).max(20.) as usize;
+    let rows = (height / cell.height).max(8.) as usize;
     TermDims {
         cols: cols.min(MAX_DIM),
         rows: rows.min(MAX_DIM),

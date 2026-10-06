@@ -39,11 +39,21 @@ impl AppState {
     /// Save the composer text as the current context's draft. Edit/rename
     /// text is never a draft: navigating away cancels that intent instead.
     pub(crate) fn save_current_draft(&mut self, cx: &mut Context<Self>) {
+        // 同一个新会话草稿可被再次打开；key 相同不能让旧 create ACK 抢走新导航。
+        self.navigation_generation = self
+            .navigation_generation
+            .checked_add(1)
+            .expect("navigation generation exhausted");
         if self.composer_intent != ComposerIntent::Send {
             self.composer_intent = ComposerIntent::Send;
             return;
         }
         let key = self.draft_key();
+        let (attachments, owned) = self
+            .composer
+            .update(cx, |c, _| (c.take_attachments(), c.drain_temp_ownership()));
+        self.recovered_attachments.insert(key.clone(), attachments);
+        self.retired_temp_files.extend(owned);
         let cur = self.composer.read(cx).text().to_string();
         if !cur.trim().is_empty() {
             self.session_drafts.insert(key, cur);
@@ -54,7 +64,12 @@ impl AppState {
 
     pub(crate) fn restore_draft(&mut self, key: &str, cx: &mut Context<Self>) {
         let restored = self.session_drafts.get(key).cloned().unwrap_or_default();
-        self.composer.update(cx, |c, _ccx| c.set_text(&restored));
+        let attachments = self.recovered_attachments.remove(key).unwrap_or_default();
+        self.composer.update(cx, |c, cx| {
+            c.set_text(&restored);
+            c.attachments = attachments;
+            cx.notify();
+        });
     }
 
     // ── Row actions (CAS + baseLogEpoch) ──
@@ -106,23 +121,14 @@ impl AppState {
     }
 
     /// Compact conversation history into a concise summary.
-    pub fn compact_session(&mut self, cx: &mut Context<Self>) {
+    pub fn compact_session(&mut self, cx: &mut Context<Self>) -> bool {
         let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
-            return;
+            return false;
         };
         let ctx = CommandCtx::new(&sid, "compact", json!({}));
-        self.send_session_command(&ws_key, ctx);
+        let ok = self.send_session_command(&ws_key, ctx);
         cx.notify();
-    }
-
-    /// Send a goal-oriented background objective.
-    pub fn send_goal_command(&mut self, text: &str, cx: &mut Context<Self>) {
-        let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
-            return;
-        };
-        let ctx = CommandCtx::new(&sid, "sendGoalCommand", json!({ "text": text }));
-        self.send_session_command(&ws_key, ctx);
-        cx.notify();
+        ok
     }
 
     /// Pause the active goal execution (stopPausesActiveGoalTarget).
@@ -340,13 +346,11 @@ impl AppState {
     }
 
     /// Cancel an in-flight background task or workflow run.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn cancel_background_work(&mut self, work_id: &str, cx: &mut Context<Self>) {
         let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
             return;
         };
-        let ctx = CommandCtx::new(&sid, "cancelBackgroundWork", json!({ "workId": work_id }));
-        self.send_session_command(&ws_key, ctx);
-        cx.notify();
+        self.cancel_background_work_for(&ws_key, &sid, work_id, cx);
     }
 }

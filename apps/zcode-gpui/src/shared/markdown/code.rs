@@ -186,8 +186,12 @@ pub fn code_block(id: u64, code: &str, lang: &str) -> AnyElement {
         .overflow_hidden()
         .rounded_md()
         .border_1()
-        .border_color(rgb(crate::shared::theme::CODE_BORDER))
-        .bg(rgb(crate::shared::theme::CODE_BG))
+        .border_color(crate::shared::theme_colors::color(
+            crate::shared::theme::CODE_BORDER,
+        ))
+        .bg(crate::shared::theme_colors::color(
+            crate::shared::theme::CODE_BG,
+        ))
         .child(
             div()
                 .flex()
@@ -195,21 +199,31 @@ pub fn code_block(id: u64, code: &str, lang: &str) -> AnyElement {
                 .justify_between()
                 .px_2()
                 .py_1()
-                .bg(rgb(crate::shared::theme::CODE_HEADER))
+                .bg(crate::shared::theme_colors::color(
+                    crate::shared::theme::CODE_HEADER,
+                ))
                 .child(
                     div()
                         .font_family(CODE_FONT)
-                        .text_size(px(10.))
-                        .text_color(rgb(crate::shared::theme::MUTED))
+                        .text_size(px(crate::shared::theme::ui_size(10.)))
+                        .text_color(crate::shared::theme_colors::color(
+                            crate::shared::theme::MUTED,
+                        ))
                         .child(label.to_string()),
                 )
                 .child(
                     div()
                         .id(("code-copy", id))
                         .px_1p5()
-                        .text_size(px(10.))
-                        .text_color(rgb(crate::shared::theme::MUTED))
-                        .hover(|s| s.text_color(rgb(crate::shared::theme::TEXT)))
+                        .text_size(px(crate::shared::theme::ui_size(10.)))
+                        .text_color(crate::shared::theme_colors::color(
+                            crate::shared::theme::MUTED,
+                        ))
+                        .hover(|s| {
+                            s.text_color(crate::shared::theme_colors::color(
+                                crate::shared::theme::TEXT,
+                            ))
+                        })
                         .cursor_pointer()
                         .child("Copy")
                         .on_click(move |_, _, cx: &mut gpui::App| {
@@ -224,7 +238,9 @@ pub fn code_block(id: u64, code: &str, lang: &str) -> AnyElement {
                 .px_2()
                 .py_1p5()
                 .text_size(px(11.5))
-                .text_color(rgb(crate::shared::theme::TEXT))
+                .text_color(crate::shared::theme_colors::color(
+                    crate::shared::theme::TEXT,
+                ))
                 .children(lines.iter().map(|l| code_line(l))),
         )
         .into_any_element()

@@ -4,7 +4,8 @@
 //! Spec: PARITY.md M2 "Diff view (fileChanges/patch rendering)"; colors map
 //! to DESIGN.md `--color-diff-added` / `--color-diff-removed`.
 
-use gpui::{AnyElement, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb};
+use crate::shared::theme_colors::color as rgb;
+use gpui::{AnyElement, IntoElement, ParentElement, Styled, div, prelude::*, px};
 
 use crate::shared::theme::{
     CODE_BG, CODE_BORDER, DIFF_ADD_BG, DIFF_DEL_BG, DIFF_HUNK_BG, MUTED, TEXT,

@@ -20,6 +20,14 @@ impl EventListener for TestListener {
     }
 }
 
+struct ChildGuard(Box<dyn portable_pty::Child + Send + Sync>);
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
 struct Dims {
     cols: usize,
     rows: usize,
@@ -47,7 +55,7 @@ fn pty_roundtrip_smoke() {
         })
         .expect("openpty");
 
-    let cmd = CommandBuilder::new("cmd.exe");
+    let cmd = CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" });
     let mut reader = pty.master.try_clone_reader().expect("reader");
     let writer = Arc::new(Mutex::new(pty.master.take_writer().expect("writer")));
 
@@ -57,7 +65,14 @@ fn pty_roundtrip_smoke() {
     let mut term = Term::new(Config::default(), &Dims { cols: 80, rows: 24 }, listener);
     let mut processor: Processor = Processor::default();
 
-    let mut child = pty.slave.spawn_command(cmd).expect("spawn cmd.exe");
+    let child = ChildGuard(pty.slave.spawn_command(cmd).expect("spawn platform shell"));
+    let input: &[u8] = if cfg!(windows) {
+        b"set /a 12340+5\r\n"
+    } else {
+        b"printf '%s\\n' $((12340+5))\n"
+    };
+    writer.lock().unwrap().write_all(input).unwrap();
+    writer.lock().unwrap().flush().unwrap();
 
     let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
     std::thread::spawn(move || {
@@ -73,7 +88,6 @@ fn pty_roundtrip_smoke() {
     });
 
     let start = std::time::Instant::now();
-    let mut echo_sent = false;
     let mut output = String::new();
 
     while start.elapsed() < std::time::Duration::from_secs(6) {
@@ -83,22 +97,14 @@ fn pty_roundtrip_smoke() {
             output.push_str(&String::from_utf8_lossy(&bytes));
         }
 
-        if !echo_sent && (output.contains('>') || output.contains("Microsoft")) {
-            if let Ok(mut w) = writer.lock() {
-                let _ = w.write_all(b"echo pty_echo_success_12345\r\n");
-                let _ = w.flush();
-            }
-            echo_sent = true;
-        }
-
-        if output.contains("pty_echo_success_12345") {
+        if output.contains("12345") {
             break;
         }
     }
 
-    let _ = child.kill();
+    drop(child);
     assert!(
-        output.contains("pty_echo_success_12345"),
-        "PTY did not echo expected string; received output:\n{output}"
+        output.contains("12345"),
+        "PTY did not produce computed output; received:\n{output}"
     );
 }

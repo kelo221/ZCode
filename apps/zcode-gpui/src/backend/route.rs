@@ -1,87 +1,19 @@
-//! Route application for V4 topic frames: subscription identity and seq
-//! continuity (the client half of packages/shared/src/zcode-protocol-v4/
-//! controller.ts `isWindowHostControllerFrameGap` + transport.ts frame rules).
-//!
-//! Deltas cover `(fromSeq, toSeq]` and must start exactly at the applied
-//! cursor's seq — `fromSeq == cursor.seq + 1` is a one-event gap, not
-//! contiguous (2026-10-05 audit P0.1). Snapshots are authoritative and
-//! re-establish the cursor. Frames from a superseded subscription generation
-//! are dropped; a gap or missing base triggers resync and never mutates
-//! mirrored state.
+//! Route application for V4 topic frames: the AppState half of the route
+//! layer. The pure continuity/identity decision and payload-shape validation
+//! live in backend/route_rules.rs (client half of
+//! packages/shared/src/zcode-protocol-v4/controller.ts
+//! `isWindowHostControllerFrameGap` + transport.ts frame rules). Deltas cover
+//! `(fromSeq, toSeq]` and must start exactly at the applied cursor's seq; the
+//! cursor advances only after a successful, complete application.
 
 use crate::app::store::{AppState, RouteCursor};
 use crate::backend::wire::LogicalFrame;
+use crate::backend::workspace::RouteSubscription;
 use crate::conversation::model::SessionEntry;
 use gpui::Context;
 use serde_json::Value;
 
-/// What the route layer decided to do with a frame. Pure function — golden
-/// tested in route_tests.rs.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum FrameDecision {
-    /// Apply the payload, then advance the cursor to `toSeq`.
-    Apply,
-    /// Stale / duplicate / old-generation frame: drop silently.
-    Drop,
-    /// Discontinuity, no base, or malformed range: resync the route and do
-    /// not touch any mirrored state.
-    Resync,
-}
-
-/// `cursor` is `(subscriptionId, seq)` of the last applied frame on the topic;
-/// `active_sub` is the subscription id the client currently holds (from the
-/// subscribe ack), if any.
-pub(crate) fn classify_frame(
-    cursor: Option<(&str, u64)>,
-    active_sub: Option<&str>,
-    kind: &str,
-    frame_sub: &str,
-    from_seq: u64,
-    to_seq: u64,
-) -> FrameDecision {
-    if to_seq < from_seq {
-        return FrameDecision::Resync;
-    }
-    match kind {
-        "snapshot" => {
-            if active_sub.is_some_and(|s| s != frame_sub) {
-                // An old generation's snapshot would roll live state back.
-                return FrameDecision::Drop;
-            }
-            // Canonical frame schema: snapshots start at seq zero.
-            if from_seq != 0 {
-                return FrameDecision::Resync;
-            }
-            FrameDecision::Apply
-        }
-        "deltas" => {
-            let from_applied_generation = cursor.is_some_and(|(sub, _)| sub == frame_sub);
-            if !from_applied_generation {
-                // Deltas from a generation we never applied: if it is the
-                // active subscription we missed its snapshot → resync;
-                // otherwise it is an old-generation leftover → drop.
-                return if active_sub.is_some_and(|s| s == frame_sub) {
-                    FrameDecision::Resync
-                } else {
-                    FrameDecision::Drop
-                };
-            }
-            let (_, seq) = cursor.expect("checked above");
-            if to_seq <= seq {
-                // Duplicate or fully-superseded frame: never re-applied.
-                FrameDecision::Drop
-            } else if from_seq != seq {
-                // Gap (including the one-event gap `fromSeq == seq + 1`) and
-                // partial overlap alike: the baseline is untrustworthy.
-                FrameDecision::Resync
-            } else {
-                FrameDecision::Apply
-            }
-        }
-        // Unknown payload kinds are tolerated (never applied): PARITY.md §6.
-        _ => FrameDecision::Drop,
-    }
-}
+use crate::backend::route_rules::{FrameDecision, classify_frame, validate_payload_shape};
 
 impl AppState {
     pub(crate) fn route_frame(&mut self, frame: LogicalFrame, cx: &mut Context<Self>) {
@@ -91,19 +23,28 @@ impl AppState {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
-        let active_sub = self.active_subscription_for(&frame.topic);
+        let active: Option<RouteSubscription> = self.active_subscription_for(&frame.topic);
         let cursor = self
             .route_cursors
             .get(&frame.topic)
-            .map(|c| (c.subscription_id.as_str(), c.seq));
-        match classify_frame(
+            .map(|c| (c.subscription_id.as_str(), c.log_epoch.as_str(), c.seq));
+        let snapshot_epoch = frame
+            .payload
+            .get("snapshot")
+            .and_then(|s| s.get("logEpoch"))
+            .and_then(Value::as_str);
+        let decision = classify_frame(
             cursor,
-            active_sub.as_deref(),
+            active
+                .as_ref()
+                .map(|s| (s.id.as_str(), s.log_epoch.as_str())),
             &kind,
             &frame.subscription_id,
             frame.from_seq,
             frame.to_seq,
-        ) {
+            snapshot_epoch,
+        );
+        match decision {
             FrameDecision::Drop => {}
             FrameDecision::Resync => {
                 self.push_log(format!(
@@ -120,18 +61,31 @@ impl AppState {
                 return;
             }
             FrameDecision::Apply => {
-                self.apply_payload(&frame, &kind);
+                // The cursor advances only after a successful, complete
+                // application (review finding 3).
+                if let Err(e) = self.apply_payload(&frame, &kind) {
+                    self.push_log(format!("payload fault on {}: {e}", frame.topic));
+                    if let Some(ws_key) = self.ws_for_topic(&frame.topic) {
+                        self.resync_topic(&ws_key, &frame.topic);
+                    }
+                    return;
+                }
                 self.advance_cursor(&frame, &kind);
+                if let Some(sid) = frame.topic.strip_prefix("conversation/")
+                    && let Some(key) = self.ws_for_topic(&frame.topic)
+                {
+                    self.reconcile_workflow_settings(&key, sid, kind == "snapshot");
+                }
             }
         }
         cx.notify();
     }
 
-    fn active_subscription_for(&self, topic: &str) -> Option<String> {
+    fn active_subscription_for(&self, topic: &str) -> Option<RouteSubscription> {
         let ws_key = self.ws_for_topic(topic)?;
         self.ws(&ws_key)
             .and_then(|w| w.subscriptions.get(topic))
-            .map(|s| s.id.clone())
+            .cloned()
     }
 
     /// Advance the cursor after a successful apply. Snapshots re-read the
@@ -163,71 +117,106 @@ impl AppState {
         entry.seq = frame.to_seq;
     }
 
-    /// Dispatch an approved frame payload to its topic reducer. Infallible by
-    /// design: every fallible check already happened in the assembler and in
-    /// `classify_frame`, so state mutation only ever follows validation.
-    fn apply_payload(&mut self, frame: &LogicalFrame, kind: &str) {
+    /// Validate, then dispatch an approved frame payload to its topic
+    /// reducer. Every fallible check happens before any mutation, so `Err`
+    /// guarantees untouched mirrored state.
+    fn apply_payload(&mut self, frame: &LogicalFrame, kind: &str) -> Result<(), String> {
+        validate_payload_shape(&frame.topic, kind, &frame.payload)?;
         if let Some(ws_key) = frame.topic.strip_prefix("sessions-index/") {
-            self.apply_sessions_index(ws_key, kind, &frame.payload);
+            self.apply_sessions_index(ws_key, kind, &frame.payload)
         } else if let Some(ws_key) = frame.topic.strip_prefix("workspace-config/") {
-            self.apply_workspace_config(ws_key, kind, &frame.payload);
+            self.apply_workspace_config(ws_key, kind, &frame.payload)
         } else if let Some(sid) = frame.topic.strip_prefix("conversation/") {
             let state: &mut crate::conversation::model::ConversationState =
                 self.conversations.entry(sid.to_string()).or_default();
             match kind {
                 "snapshot" => {
                     state.subscribed = true;
-                    if let Some(snap) = frame.payload.get("snapshot") {
-                        state.apply_snapshot(snap);
-                    }
+                    let snap = frame
+                        .payload
+                        .get("snapshot")
+                        .ok_or_else(|| "snapshot payload missing 'snapshot'".to_string())?;
+                    state.apply_snapshot(snap);
+                    Ok(())
                 }
                 "deltas" => {
-                    if let Some(deltas) = frame.payload.get("deltas").and_then(Value::as_array) {
-                        state.apply_deltas(deltas);
-                    }
+                    let deltas = frame
+                        .payload
+                        .get("deltas")
+                        .and_then(Value::as_array)
+                        .ok_or_else(|| "deltas payload missing deltas array".to_string())?;
+                    state.apply_deltas(deltas);
+                    Ok(())
                 }
-                _ => {}
+                _ => Ok(()),
             }
+        } else {
+            Ok(())
         }
     }
 
-    fn apply_workspace_config(&mut self, ws_key: &str, kind: &str, payload: &Value) {
-        let Some(cfg) = self.workspace_configs.get_mut(ws_key) else {
-            return;
-        };
+    fn apply_workspace_config(
+        &mut self,
+        ws_key: &str,
+        kind: &str,
+        payload: &Value,
+    ) -> Result<(), String> {
         match kind {
             "snapshot" => {
-                if let Some(config) = payload.get("snapshot").and_then(|s| s.get("config")) {
-                    cfg.apply_state(config);
-                }
+                let config = payload
+                    .get("snapshot")
+                    .and_then(|s| s.get("config"))
+                    .ok_or_else(|| "workspace-config snapshot missing config".to_string())?;
+                self.workspace_configs
+                    .entry(ws_key.to_string())
+                    .or_default()
+                    .apply_state(config);
+                Ok(())
             }
             "deltas" => {
-                if let Some(deltas) = payload.get("deltas").and_then(Value::as_array) {
-                    for d in deltas {
-                        if d.get("op").and_then(Value::as_str) == Some("config.updated")
-                            && let Some(config) = d.get("config")
-                        {
-                            cfg.apply_state(config);
-                        }
+                // Deltas without a snapshot baseline are unappliable.
+                let cfg = self
+                    .workspace_configs
+                    .get_mut(ws_key)
+                    .ok_or_else(|| "workspace-config delta before any snapshot".to_string())?;
+                let deltas = payload
+                    .get("deltas")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| "deltas payload missing deltas array".to_string())?;
+                for d in deltas {
+                    if d.get("op").and_then(Value::as_str) == Some("config.updated")
+                        && let Some(config) = d.get("config")
+                    {
+                        cfg.apply_state(config);
                     }
                 }
+                Ok(())
             }
-            _ => {}
+            _ => Ok(()),
         }
     }
 
-    fn apply_sessions_index(&mut self, ws_key: &str, kind: &str, payload: &Value) {
+    fn apply_sessions_index(
+        &mut self,
+        ws_key: &str,
+        kind: &str,
+        payload: &Value,
+    ) -> Result<(), String> {
         let first_sid = match kind {
             "snapshot" => {
                 let Some(ws) = self.ws_mut(ws_key) else {
-                    return;
+                    return Err("sessions-index for unknown workspace".into());
                 };
+                // `sessions` is validated to be an array; individual invalid
+                // entries are skipped (forward compatibility).
                 let mut list: Vec<SessionEntry> = payload
                     .get("snapshot")
                     .and_then(|s| s.get("sessions"))
                     .and_then(Value::as_array)
-                    .map(|a| a.iter().filter_map(SessionEntry::from_value).collect())
-                    .unwrap_or_default();
+                    .ok_or_else(|| "sessions-index snapshot missing sessions array".to_string())?
+                    .iter()
+                    .filter_map(SessionEntry::from_value)
+                    .collect();
                 list.sort_by_key(|s| std::cmp::Reverse(s.last_activity_at));
                 let first = list.first().map(|s| s.session_id.clone());
                 ws.sessions = list;
@@ -235,10 +224,10 @@ impl AppState {
             }
             "deltas" => {
                 let Some(ws) = self.ws_mut(ws_key) else {
-                    return;
+                    return Err("sessions-index for unknown workspace".into());
                 };
                 let Some(deltas) = payload.get("deltas").and_then(Value::as_array) else {
-                    return;
+                    return Err("deltas payload missing deltas array".into());
                 };
                 for d in deltas {
                     match d.get("op").and_then(Value::as_str).unwrap_or("") {
@@ -275,9 +264,6 @@ impl AppState {
             self.active = Some(sid.clone());
             self.subscribe_conversation(ws_key, &sid);
         }
+        Ok(())
     }
 }
-
-#[cfg(test)]
-#[path = "route_tests.rs"]
-mod tests;

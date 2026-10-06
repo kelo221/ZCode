@@ -64,11 +64,19 @@ pub struct GitStatus {
     pub files: Vec<GitFile>,
 }
 
-/// Parse `git status --porcelain=v1 -b` output.
+/// Parse `git status --porcelain=v1 -z -b` (NUL records; newline still ok).
 pub fn parse_status(output: &str) -> GitStatus {
     let mut status = GitStatus::default();
-    for line in output.lines() {
-        if let Some(rest) = line.strip_prefix("## ") {
+    let records: Vec<&str> = if output.contains('\0') {
+        output.split('\0').filter(|s| !s.is_empty()).collect()
+    } else {
+        output.lines().collect()
+    };
+    let mut i = 0;
+    while i < records.len() {
+        let rec = records[i];
+        i += 1;
+        if let Some(rest) = rec.strip_prefix("## ") {
             status.branch = rest
                 .split("...")
                 .next()
@@ -79,18 +87,21 @@ pub fn parse_status(output: &str) -> GitStatus {
                 .to_string();
             continue;
         }
-        let bytes = line.as_bytes();
+        let bytes = rec.as_bytes();
         if bytes.len() < 4 {
             continue;
         }
         let index = bytes[0] as char;
         let worktree = bytes[1] as char;
-        let path = line[3..].to_string();
-        // Rename entries read "old -> new"; track the new path only.
-        let path = match path.split_once(" -> ") {
-            Some((_, new)) => new.to_string(),
-            None => path,
-        };
+        let mut path = rec[3..].to_string();
+        if matches!(index, 'R' | 'C') {
+            if let Some((_, new)) = path.split_once(" -> ") {
+                path = new.to_string();
+            } else if i < records.len() {
+                path = records[i].to_string();
+                i += 1;
+            }
+        }
         if path.is_empty() {
             continue;
         }
@@ -107,18 +118,44 @@ pub fn parse_status(output: &str) -> GitStatus {
     status
 }
 
-/// Parse `git diff --numstat` output: "add\tdelete\tpath".
+/// Parse `git diff --numstat -z`: "add\\tdelete\\tpath\\0" (renames:
+/// "add\\tdelete\\0old\\0new\\0"). Newline form still accepted.
 pub fn parse_numstat(output: &str) -> HashMap<String, (u32, u32)> {
     let mut map = HashMap::new();
+    if output.contains('\0') {
+        let recs: Vec<&str> = output.split('\0').filter(|s| !s.is_empty()).collect();
+        let mut i = 0;
+        while i < recs.len() {
+            let rec = recs[i];
+            i += 1;
+            let mut parts = rec.splitn(3, '\t');
+            let (Some(a), Some(d), path_or_empty) = (parts.next(), parts.next(), parts.next())
+            else {
+                continue;
+            };
+            let path = if let Some(p) = path_or_empty.filter(|p| !p.is_empty()) {
+                p.to_string()
+            } else if i + 1 < recs.len() {
+                i += 1;
+                let new = recs[i].to_string();
+                i += 1;
+                new
+            } else {
+                continue;
+            };
+            map.insert(path, (a.parse().unwrap_or(0), d.parse().unwrap_or(0)));
+        }
+        return map;
+    }
     for line in output.lines() {
         let mut parts = line.splitn(3, '\t');
         let (Some(a), Some(d), Some(p)) = (parts.next(), parts.next(), parts.next()) else {
             continue;
         };
-        // Binary files report "-"; treat as 0 changed lines.
-        let add = a.parse().unwrap_or(0);
-        let del = d.parse().unwrap_or(0);
-        map.insert(p.to_string(), (add, del));
+        map.insert(
+            p.to_string(),
+            (a.parse().unwrap_or(0), d.parse().unwrap_or(0)),
+        );
     }
     map
 }
@@ -199,6 +236,7 @@ impl GitState {
         if self.root.as_ref() != Some(&root) {
             self.expanded.clear();
             self.notice = None;
+            self.confirm_discard = None;
         }
         let paths: std::collections::HashSet<&str> =
             status.files.iter().map(|f| f.path.as_str()).collect();
@@ -284,13 +322,24 @@ pub fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
     fn drain<R: std::io::Read + Send + 'static>(
         pipe: Option<R>,
     ) -> std::thread::JoinHandle<Vec<u8>> {
-        use std::io::Read;
         std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            if let Some(pipe) = pipe {
-                let _ = pipe.take(MAX_GIT_OUTPUT_BYTES).read_to_end(&mut buf);
+            let mut kept = Vec::new();
+            if let Some(mut pipe) = pipe {
+                // Drain to EOF so the child never blocks on a full pipe or
+                // dies with EPIPE after the cap, while retaining only a
+                // capped prefix for display (review finding 11.1).
+                let mut chunk = [0u8; 8192];
+                loop {
+                    match pipe.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            let room = (MAX_GIT_OUTPUT_BYTES as usize).saturating_sub(kept.len());
+                            kept.extend_from_slice(&chunk[..n.min(room)]);
+                        }
+                    }
+                }
             }
-            buf
+            kept
         })
     }
     let stdout = drain(child.stdout.take());

@@ -9,39 +9,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 
-pub(crate) enum Pending {
-    SubscribeIndex,
-    SubscribeConfig,
-    /// Legacy `session/create` used purely to harvest the model catalog —
-    /// the V4 workspace-config topic carries no model options on standalone
-    /// CLI (they are host-provided). The session it creates is deleted right
-    /// after (CleanupCatalog).
-    ModelCatalog,
-    CleanupCatalog,
-    SubscribeConversation(String),
-    CreateSession,
-    SendText,
-    Stop,
-    /// Session-scoped command whose ack is checked (see backend/session_cmds.rs).
-    Command(CommandCtx),
-    /// `v4/conversation/resync` recovery (ack ignored; frames re-deliver).
-    Resync,
-    /// `v4/conversation/rowsRange` history page for a session.
-    FetchRows(String),
-    /// Background freshness probe for the open conversation: a cursorless
-    /// rowsRange whose response is only compared for movement (never applied).
-    /// Makes sessions hosted by ANOTHER process (deltas never reach our
-    /// backend) refresh through the standard resync snapshot.
-    PollRows(String),
-    /// `v4/usage/stats` query for token metrics and timeline.
-    FetchUsageStats(String),
-    /// `mcp/list` inspection of connected MCP servers.
-    FetchMcpList,
-    /// `plugins/overview` query for plugin marketplace catalog.
-    FetchPluginsOverview,
-    /// Mutating plugin operation (`install`, `uninstall`, `update`, `setEnabled`, `restoreBuiltin`, `marketplace/*`).
-    PluginAction(String),
-}
+pub(crate) use crate::backend::pending::Pending;
 
 /// Everything needed to resend a session command on `stale` or to roll back
 /// its optimistic UI update when it is rejected.
@@ -86,14 +54,11 @@ impl CommandCtx {
 }
 
 /// Subscription identity captured from a subscribe ack (subscribeAckSchema:
-/// `subscriptionId` + `logEpoch`). The id is the wire generation marker; the
-/// epoch is the host log generation behind it. Route cursors and frame
-/// validation use the id; the epoch is carried for diagnostics and future
-/// base-resume support.
+/// `subscriptionId` + `logEpoch`). Both halves are the live route generation
+/// `classify_frame` matches against; an epoch change is a replacement.
 #[derive(Clone, Debug)]
 pub(crate) struct RouteSubscription {
     pub(crate) id: String,
-    #[allow(dead_code)]
     pub(crate) log_epoch: String,
 }
 
@@ -135,13 +100,48 @@ pub struct WorkspaceHandle {
     /// reference it; re-subscribe replaces by (connectionId, topic)).
     pub(crate) connection_id: String,
     /// topic → subscription identity, captured from subscribe acks (resync
-    /// needs the id; route validation compares generations by it).
+    /// needs the id; route validation compares generations by it). This
+    /// registry is the authoritative topic-owner source (review finding 2).
     pub(crate) subscriptions: HashMap<String, RouteSubscription>,
-    /// Producer/consumer backlog accounting for the current connection
-    /// (backpressure + the hard byte bound). None while not spawned.
-    pub(crate) backlog: Option<crate::backend::conn::EventBacklog>,
+    /// Protocol (stdout) backlog accounting for the current connection
+    /// (backpressure + hard byte bound). None while not spawned.
+    pub(crate) backlog: Option<crate::backend::backlog::EventBacklog>,
+    /// Independent lossy stderr backlog for the current connection.
+    pub(crate) log_backlog: Option<crate::backend::backlog::EventBacklog>,
     /// Consecutive crashes of the agent (reset when storage reaches ready).
     pub(crate) restart_attempts: u32,
+    pub(crate) generation: u64,
+    pub(crate) image_uploads: crate::backend::attachment_upload::ImageUploads,
+    pub(crate) slash_catalogs: HashMap<
+        Option<String>,
+        crate::backend::inspection::QueryState<Vec<crate::composer::slash::SlashCommand>>,
+    >,
+    pub(crate) reference_catalogs:
+        HashMap<Option<String>, crate::composer::references::ReferenceCatalog>,
+    pub(crate) subagent_directories:
+        HashMap<String, crate::conversation::subagent_directory::SubagentDirectory>,
+    pub(crate) inspection: crate::backend::inspection::WorkspaceInspection,
+    pub(crate) plugin_source_draft: crate::app::plugin_source_input::PluginSourceDraft,
+    pub(crate) saved_workflows: HashMap<
+        String,
+        crate::backend::inspection::QueryState<crate::shared::saved_workflows::SavedWorkflowList>,
+    >,
+    pub(crate) saved_workflow_form: crate::app::saved_workflow_form::SavedWorkflowForm,
+    pub(crate) workflow_definitions: HashMap<
+        String,
+        crate::backend::inspection::QueryState<
+            crate::shared::workflow_definition::WorkflowDefinition,
+        >,
+    >,
+    pub(crate) workflow_histories: HashMap<
+        String,
+        crate::backend::inspection::QueryState<crate::shared::workflow_history::WorkflowHistory>,
+    >,
+    pub(crate) workflow_artifacts: crate::backend::workflow_artifacts::RunArtifactQueries,
+    pub(crate) workflow_settings:
+        HashMap<String, crate::backend::workflow_settings::WorkflowSettingsDraft>,
+    pub(crate) workflow_management:
+        Option<crate::backend::workflow_management::WorkflowManagementDraft>,
 }
 
 impl WorkspaceHandle {
@@ -173,12 +173,28 @@ impl WorkspaceHandle {
             connection_id: uuid::Uuid::now_v7().to_string(),
             subscriptions: HashMap::new(),
             backlog: None,
+            log_backlog: None,
             restart_attempts: 0,
+            generation: 0,
+            image_uploads: HashMap::new(),
+            slash_catalogs: HashMap::new(),
+            reference_catalogs: HashMap::new(),
+            subagent_directories: HashMap::new(),
+            inspection: Default::default(),
+            plugin_source_draft: Default::default(),
+            saved_workflows: HashMap::new(),
+            saved_workflow_form: Default::default(),
+            workflow_settings: HashMap::new(),
+            workflow_definitions: HashMap::new(),
+            workflow_histories: HashMap::new(),
+            workflow_artifacts: HashMap::new(),
+            workflow_management: None,
         }
     }
 
     /// Cleanly terminate the backend process / job object.
     pub fn shutdown(&mut self) {
+        self.invalidate_connection();
         if let Some(kill) = self.kill.take() {
             kill();
         }
@@ -195,12 +211,16 @@ impl WorkspaceHandle {
         self.candidate_idx += 1;
         match spawn_connection(launch, &self.path) {
             Ok(conn) => {
-                self.conn_desc = launch.describe.clone();
-                self.status = format!("starting ({})", launch.describe);
+                let description = launch.describe.clone();
+                self.invalidate_connection();
+                self.connection_id = uuid::Uuid::now_v7().to_string();
+                self.status = format!("starting ({description})");
+                self.conn_desc = description;
                 self.working_candidate = used;
                 self.inbound = Some(conn.inbound);
                 self.kill = Some(conn.kill);
                 self.backlog = Some(conn.backlog);
+                self.log_backlog = Some(conn.log_backlog);
                 Some(conn.events)
             }
             Err(e) => {
@@ -223,7 +243,30 @@ impl WorkspaceHandle {
         self.candidate_idx = self.working_candidate;
     }
 
+    pub(crate) fn invalidate_connection(&mut self) {
+        self.image_uploads.clear();
+        self.pending.retain(|_, pending| {
+            !matches!(
+                pending,
+                Pending::AttachmentUpload { .. } | Pending::AttachmentAbort
+            )
+        });
+        self.slash_catalogs.clear();
+        self.pending
+            .retain(|_, pending| !matches!(pending, Pending::SlashCatalog(_)));
+        self.reference_catalogs.clear();
+        self.subagent_directories.clear();
+        self.reset_workflow_queries();
+        self.reset_plugin_queries();
+        // 工作区 key 不变不代表进程未更换；旧泵和延迟重启必须失效。
+        self.generation = self
+            .generation
+            .checked_add(1)
+            .expect("connection generation exhausted");
+    }
+
     pub fn unload(&mut self) {
+        self.invalidate_connection();
         if let Some(kill) = self.kill.take() {
             kill();
         }
@@ -235,12 +278,26 @@ impl WorkspaceHandle {
         self.status = "idle — click to connect".into();
     }
 
-    pub(crate) fn send_line(&mut self, line: String) {
-        if let Some(inbound) = self.inbound.as_ref()
-            && inbound.send(line).is_err()
+    pub(crate) fn send_line(&mut self, line: String) -> bool {
+        // 通道关闭发生在连接检查之后；必须回传入队结果，避免清空未发送草稿。
+        if self
+            .inbound
+            .as_ref()
+            .is_some_and(|tx| tx.send(line).is_ok())
         {
-            self.status = "write failed".into();
+            return true;
         }
+        self.status = "write failed".into();
+        false
+    }
+
+    pub(crate) fn send_pending_line(&mut self, id: u64, line: String) -> bool {
+        let sent = self.send_line(line);
+        if !sent {
+            // 读请求和插件请求也要撤销未入队关联，否则轮询会被永久 in-flight 阻塞。
+            self.pending.remove(&id);
+        }
+        sent
     }
 
     pub(crate) fn next_id(&mut self) -> u64 {
@@ -254,6 +311,24 @@ impl WorkspaceHandle {
             .sort_by_key(|s| std::cmp::Reverse(s.last_activity_at));
     }
 }
+
+/// Nearest existing ancestor directory of `path` (used as the spawn cwd): a
+/// deleted or unmounted workspace must not prevent the backend from starting;
+/// workspace identity still travels on the protocol (review finding 8).
+pub(crate) fn nearest_existing_dir(path: &Path) -> PathBuf {
+    let mut current = Some(path.to_path_buf());
+    while let Some(dir) = current {
+        if dir.is_dir() {
+            return dir;
+        }
+        current = dir.parent().map(Path::to_path_buf);
+    }
+    std::env::temp_dir()
+}
+
+#[cfg(test)]
+#[path = "workspace_tests.rs"]
+mod tests;
 
 impl Drop for WorkspaceHandle {
     fn drop(&mut self) {
@@ -272,92 +347,6 @@ pub fn canonical_workspace_string(path: &Path) -> String {
         .unwrap_or(s)
 }
 
-/// The dedicated directory used for chats without a project (Tasks section).
-/// Desktop parity: packages/services/src/paths.ts `getConversationWorkspaceDir()`
-/// (`~/.zcode/workspace/default`).
-pub fn conversation_workspace_dir() -> PathBuf {
-    let base = std::env::var("ZCODE_DATA_BASE_DIR")
-        .ok()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            let home = std::env::var("ZCODE_DESKTOP_HOME_DIR")
-                .or_else(|_| std::env::var("USERPROFILE"))
-                .or_else(|_| std::env::var("HOME"))
-                .unwrap_or_default();
-            PathBuf::from(home).join(".zcode")
-        });
-    base.join("workspace").join("default")
-}
-
-/// Ensures the default conversation workspace directory exists on disk.
-pub fn ensure_conversation_workspace_dir() -> PathBuf {
-    let dir = conversation_workspace_dir();
-    let _ = std::fs::create_dir_all(&dir);
-    dir
-}
-
-/// The user's known projects: the desktop persists them in
-/// `~/.zcode/v2/setting.json` (`recentProjects` + `lastWorkspaceSession`,
-/// see packages/ui/src/hooks/useTabPersistence.ts). There is no RPC for this,
-/// so we read the same file. Remote workspaces (ssh/wsl/docker) are skipped —
-/// they need connection infrastructure the minimal client doesn't have.
-pub fn discover_workspaces(primary: &Path, max: usize) -> Vec<PathBuf> {
-    let conv_dir = conversation_workspace_dir();
-    let conv_key = canonical_workspace_string(&conv_dir);
-    let primary_key = canonical_workspace_string(primary);
-
-    let mut ordered: Vec<PathBuf> = if primary_key == conv_key {
-        Vec::new()
-    } else {
-        vec![primary.to_path_buf()]
-    };
-
-    let Ok(raw) = std::fs::read_to_string(settings_path()) else {
-        return ordered;
-    };
-    let Ok(v) = serde_json::from_str::<Value>(&raw) else {
-        return ordered;
-    };
-    let mut push = |p: &str| {
-        let path = PathBuf::from(p);
-        if path.is_dir() {
-            let key = canonical_workspace_string(&path);
-            if key != conv_key && !ordered.iter().any(|w| canonical_workspace_string(w) == key) {
-                ordered.push(path);
-            }
-        }
-    };
-    if let Some(entries) = v.get("lastWorkspaceSession").and_then(Value::as_array) {
-        for e in entries {
-            if e.get("kind").and_then(Value::as_str) != Some("local") {
-                continue;
-            }
-            if e.get("workspacePurpose").and_then(Value::as_str) == Some("conversation") {
-                continue;
-            }
-            if let Some(p) = e.get("workspacePath").and_then(Value::as_str) {
-                push(p);
-            }
-        }
-    }
-    if let Some(recents) = v.get("recentProjects").and_then(Value::as_array) {
-        for r in recents {
-            if let Some(p) = r.as_str() {
-                push(p);
-            }
-        }
-    }
-    ordered.truncate(max);
-    ordered
-}
-
-fn settings_path() -> PathBuf {
-    let home = std::env::var("ZCODE_DESKTOP_HOME_DIR")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .or_else(|_| std::env::var("HOME"))
-        .unwrap_or_default();
-    PathBuf::from(home)
-        .join(".zcode")
-        .join("v2")
-        .join("setting.json")
-}
+#[cfg(test)]
+pub use super::workspace_paths::conversation_workspace_dir;
+pub use super::workspace_paths::{discover_workspaces, ensure_conversation_workspace_dir};

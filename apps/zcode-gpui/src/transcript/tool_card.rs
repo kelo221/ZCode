@@ -1,13 +1,15 @@
 //! Rendering of tool execution rows: a collapsed row with a human summary of
 //! the call (desktop parity — the raw JSON is a last resort, not the default),
 //! expandable to per-tool input views (Edit renders as a diff) and outputs.
+use crate::shared::theme::ui_size;
+use crate::shared::theme_colors::color as rgb;
 
 use crate::conversation::model::format_preview;
 use crate::shared::theme::{
     ACCENT, BORDER, CARD, CARD_HOVER, MONO_FONT, MUTED, PANEL, SELECTED, TEXT, TOOL, UI_FONT,
 };
 use gpui::{
-    AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb,
+    AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px,
 };
 use serde_json::Value;
 
@@ -64,14 +66,14 @@ impl crate::app::root::RootView {
                     }))
                     .child(
                         div()
-                            .text_size(px(9.))
+                            .text_size(px(ui_size(9.)))
                             .text_color(rgb(MUTED))
                             .child(if expanded { "▼" } else { "▶" }),
                     )
                     .child(
                         div()
                             .font_family(MONO_FONT)
-                            .text_size(px(12.))
+                            .text_size(px(ui_size(12.)))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(rgb(TOOL))
                             .child(label.to_string()),
@@ -81,7 +83,7 @@ impl crate::app::root::RootView {
                     .child(div().flex_1())
                     .child(
                         div()
-                            .text_size(px(10.))
+                            .text_size(px(ui_size(10.)))
                             .px_1p5()
                             .py_0p5()
                             .rounded_sm()
@@ -97,7 +99,7 @@ impl crate::app::root::RootView {
                                 .py_0p5()
                                 .rounded_sm()
                                 .bg(rgb(CARD_HOVER))
-                                .text_size(px(9.5))
+                                .text_size(px(ui_size(9.5)))
                                 .text_color(rgb(ACCENT))
                                 .cursor_pointer()
                                 .hover(|h| h.bg(rgb(SELECTED)))
@@ -129,7 +131,7 @@ impl crate::app::root::RootView {
                             } else {
                                 div()
                                     .font_family(MONO_FONT)
-                                    .text_size(px(11.))
+                                    .text_size(px(ui_size(11.)))
                                     .text_color(rgb(MUTED))
                                     .child(output_text.to_string())
                                     .into_any_element()
@@ -150,7 +152,7 @@ fn summary_label(label: &str, input: Option<&Value>) -> AnyElement {
     };
     div()
         .font_family(UI_FONT)
-        .text_size(px(12.))
+        .text_size(px(ui_size(12.)))
         .text_color(rgb(MUTED))
         .min_w_0()
         .overflow_hidden()
@@ -219,7 +221,7 @@ fn input_view(label: &str, input: Option<&Value>, raw: &str) -> AnyElement {
                         .child(
                             div()
                                 .font_family(UI_FONT)
-                                .text_size(px(11.5))
+                                .text_size(px(ui_size(11.5)))
                                 .text_color(rgb(MUTED))
                                 .child(
                                     v.get("file_path")
@@ -242,7 +244,7 @@ fn input_view(label: &str, input: Option<&Value>, raw: &str) -> AnyElement {
 fn mono_block(text: &str) -> AnyElement {
     div()
         .font_family(MONO_FONT)
-        .text_size(px(11.))
+        .text_size(px(ui_size(11.)))
         .text_color(rgb(TEXT))
         .child(text.to_string())
         .into_any_element()

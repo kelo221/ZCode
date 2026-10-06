@@ -10,6 +10,7 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub enum SettingsError {
     DesktopRunning,
+    Invalid(String),
     /// The existing file does not parse; writing would replace it wholesale.
     Unreadable,
     Io(std::io::Error),
@@ -29,6 +30,7 @@ impl std::fmt::Display for SettingsError {
                 f,
                 "setting.json could not be parsed; not overwriting it. Fix it in ZCode desktop."
             ),
+            Self::Invalid(e) => write!(f, "Invalid preference: {e}"),
             Self::Io(e) => write!(f, "IO error: {e}"),
             Self::Json(e) => write!(f, "JSON error: {e}"),
         }
@@ -90,6 +92,12 @@ pub struct AppSettings {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
+        rename = "memoryEnabled"
+    )]
+    pub memory_enabled: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
         rename = "closeToTrayOnWindows"
     )]
     pub close_to_tray_on_windows: Option<bool>,
@@ -99,28 +107,19 @@ pub struct AppSettings {
         rename = "recentProjects"
     )]
     pub recent_projects: Option<Vec<String>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "dataBaseDir"
+    )]
+    pub data_base_dir: Option<String>,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Resolve the user directory holding `.zcode/v2/setting.json`.
 pub fn resolve_user_home_dir() -> PathBuf {
-    if let Ok(env_home) = std::env::var("ZCODE_DESKTOP_HOME_DIR")
-        && !env_home.trim().is_empty()
-    {
-        return PathBuf::from(env_home.trim());
-    }
-    if let Ok(home) = std::env::var("HOME")
-        && !home.trim().is_empty()
-    {
-        return PathBuf::from(home.trim());
-    }
-    if let Ok(profile) = std::env::var("USERPROFILE")
-        && !profile.trim().is_empty()
-    {
-        return PathBuf::from(profile.trim());
-    }
-    PathBuf::from(".")
+    crate::shared::data_paths::DataPaths::resolve(|k| std::env::var(k).ok(), None).settings_home
 }
 
 pub fn settings_file_path() -> PathBuf {
@@ -160,6 +159,17 @@ pub fn update_settings_at(
     desktop_active: impl Fn() -> bool,
     change: impl FnOnce(&mut AppSettings),
 ) -> Result<(), SettingsError> {
+    update_settings_checked_at(path, desktop_active, |s| {
+        change(s);
+        Ok(())
+    })
+}
+
+pub(crate) fn update_settings_checked_at(
+    path: &std::path::Path,
+    desktop_active: impl Fn() -> bool,
+    change: impl FnOnce(&mut AppSettings) -> Result<(), SettingsError>,
+) -> Result<(), SettingsError> {
     if desktop_active() {
         return Err(SettingsError::DesktopRunning);
     }
@@ -170,18 +180,24 @@ pub fn update_settings_at(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => AppSettings::default(),
         Err(e) => return Err(e.into()),
     };
-    change(&mut settings);
+    change(&mut settings)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let json_text = serde_json::to_string_pretty(&settings)?;
-    let tmp_path = path.with_extension(format!("tmp.{}", std::process::id()));
-    std::fs::write(&tmp_path, json_text)?;
+    let tmp_path = path.with_extension(format!("tmp.{}", uuid::Uuid::now_v7()));
+    if let Err(error) = std::fs::write(&tmp_path, json_text) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(error.into());
+    }
     if desktop_active() {
         let _ = std::fs::remove_file(&tmp_path);
         return Err(SettingsError::DesktopRunning);
     }
-    std::fs::rename(&tmp_path, path)?;
+    if let Err(error) = std::fs::rename(&tmp_path, path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(error.into());
+    }
     Ok(())
 }
 

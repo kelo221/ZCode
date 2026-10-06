@@ -1,20 +1,20 @@
 # GPUI Frontend Parity Plan
 
-Status: **v2 (2026-10-03)**, replacing the v1 milestone list. This file is the domain spec
-for `apps/zcode-gpui`: per repo discipline, update it before implementing the behavior.
-Every claim below about the Electron app is sourced from this repo (paths given), not
-from screenshots.
+Status: **action-level audit updated 2026-10-06**. The first Settings/safety slice is
+implemented; the broader parity backlog is not complete. This file is the domain spec
+for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
+limits below take precedence over the retained historical milestone requirements.
 
 ## 1. Goal, scope, guardrails
 
 **Stack note (2026-10-03):** `gpui` is now pinned to the exact zed revision that
 `ely-gpui-component` targets (git rev `1a28cff`, 2026-09-27) so both build one shared
 gpui; `gpui_platform::application()` replaces the removed `Application::new`. ely is
-initialized in `main.rs` (its `Assets` asset source + `Theme::set_mode_now` bridged from
-our `theme_mode()`), and new surfaces adopt ely components directly; the legacy
-`shared/theme.rs` constants keep rendering hand-rolled surfaces until each migrates.
+initialized in `main.rs` with its assets/fonts. The serialized preference owner applies
+Ely mode/font scale and the legacy semantic color/typography adapters together. New
+Settings controls use Ely directly; legacy views remain incrementally migrated.
 
-**Goal**: the GPUI client is a daily driver that a ZCode user can run *instead of* the
+**Goal**: the GPUI client is a daily driver that a ZCode user can run _instead of_ the
 Electron app for coding work, at a fraction of the memory, without forking the backend.
 
 **Guardrails** (unchanged from v1, still binding):
@@ -31,69 +31,97 @@ Electron app for coding work, at a fraction of the memory, without forking the b
    completes a full conversation round.
 4. Repo policy: files ≤ 400 lines, Apache-2.0 only (never copy zed-industries/zed
    GPL code; this repo's own `packages/*` source is fair to read and mirror),
-   English UI/comments, `cargo fmt --check` + `clippy -D warnings` + `cargo test` green.
+   localized shipped UI, Chinese cause/fix comments for bugs per AGENTS.md,
+   `cargo fmt --check` + `clippy --all-targets -D warnings` + `cargo test` green.
 
 **Out of scope for parity** (decided, revisit only with a new requirement):
 computer use (CUA helper, macOS TCC), remote SSH/WSL/Docker workspaces, phone relay /
 bots, conversation share, whiteboard, treemapping, model-trajectory and developer-tools
 panes, feedback center, resource-manager window, coding-plan purchase webview, ARMS
-telemetry. The app shows "Open in ZCode desktop" where a user would otherwise hit one.
+telemetry. Do not expose excluded capabilities as functioning controls; an explicit
+unavailable message or desktop handoff is required at any future entrypoint.
 
-## 2. Where we actually are (audit 2026-10-03; corrected 2026-10-05)
+## 2. Current action-level status (2026-10-06)
 
-v1 marked M0–M3 done. Across the v2 implementation run, milestones P0, M4, M5, M6, M7, M8,
-and M10 have all been completed with green CI, 221 passing unit/smoke tests, and strict
-conformance to repo constraints (<= 400 lines/file, pure Apache-2.0, no backend forks).
+Historical “COMPLETED” labels counted models/helpers as user-facing parity. The table
+below separates reachable functionality from remaining work and runtime evidence.
+Tests alone do not establish native visual acceptance or full end-to-end parity. Exact
+validation results for this slice are recorded in `SETTINGS.md`.
 
-**Evidence note (2026-10-05):** an external parity audit correctly flagged that several
-"Done" rows below described models/helpers/tests rather than user-reachable runtime
-behavior. The rows now say exactly what is wired and what is scaffolding. Rule going
-forward: "Done" means the running app exposes the behavior, not that a model exists.
+Reference Settings navigation currently offers General, Appearance, Model settings,
+Browser Use, Keyboard Shortcuts, Memory, Subagents, Plugins, MCP Servers, Skills,
+Commands, Hooks, and Usage stats. Hidden legacy/Computer Use/workspace-file-search
+sections are not reachable reference navigation; Automations and plugin store are
+workspace surfaces rather than Settings sections.
 
-| Area | State |
-|---|---|
-| Route cursors, frame assembler, transport backpressure | **Done (2026-10-05)**: `(subscriptionId, seq)` route cursors with exact `(fromSeq == cursor.seq)` continuity, stale/duplicate drop and no-apply-on-gap; fragment assembler enforces the canonical `PROTOCOL_V4_LIMITS` (1 MiB physical, 16 MiB assembly, 1024 fragments, 32 concurrent, 32 MiB staged) with metadata-equality and conflict faults; producer-side backlog counting with a 64 MiB hard bound, overflow → full resync. Golden tests cover the audit's required cases. |
-| Chat core: interactions via `resolveInteraction`, edit/retry/undo, queue send/delete/autodrain, rename/delete, drafts | Done |
-| Markdown, syntect, diff view, virtualized transcript | Done |
-| Review pane, files pane, terminal drawer | Done (basic; discard now confirms, commit drafts survive failure, git has timeouts + no-prompt env) |
-| **P0: Reverse RPC & Launch parity** | **Done**: `--surface desktop`, explicit reverse RPC table, `env_clear()` + allowlisted child environment (system passthrough + proxy/data vars only) |
-| **M4: Attachments, slash commands, @mentions, V4 goal/queue cmds** | **Partial**: chunk/begin/commit helpers and strict params exist with tests, but the upload transaction is **not wired into the send path** — local-path attachments are what ships. Catalog-backed `/` & `@`, queue actions: Done. |
-| **M5: Settings, i18n, theme, shortcuts, quickpick** | **Startup-only, not runtime parity**: settings/locale/theme/font size are *read once* at launch; there is no settings UI and no runtime persistence (`update_settings` has no live caller); visible surfaces still use hard-coded dark constants and `px()` sizes; translation tables exist but `t()` is concentrated in QuickPick; the shortcut catalog is declarative while startup binds six fixed keys and ignores `shortcut_bindings`. QuickPick Open Settings now opens the real file; Open Workspace reports itself unavailable. |
-| **M6: Lifecycle & OS integration** | **Partial**: single-instance is Windows-only (named mutex + hidden window; activation callback is a no-op), notifications/keep-awake are minimal, no tray/multi-window. Log export: Done. |
-| **M7: Workflows, automations, usage, MCP, subagents** | **Partial**: workflow delta reducer, timeline, resume, MCP list, usage stats, subagents: Done. Automations/off-peak fail fast by design (host-owned; D3) — not scheduled locally. |
-| **M8: Plugin store** | **Done**: CONTEXT.md lifecycle, official vs personal marketplaces, installed strip, restorable builtins |
-| **M10: Distribution & packaging** | **Scaffolding**: version sync, commit embedding, manifest updater and the packager script exist, but the script copies a bare binary + manifest — no installer bundle, sidecar backend, signing, or update fetch/install path yet. |
-| **Subagents & Background Work** | **Done**: V4 row/projection, card pairing, dock review section, child navigation, read-only gating, sidebar filter |
-| **Ely Framework & Visual Polish** | **Done**: Zed git rev `1a28cff` pin, `ely-gpui-component` integration, Inter & JetBrains Mono font assets, synthesized tool diff cards, provider model grouping |
-| **Cross-Process Live Synchronization** | **Partial**: active-conversation tail polling (`rowsRange` 3s probe) + resync refresh; background sessions, pin/archive and other host state are not synchronized. |
-| **`cargo fmt --check`, `clippy -D warnings`, `cargo test`** | Green (clippy also clean with `--all-targets`) |
+| Area                              | Current status and remaining boundary                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transport and routing             | Implemented fail-closed subscription/epoch/sequence rules, bounded assembly/backpressure, and process-generation isolation. Golden tests cover malformed/stale/overflow cases. CLI smoke verifies live/replayable frames and recovery; full GPUI executable transport/render smoke remains open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Chat and rendering                | Basic chat, interactions, supported message/session actions, Markdown/code/diff rendering and virtualization are reachable. Drafts survive navigation in memory only. Complete reference action parity and performance measurements remain unverified.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Submission safety                 | Failed enqueue reconciles pending state and restores composer ownership. Explicit rejection recovers the originating draft; uncertain ACKs do not auto-resend. Create ACK activation is navigation-generation guarded.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Review/files/terminal             | Basic local panes and bounded static raster image previews are reachable. Files preview/tree replies check workspace identity and selection/reset generations; measured clicks exercise real background fixture IO and image atlas upload. Terminal scrollback drag selection and Ctrl/Cmd+C copy use alacritty's selection owner; Ctrl+C without selection retains ETX. Platform-appropriate PTY computed-output smoke passes on this Windows checkout; native image visual acceptance, macOS/Linux execution and long-tail actions remain unverified.                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Reverse RPC and launch            | `--surface desktop`, explicit responses/races/fast failures, cleared allowlisted environment, and unified roots are implemented. Account auth, official MCP auth, browser execution and host scheduling are not supplied. Current CLI reverse callsites have an automated inventory gate.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Composer/catalog/queue            | Aggregate activity opens running/ended agents and read-only child chats; live scoped skill/plugin catalogs, queue reorder/Edit restoration and availability-gated goal Pause/Resume are reachable. Local-path attachments have explicit deletion ownership. One-shot modified delivery and plain-input/new-goal held-queue Clear/Keep/Cancel are reachable with current-owner/reviewed-ID guards and real-CLI held-queue smoke. CLI-owned draft/session slash discovery, `/init` selection and custom filtering are reachable without local fallback or prompt copies. Local `/plan` prepares an in-memory override or submits a task through ordinary input, with selector/rejection/held-queue guards. Existing-chat clipboard uploads use begin/chunk/commit with bounded source ownership and reachable Retry/Cancel; stale replies cannot attach to another composer. New-chat non-path uploads, other app-only slash routing and native race/durability evidence remain partial. |
+| Settings/appearance/shortcuts     | Gear/command/shortcut destination; General, Appearance and seven supported application shortcut controls are implemented. Serialized preference persistence applies live and preserves unknown JSON. Keyboard/pointer/recorder/stream/re-hydration fixtures cover the slice; complete localization, native visual acceptance and executable restart remain open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Remaining Settings sections       | Plugins Manage Installed, MCP status inspection/Open authorization and workspace/range-scoped Usage are Settings destinations. MCP authorization uses a secret-safe native opener with current owner/connection/query checks; configuration CRUD is not supplied. Memory is reachable through the guarded application preference owner and committed reverse runtime replies. Model/provider, Browser Use, Subagents, Skills, Commands and Hooks require missing owner ports or further bounded implementation. No unused-field toggles are presented as supported.                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Workflows/MCP/usage/subagents     | Timeline/resume and saved project/global list, typed new-chat launch, definition inspection, run history/Open chat and eligible-run model/concurrency settings are reachable. Metadata editing and confirmed Delete/global-to-project Move are reachable with fresh-definition preflight and origin-only refresh. Projected Open run/Open successor/All runs and exact stream-gated amendment following are reachable. Focused-run artifact metadata/Refresh uses the existing journal query with parent/run/process/selection guards and safe-field decoding. Latest-version Markdown View/Retry/Close uses a bounded authorized read and passive rendering. Other artifact formats, version navigation and cross-project history/detail remain partial. Stream-confirmed settings avoid ACK-derived state. Automations/off-peak stay host-owned and fail fast.                                                                                                                       |
+| Plugins                           | Store/install/enable/update/uninstall/restore/remove and Personal Source Add/Manual Refresh use captured workspace, one mutation sender and pending guards. Diagnostic errors and refreshFailure are visible; Add retains its local draft and uses a guarded directory picker. Personal Source plugin cards and guarded canonical Example Prompt prefill are reachable without destroying parent drafts. Read-only Details/Refresh and typed scoped Configure/explicit Clear/confirmed Reset use existing CLI ports with preflight, secret masking and origin-only refresh. Workspace Reset preserves options; user Reset removes its configuration. Remote-sync cancellation is excluded, not a fake local Stop. Full lifecycle and native evidence are not complete.                                                                                                                                                                                                                 |
+| Task metadata and synchronization | Loaded session navigation and active-tail polling exist. Full host task index, pin/archive/unread and background cross-process synchronization are missing; do not invent frontend authority.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Native lifecycle                  | Windows single-instance scaffold, minimal notifications/keep-awake and log export exist. Activation forwarding, tray, multi-window and portable lifecycle validation remain partial.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Distribution                      | Version/manifest/packager scaffolding only; no complete installer, sidecar backend, signing or update installation path.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Framework/visuals                 | Git-pinned GPUI/Ely assets and components are integrated. Live semantic theme/typography adapters cover migrated surfaces; this is not a native visual acceptance claim.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ## 3. The real blockers v1 missed
 
 Researching the host layer (`packages/services/src/zcode-agent/zcodeAgentService.ts`,
 `zcodeAgentProcessManager.ts`) shows the gap is not mostly UI. The desktop host serves
 **agent → client requests** and sets **launch parameters** that change backend
-behavior. The GPUI app answers every unknown agent request with `-32601`, so today:
+behavior. Known reverse requests are now explicitly served, raced, or failed fast;
+only unknown methods receive `-32601`. The current boundaries are:
 
-| # | Host duty (desktop source) | Effect of `-32601` / omission in GPUI |
-|---|---|---|
-| B1 | `interaction/requestProviderRuntimeHeaders` (`zcodeAgentService.ts:2245`); the CLI asks before **every** model request on account providers (`bootstrap/src/zcode-protocol/provider-runtime-headers.ts`, 180 s timeout) | Zai coding-plan / account-login users cannot chat; direct API-key providers are unaffected (they never enter this port). Deferred to M11. In `app-server` mode the CLI's standalone credential port is **not** used; it only exists for `prompt`/TUI (`process-provider-registry-runtime.ts:55`). |
-| B2 | `interaction/requestOfficialMcpAuthHeaders` (`:2296`) | Official MCP servers that need account auth fail. |
-| B3 | `session/requestRuntimePreferences` (`:2113`) | Backend falls back to defaults; the user's desktop preferences (interaction/model-IO prefs) are ignored. |
-| B4 | `automation/{create,update,list,delete,checkTaskBinding}`, `offPeak/{create,list}` (`:2491-2810`); **the agent asks the host**, and the host owns the scheduler (`packages/desktop/src/main/desktopCronScheduler.ts`) | Agent tools that schedule work fail. v1 M5 assumed these were frontend→agent calls; they are the reverse. |
-| B5 | `interaction/browserList`/`browserExecute` (`:2402`) | Browser tools fail. Stays out of scope (no embedded browser); must fail fast with a clear error. |
-| B6 | Launch arg `--surface desktop` (`zcodeAgentProcessManager.ts:496`) adds the desktop context section to the system prompt (`core/src/context/builder.ts:131`) | GPUI sessions currently run with the **terminal** prompt, so model behavior differs from desktop for the same session. |
-| B7 | Host env: `ZCODE_RUNTIME_ENV`, workspace identity env (`buildAgentWorkspaceIdentityEnv`), proxy (`resolveSpawnEnv`), `ZCODE_DATA_BASE_DIR`, `GLM_BINARY_PATH` (`desktopRuntimeEnv.ts:466`) | Unknown divergence (proxy users and custom data dirs most at risk). |
-| B8 | `controller/workspaces` + `controller/tasks-index` topics are **host-served** (`packages/desktop/src/host/windowHostControllerService.ts`); the CLI has no dispatch case | Cross-project task list, pin/archive membership and search snippets must be built natively. |
+| #   | Host duty (desktop source)                                                                                                                                                                                              | Effect of `-32601` / omission in GPUI                                                                                                                                                                                                                                                             |
+| --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1  | `interaction/requestProviderRuntimeHeaders` (`zcodeAgentService.ts:2245`); the CLI asks before **every** model request on account providers (`bootstrap/src/zcode-protocol/provider-runtime-headers.ts`, 180 s timeout) | Zai coding-plan / account-login users cannot chat; direct API-key providers are unaffected (they never enter this port). Deferred to M11. In `app-server` mode the CLI's standalone credential port is **not** used; it only exists for `prompt`/TUI (`process-provider-registry-runtime.ts:55`). |
+| B2  | `interaction/requestOfficialMcpAuthHeaders` (`:2296`)                                                                                                                                                                   | Official MCP servers that need account auth fail.                                                                                                                                                                                                                                                 |
+| B3  | `session/requestRuntimePreferences` (`:2113`)                                                                                                                                                                           | Memory reads the committed application preference (default false) and has a functioning Settings control. Search/AskUserQuestion retain fixed defaults. Create/resume materialization freezes preferences; active runtimes are not reset.                                                         |
+| B4  | `automation/{create,update,list,delete,checkTaskBinding}`, `offPeak/{create,list}` (`:2491-2810`); **the agent asks the host**, and the host owns the scheduler (`packages/desktop/src/main/desktopCronScheduler.ts`)   | Agent tools that schedule work fail. v1 M5 assumed these were frontend→agent calls; they are the reverse.                                                                                                                                                                                         |
+| B5  | `interaction/browserList`/`browserExecute` (`:2402`)                                                                                                                                                                    | Browser tools fail. Stays out of scope (no embedded browser); must fail fast with a clear error.                                                                                                                                                                                                  |
+| B6  | Launch arg `--surface desktop` (`zcodeAgentProcessManager.ts:496`) adds the desktop context section to the system prompt (`core/src/context/builder.ts:131`)                                                            | Fixed: launcher candidates pass `--surface desktop`. Prompt identity across two real clients has not been separately recorded.                                                                                                                                                                    |
+| B7  | Host env: `ZCODE_RUNTIME_ENV`, workspace identity env (`buildAgentWorkspaceIdentityEnv`), proxy (`resolveSpawnEnv`), `ZCODE_DATA_BASE_DIR`, `GLM_BINARY_PATH` (`desktopRuntimeEnv.ts:466`)                              | Resolved bootstrap/data roots and an explicit cleared-environment allowlist are implemented; identity/proxy/CA boundaries remain covered by launcher/path tests.                                                                                                                                  |
+| B8  | `controller/workspaces` + `controller/tasks-index` topics are **host-served** (`packages/desktop/src/host/windowHostControllerService.ts`); the CLI has no dispatch case                                                | Full task index, pin/archive membership and snippets require the existing host boundary. GPUI's loaded-session filtering is not a substitute.                                                                                                                                                     |
 
-## 4. Plan
+## 4. Current implementation slice (2026-10-06)
+
+The action-level audit found that Settings is a missing destination, not an icon-only
+omission. The implementation contract and regression cases are in `SETTINGS.md`.
+Safety fixes precede preference controls: propagate failed outbound enqueue, scope and
+redact RPC status errors, unify bootstrap/data-root resolution, and reject obsolete
+connection pumps and restart callbacks. Preferences have one serialized background
+writer; Settings navigation remains per window. The backend still owns admission,
+subscriptions, revisions, and session configuration.
+
+The settings slice covers navigation, locale, theme, interface font size, supported
+shortcuts and committed Memory runtime preferences. Provider/capability settings, upload orchestration, plugin/workflow management,
+and host-owned task metadata remain separate audited backlog items. Existing exclusions
+in section 1 remain binding. Milestone headings below are historical implementation
+checklists, not evidence that every user action is reachable or runtime-verified.
+
+The next composer/activity contract is in `COMPOSER_PARITY.md`: one aggregate
+background-work entry, safe child navigation, and per-work cancellation reuse the
+existing backend projections and command boundary. Queue reorder and full-item Edit restoration now have reachable
+controls with mirrored revision and accepted-delete restoration guards. Local-path
+attachments do not require chunk upload. Provider, skill, hook and subagent Settings
+management lack current CLI ports and remain integration-blocked, not file-edit substitutes.
+
+## 5. Historical milestone plan
 
 Sizes: **S** ≤ 3 days, **M** ≤ 2 weeks, **L** ≤ 5 weeks, **XL** = needs a spike first.
 Each milestone lists **Requirements**, **Acceptance**, and **Landmines**.
 
-### P0: Make what exists trustworthy (S, do first) - COMPLETED
+### P0: Make what exists trustworthy (historical requirements; current status in §2)
 
 Requirements:
+
 - `cargo fmt` the tree; CI green on `windows-latest`.
 - Pass `--surface desktop` (B6) and mirror the B7 env set (read the desktop's
   `buildHostProcessEnv` + `resolveSpawnEnv`; carry only keys whose values the GPUI app
@@ -102,7 +130,7 @@ Requirements:
   app's directory**: writing into another product's install is unsafe, and the env var
   already covers it.
 - Explicit reverse-RPC table in `backend/events.rs`: each agent→client method is
-  *served*, *deliberately failed fast with a reason*, or *raced* (interactions). No
+  _served_, _deliberately failed fast with a reason_, or _raced_ (interactions). No
   silent `-32601` for methods listed in §3. B1/B2 fail fast with "Zai account providers
   are not supported yet; configure an API-key provider" until M11.
 - API-key providers are the supported auth path: verify that keys configured in ZCode
@@ -113,13 +141,14 @@ Requirements:
 Acceptance: CI green; a session opened in both clients gets the same system prompt
 (verify via `session/debug`); the reverse-RPC table is covered by golden tests.
 
-Landmines: changing `--surface` changes prompts for *existing* GPUI sessions mid-flight,
+Landmines: changing `--surface` changes prompts for _existing_ GPUI sessions mid-flight,
 so ship it as one release note. Job-object `.expect()`s in `launcher.rs` can panic the
 UI process on exotic Windows setups; convert them to logged fallbacks while in there.
 
-### M4: Composer completion (L) - COMPLETED
+### M4: Composer completion (L) — historical requirements, not a completion claim
 
 Requirements (all wire-backed):
+
 - **Attachments**: `v4/attachment/{begin,chunk,commit,abort}`, chunk ≤ 512 KiB decoded,
   total ≤ 20 MiB (`core.ts:84-98`); `v4/attachment/put` is internal-only and must never
   be called. Sources: file picker, drag-drop (gpui external paths), clipboard image
@@ -147,6 +176,7 @@ Acceptance: drag a screenshot in, mention a file, run `/compact`, fork from a re
 reorder the queue, all matching desktop results on the same session.
 
 Landmines:
+
 - The desktop composer is **Lexical** (`LexicalChatInput.tsx`, 1,531 lines). gpui has no
   rich editor; chips need a custom element in the existing IME-capable `composer/input.rs`
   (UTF-16 marked ranges already handled). Keep the composer a plain string with a
@@ -154,9 +184,18 @@ Landmines:
 - `forkAssistant`, `setAssistantFeedback` are row-targeting: they need `baseLogEpoch`
   (`ROW_TARGETING_COMMANDS`), and stale retry follows §6.
 
-### M5: Shell, settings, i18n, theme (L) - COMPLETED
+### M5: Shell, settings, i18n, theme (L) — historical requirements, not a completion claim
 
 Requirements:
+
+- **Add project (2026-10-05)**: the Projects section header carries a "+" that
+  opens a native directory picker (Electron parity: `WorkspaceSidebar`
+  add-project → `PlatformChannels.SelectDirectory` =
+  `dialog.showOpenDialog({openDirectory, createDirectory})`). The picked
+  folder becomes a project workspace (added, activated, agent spawned) and is
+  best-effort persisted to `setting.json` `recentProjects` via the
+  serialized preference owner — refused while the desktop runs (it rewrites the file
+  whole), in which case the project still exists for the session.
 - **Settings**: read `~/.zcode/v2/setting.json` for locale, theme, font size, shortcuts,
   keep-awake, etc. **Writes only when the desktop is not running** (see landmines);
   otherwise show "change this in ZCode desktop".
@@ -177,6 +216,7 @@ Acceptance: switch to Chinese and Light theme, scale fonts to 16 px, find a task
 another project via Ctrl+K, and all of it survives restart and matches the desktop.
 
 Landmines:
+
 - **`setting.json` is rewritten whole** from the desktop's in-memory state
   (`settingService.ts:214`, `atomicWriteText`, in-process queue only). A GPUI write while
   the desktop runs is silently clobbered (last writer wins). Detect a running desktop
@@ -186,7 +226,7 @@ Landmines:
 - Host-owned task meta (pin/archive) may live in the host's task storage worker; if so,
   it is unreachable without the host, so ship read-only or local-only and label it.
 
-### M6: Lifecycle and OS integration (L) - COMPLETED
+### M6: Lifecycle and OS integration (L) — historical requirements, not a completion claim
 
 Requirements: multi-window (one window per workspace/session); single instance with
 forward-to-first (named mutex + pipe on Windows); window size/maximized persistence
@@ -199,6 +239,7 @@ Acceptance: run for a full workday with two windows, background notifications an
 tray, with zero orphaned `app-server` processes after quit or crash.
 
 Landmines:
+
 - **`zcode://` scheme ownership**: the installed desktop registers `zcode://` (OAuth,
   payment, share import, `workspace/open`). If GPUI registers it too, deep links reach
   whichever registered last and the desktop's OAuth breaks. Use a distinct scheme
@@ -209,21 +250,24 @@ Landmines:
 - gpui multi-window + the current single `RootView`/`AppState` design: `AppState` must
   become one shared entity, with per-window view state, before the second window exists.
 
-### M7: Workflows, automations, usage, MCP, subagents (L) - COMPLETED
+### M7: Workflows, automations, usage, MCP, subagents (L) — historical requirements, not a completion claim
 
 Requirements:
+
 - **Workflows**: V4 `workflowRuns` snapshot region + `workflowRun.updated/removed` deltas
   (apply order **header → removals → upserts**, `delta.ts:117-137`); queries
   `v4/conversation/workflowRun{s,Events,Artifacts,ArtifactData,ArtifactRead,Workspace,NodeResult}`;
   commands `startSavedWorkflow`, `resumeWorkflowRun`, `amendWorkflowRunSettings`;
   saved workflows via `workflows/{list,get,updateMeta,delete,runs,move}`. Run timeline
   first; graph view later.
-- **Automations / off-peak** (B4): GPUI must **serve** the reverse RPCs *and* own
-  scheduling, or forward to a running desktop. Decision required (see §7 D3).
+- **Automations / off-peak** (B4): superseded requirement. Scheduling remains
+  host-owned; current GPUI reverse requests fail fast. Any future integration must
+  reuse an existing host scheduler rather than create a second owner (see §7 D3).
 - **Usage**: `v4/usage/stats` (legacy `usage/stats` is deprecated); native bar/line/
   heatmap drawing (no chart crate needed).
 - **MCP**: `mcp/list` read-only; editing stays in the desktop (host `mcp-sync` channel).
-- **Subagents / background work**: **COMPLETED**.
+- **Subagents / background work**: the listed projection/navigation controls exist;
+  comprehensive historical browsing and native acceptance are not implied.
   - **V4 Subagents State & Projection**: `Row::Subagent` with `tool_call_id`, `subagent_type`,
     `status`, `summary_text`, `parent_tool_call_id`, `child_session_id`, `work_id`, `backgrounded`,
     and `started_at`. Incremental `row.delta` streaming appends to `summary_text` via `stream_field_mut`.
@@ -253,6 +297,7 @@ month's usage; see MCP server status; an agent-created automation either works o
 with a clear, actionable message.
 
 Landmines:
+
 - **Double scheduling**: if GPUI schedules automations while the desktop also runs, jobs
   fire twice. Pick one owner (D3) and enforce it with the desktop's lock.
 - `workflowRunDeltas` capability must only be declared if the host advertised it
@@ -262,7 +307,7 @@ Landmines:
   on the TS side; our parser must keep tolerating unknown values (it does; keep a
   golden test for it).
 
-### M8: Plugin store (M) - COMPLETED
+### M8: Plugin store (M) — historical requirements, not a completion claim
 
 Requirements: `plugins/{overview,referenceCatalog,referenceCatalogWithCategory,describe,
 install,update,uninstall,setEnabled,configure,resetConfig,restoreBuiltin,validate,
@@ -281,15 +326,17 @@ builtins must not auto-reseed. Detail pages render markdown listings (reuse M2).
 
 ### M9: Panes long tail (M)
 
-Per-file stage/unstage and discard; branch switcher; git graph (read-only); terminal
-tabs, scrollback selection and copy; file search (bundled ripgrep via `ZCODE_RG_BINARY`);
-image preview (native decode); PDF/Office previews open externally (the desktop uses
-pdfjs/docx-preview/pptx renderers that have no native equivalent); plan-detail pane.
+Reachable: per-file stage/unstage/discard, basic branch cycling, terminal scrollback
+selection/copy and bounded static raster image preview. The bounded native adapters and
+automated evidence are described in FILES.md and TERMINAL.md, not a full M9 completion claim.
+Open: safe branch-picker owner integration, git graph, terminal tabs/context menu/persistent
+sessions, host-owned file search and plan-detail long tail. PDF/Office remain external-only;
+the current React renderers do not establish a native GPUI rendering implementation.
 
 Landmines: Windows ConPTY quirks (startup cursor query handled; verify `Ctrl+C` and
 resize under PowerShell 7 and cmd); terminal per window vs per workspace once M6 lands.
 
-### M10: Distribution (M) - COMPLETED
+### M10: Distribution (M) — historical requirements, not a completion claim
 
 Installer (NSIS or MSIX) + portable zip, icon, version from the repo; self-update via
 the desktop manifest feed concept (`ManifestUpdateProvider`, stable/preview channels)
@@ -306,6 +353,7 @@ lands, P0 makes B1/B2 fail fast with "Zai account providers are not supported ye
 configure an API-key provider".
 
 Requirements:
+
 - **Spike (S)**: decide between
   - **(a) Reuse desktop credentials.** `credentials.json` values are AES-256-GCM with a key
     = SHA-256 of `ZCODE_CREDENTIAL_SECRET` or a host/user-derived string
@@ -327,6 +375,7 @@ Acceptance: a coding-plan account that works in the desktop chats in GPUI with n
 steps; revoking the token in the desktop is reflected on the next request.
 
 Landmines:
+
 - **Credential file lock.** `credentials.json` writes use a directory lock
   (`withFileLock`, `packages/shared/src/node/privateFilePersistence.ts:51`). Any GPUI
   write must implement the same lock protocol or corrupt the desktop's store; prefer
@@ -345,8 +394,8 @@ P0 ──► M4 (composer) ──► M7 (workflows/automations)
                     └──► M8 (plugins)      M9 (panes) runs alongside any of them
 ```
 
-P0 first because CI is red and sessions currently get a different system prompt than
-desktop. M4 (composer) is the biggest daily-use gap. M5 precedes M6 because
+This is the historical dependency graph, not a statement that CI is currently red.
+The first Settings/safety slice is implemented; M4 (composer) remains a daily-use gap. M5 precedes M6 because
 multi-window needs the shared-state refactor and persisted settings. M8 and M9 can be
 interleaved whenever capacity frees up. M11 is last by owner decision: the owner uses
 API-key providers, which work without it.
@@ -354,6 +403,7 @@ API-key providers, which work without it.
 ## 6. Command rules (normative, unchanged)
 
 (`backend/session_cmds.rs`; spec: `zcode-protocol-v4/command.ts`)
+
 - Every session command goes through `send_session_command`, which registers a
   `Pending::Command` so its `CommandAck` is checked.
 - CAS commands (`COMMANDS_REQUIRING_BASE_REVISION`) take `baseRevision` from the
@@ -392,25 +442,38 @@ API-key providers, which work without it.
   touching state; any discontinuity resyncs and returns before the reducer
   runs. The fragment assembler enforces the canonical limits and faults with
   the canonical reason codes; cursor and fragment state are cleared together
-  on reconnect/unsubscribe/workspace unload. Event transport counts backlog on
-  the producer side with a 64 MiB hard bound; overflow drops lines and
-  resyncs all routes instead of growing memory.
+  by one registry-based cleanup used by reconnect, unsubscribe, workspace
+  unload and connection restart. The stdout pump reads lines through a 2 MiB
+  bounded reader (oversized lines are discarded before any large allocation);
+  backlog is counted on the producer side with event+byte watermarks
+  (32 MiB high / 4 MiB low latch) and a 64 MiB protocol hard bound — overflow
+  resets the connection generation and explicitly starts a replacement instead of
+  growing memory; the obsolete process's EOF cannot trigger another restart. stderr flows through its own bounded (4 MiB, lossy) queue and can
+  never wedge event delivery.
 - **Child environment (P0.4)**: the backend is spawned with `env_clear()` and
   an explicit allowlist (system basics + proxy + ZCODE data vars); variables
   like `GLM_BINARY_PATH` or `NODE_OPTIONS` can no longer leak into the agent.
+  Custom CA (`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, `SSL_CERT_DIR`) is
+  forwarded when present.
 - **Client identity (P1.10)**: `client_id` is created once under
-  `<data>/v2/gpui-client-id` and reused across processes.
+  `<data>/v2/gpui-client-id` (parent dirs created as needed) and reused across
+  processes; a missing or corrupt file is repaired atomically (tmp + rename
+  replace), concurrent creators converge on one winner, and tests cover the
+  repair and 4-thread convergence.
 - **Sidebar lists (2026-10-05)**: the plain sidebar rows (unlike the desktop's
   virtualized list) render progressively per workspace — the 3 latest
-  threads, "Load more" extends, the second click shows everything; searching
-  always shows all matches. Project folders toggle open/closed on the header
+  threads, "Load more" extends, the second click shows everything; the active
+  thread stays pinned in the window even when older than it (e.g. opened via
+  Ctrl+K in a long list). Project folders toggle open/closed on the header
   chevron (desktop `group-item.tsx handleHeaderClick` parity); expansion and
-  load-more steps are pure `RootView` view state, never server facts.
+  load-more steps are pure `RootView` view state, never server facts. New
+  projects arrive only through the native directory picker.
 - **Secrets**: every sink (in-memory log, agent stderr echo, error banners,
   `lastError` text, panic log, exported log bundle) goes through
   `shared::redact::scrub` (credential keys, `Bearer`/`Basic`, `sk-`/`ghp_`/`AKIA`/JWT
   shapes).
-- **Settings**: writes go through `update_settings` only: read-modify-write of the
+- **Settings**: preferences/recent-project writes go through one serialized owner,
+  then `persist_change` / `update_settings_checked_at`: read-modify-write of the
   current file, refused while the desktop's Electron single-instance lock
   (`<userData>/lockfile` / `SingletonLock`) or process is present (re-checked
   before the rename), refused for an unparseable file, and unset fields omitted
@@ -437,23 +500,23 @@ API-key providers, which work without it.
 
 ## 7. Decisions needed from the owner
 
-| ID | Decision | Recommendation |
-|---|---|---|
-| D1 | Is GPUI a **replacement** for the desktop or a **companion** that runs alongside it? | Companion first (read desktop settings, never write while it runs). It drives D3–D4. |
-| D2 | ~~Auth route~~ **Decided 2026-10-03**: API-key providers only; Zai account auth deferred to M11 (route (a) vs (b) chosen then). | — |
-| D3 | Who schedules automations/off-peak when both apps are installed? | Desktop owns scheduling while running; GPUI serves the reverse RPCs only when the desktop is not running. |
-| D4 | Separate deep-link scheme? | Yes, `zcode-gpui://` or none. |
-| D5 | Confirm the §1 out-of-scope list. | As listed. |
+| ID  | Decision                                                                                                                        | Recommendation                                                                                                                                                            |
+| --- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Is GPUI a **replacement** for the desktop or a **companion** that runs alongside it?                                            | Companion first (read desktop settings, never write while it runs). It drives D3–D4.                                                                                      |
+| D2  | ~~Auth route~~ **Decided 2026-10-03**: API-key providers only; Zai account auth deferred to M11 (route (a) vs (b) chosen then). | —                                                                                                                                                                         |
+| D3  | Who schedules automations/off-peak when both apps are installed?                                                                | Current boundary: scheduling stays host-owned; GPUI fails these reverse RPCs fast and never starts a local scheduler. Future integration needs a separate owner decision. |
+| D4  | Separate deep-link scheme?                                                                                                      | Yes, `zcode-gpui://` or none.                                                                                                                                             |
+| D5  | Confirm the §1 out-of-scope list.                                                                                               | As listed.                                                                                                                                                                |
 
 ## 8. Cross-cutting
 
-| Stream | Content |
-|---|---|
-| Protocol drift | After each upstream pull: diff `packages/shared/src/zcode-protocol*`, re-run goldens; add a golden per new reverse-RPC method. Capture real traffic for new regions (workflowRuns, attachments). |
-| Reverse-RPC registry | One table (P0) is the source of truth for served / failed-fast / raced methods; CI test asserts every method in `zcodeProtocolMethods` that the agent can send to the client is listed. |
-| Performance | Per milestone: 10k-row session at full frame rate, 8 projects, idle memory budget (frontend ≤ 80 MB, one agent ≈ 120 MB). |
-| Security | No credentials or provider headers in logs or the panic log; credential access behind one trait. |
-| Governance | ≤ 400 lines/file, new modules land in the owning slice (see README "Source Layout"), this file updated before behavior. |
+| Stream               | Content                                                                                                                                                                                          |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Protocol drift       | After each upstream pull: diff `packages/shared/src/zcode-protocol*`, re-run goldens; add a golden per new reverse-RPC method. Capture real traffic for new regions (workflowRuns, attachments). |
+| Reverse-RPC registry | One table (P0) is the source of truth for served / failed-fast / raced methods; CI test asserts every method in `zcodeProtocolMethods` that the agent can send to the client is listed.          |
+| Performance          | Per milestone: 10k-row session at full frame rate, 8 projects, idle memory budget (frontend ≤ 80 MB, one agent ≈ 120 MB).                                                                        |
+| Security             | No credentials or provider headers in logs or the panic log; credential access behind one trait.                                                                                                 |
+| Governance           | ≤ 400 lines/file, new modules land in the owning slice (see README "Source Layout"), this file updated before behavior.                                                                          |
 
 ## 9. Risks
 

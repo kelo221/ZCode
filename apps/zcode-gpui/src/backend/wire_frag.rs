@@ -44,12 +44,18 @@ impl FrameAssembler {
             let c = obj.get("checksum").ok_or_else(|| fault(bad.clone()))?;
             let algo = c.get("algorithm").and_then(Value::as_str).unwrap_or("");
             let value = c.get("value").and_then(Value::as_str).unwrap_or("");
-            if algo != "crc32" || value.len() != 8 || !value.bytes().all(|b| b.is_ascii_hexdigit())
+            // Canonical schema requires LOWERCASE hex: uppercase is a
+            // fault, not a normalizable variant (review finding 5).
+            if algo != "crc32"
+                || value.len() != 8
+                || !value
+                    .bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
             {
                 self.settle(&key, ordinal, id);
                 return Err(fault(bad));
             }
-            value.to_ascii_lowercase()
+            value.to_string()
         };
         // Hard limits before any allocation mirrors the canonical order.
         if count < 1 || count > super::MAX_FRAGMENTS as u64 {
@@ -129,10 +135,6 @@ impl FrameAssembler {
                 self.settle(&key, ordinal, id);
                 return Err(fault("proto.frameAssemblyConcurrentLimit".into()));
             }
-            if self.staged_decoded_bytes + chunk_len > super::MAX_STAGED_DECODED_BYTES {
-                self.settle(&key, ordinal, id);
-                return Err(fault("proto.frameAssemblyBudgetExceeded".into()));
-            }
             self.assemblies.insert(
                 key.clone(),
                 Assembly {
@@ -164,6 +166,13 @@ impl FrameAssembler {
         }
         if dup.is_some() {
             return Ok(None);
+        }
+        // Global budget before EVERY newly staged fragment (review finding
+        // 4 — this is the real 32 MiB bound, not the creation-time check).
+        if self.staged_decoded_bytes.saturating_add(chunk_len) > self.staged_budget {
+            self.release(&key);
+            self.settle(&key, ordinal, id);
+            return Err(fault("proto.frameAssemblyBudgetExceeded".into()));
         }
         let overflows = self
             .assemblies
@@ -243,6 +252,13 @@ impl FrameAssembler {
                 ));
             }
         };
+        // Same seq-shape rule as complete frames.
+        if logical.to_seq < logical.from_seq {
+            self.settle(key, ordinal, id);
+            return Err(fault(
+                "proto.frameAssemblyMetadataMismatch: toSeq < fromSeq".into(),
+            ));
+        }
         if logical.topic != topic || logical.subscription_id != sub {
             self.settle(key, ordinal, id);
             return Err(fault(
@@ -250,6 +266,55 @@ impl FrameAssembler {
             ));
         }
         self.settle(key, ordinal, id);
+        Ok(Some(logical))
+    }
+
+    /// Complete-frame branch of `ingest`. Same preconditions as
+    /// `ingest_fragment` (tombstone already applied by the caller).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn ingest_complete(
+        &mut self,
+        key: (String, String),
+        obj: &serde_json::Map<String, Value>,
+        topic: &str,
+        sub: &str,
+        id: &str,
+        ordinal: u64,
+    ) -> Result<Option<super::LogicalFrame>, String> {
+        let fault =
+            |e: String| -> String { format!("{e} (complete frame {id}, ordinal {ordinal})") };
+        let frame = obj
+            .get("frame")
+            .ok_or_else(|| fault("proto.frameAssemblyMetadataMismatch: missing frame".into()))?;
+        if frame.get("topic").and_then(Value::as_str) != Some(topic)
+            || frame.get("subscriptionId").and_then(Value::as_str) != Some(sub)
+        {
+            self.settle(&key, ordinal, id);
+            return Err(fault(
+                "proto.frameAssemblyMetadataMismatch: frame/envelope route mismatch".into(),
+            ));
+        }
+        // A complete frame supersedes an incomplete fragment group on the
+        // route; the old group's seq hole is caught by the route cursor.
+        if let Some((old_ord, old_id)) = self.release(&key) {
+            self.settle(&key, old_ord, &old_id);
+        }
+        let logical = match super::logical_from_value(frame) {
+            Some(l) => l,
+            None => {
+                self.settle(&key, ordinal, id);
+                return Err(fault(
+                    "proto.frameAssemblyMetadataMismatch: bad logical frame".into(),
+                ));
+            }
+        };
+        if logical.to_seq < logical.from_seq {
+            self.settle(&key, ordinal, id);
+            return Err(fault(
+                "proto.frameAssemblyMetadataMismatch: toSeq < fromSeq".into(),
+            ));
+        }
+        self.settle(&key, ordinal, id);
         Ok(Some(logical))
     }
 }

@@ -7,7 +7,7 @@
 
 use gpui::{
     AnyElement, Font, FontFeatures, FontStyle, FontWeight, Hsla, InteractiveText, IntoElement,
-    StrikethroughStyle, StyledText, TextRun, UnderlineStyle, px, rgb,
+    StrikethroughStyle, StyledText, TextRun, UnderlineStyle, px,
 };
 use pulldown_cmark::{Event, Tag, TagEnd};
 use std::ops::Range;
@@ -16,7 +16,7 @@ const BODY_FONT: &str = crate::shared::theme::UI_FONT;
 const CODE_FONT: &str = crate::shared::theme::MONO_FONT;
 
 fn c(hex: u32) -> Hsla {
-    rgb(hex).into()
+    crate::shared::theme_colors::color(hex).into()
 }
 
 /// Flattened inline content: one string + one style run per formatting span

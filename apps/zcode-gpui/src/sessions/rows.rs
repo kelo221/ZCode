@@ -4,8 +4,10 @@
 
 use crate::conversation::model::{format_preview, phase_is_active};
 use crate::sessions::items::{ROW_GROUP, format_relative_time, nav_row};
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{ACCENT, DANGER, I_CLOSE, I_EDIT, MUTED, TEXT, icon};
-use gpui::{AnyElement, ClickEvent, Context, SharedString, div, prelude::*, px, rgb};
+use crate::shared::theme_colors::color as rgb;
+use gpui::{AnyElement, ClickEvent, Context, SharedString, div, prelude::*, px};
 
 impl crate::app::root::RootView {
     pub(crate) fn session_row(
@@ -40,7 +42,8 @@ impl crate::app::root::RootView {
             nav_row(SharedString::from(sid.clone()), is_active)
                 .group(ROW_GROUP)
                 .pl(px(34.))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.close_settings(window, cx);
                     this.state
                         .update(cx, |s, cx| s.select_session(&ws_key, &sid, cx));
                 }))
@@ -67,7 +70,7 @@ impl crate::app::root::RootView {
                         .justify_end()
                         .child(
                             div()
-                                .text_size(px(12.))
+                                .text_size(px(ui_size(12.)))
                                 .text_color(rgb(MUTED))
                                 .group_hover(ROW_GROUP, |s| s.opacity(0.))
                                 .child(rel_time),
@@ -103,7 +106,7 @@ impl crate::app::root::RootView {
             div()
                 .id(SharedString::from(id))
                 .px_1()
-                .text_size(px(12.))
+                .text_size(px(ui_size(12.)))
                 .text_color(rgb(MUTED))
                 .hover(move |s| s.text_color(rgb(hover)))
                 .cursor_pointer()
@@ -181,7 +184,7 @@ impl crate::app::root::RootView {
             .h(px(24.))
             .flex()
             .items_center()
-            .text_size(px(11.))
+            .text_size(px(ui_size(11.)))
             .text_color(rgb(MUTED))
             .hover(|s| s.text_color(rgb(TEXT)))
             .cursor_pointer()

@@ -4,22 +4,33 @@
 
 use crate::app::root::RootView;
 use crate::conversation::workflows::{WorkflowRunActor, WorkflowRunNode, WorkflowRunState};
-use crate::shared::theme::{
-    ACCENT, BORDER, CARD, DANGER, HOVER, MUTED, PANEL, SUCCESS, TEXT, TOOL,
-};
+use crate::shared::theme::ui_size;
+use crate::shared::theme::{ACCENT, BORDER, CARD, DANGER, MUTED, PANEL, SUCCESS, TEXT, TOOL};
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
-    AnyElement, Context, CursorStyle, ElementId, InteractiveElement, IntoElement, ParentElement,
-    Styled, div, prelude::*, px, rgb,
+    AnyElement, Context, InteractiveElement, IntoElement, ParentElement, Styled, div, prelude::*,
+    px,
 };
 
 impl RootView {
     pub(crate) fn workflows_pane(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        self.state
+            .update(cx, |s, cx| s.ensure_workflow_artifacts(false, cx));
+        let saved = self.saved_workflows_section(cx);
         let active_sid = self.state.read(cx).active.clone();
-        let runs = active_sid
+        let focused = self
+            .state
+            .read(cx)
+            .workflow_focus()
+            .map(|f| (f.run.clone(), f.tool.clone()));
+        let mut runs = active_sid
             .as_ref()
             .and_then(|sid| self.state.read(cx).conversations.get(sid))
             .map(|c| c.workflow_runs.runs.clone())
             .unwrap_or_default();
+        if let Some((run, tool)) = focused {
+            runs.retain(|r| r.run_id == run && r.tool_call_id.as_deref() == Some(&tool));
+        }
 
         div()
             .flex_1()
@@ -27,6 +38,10 @@ impl RootView {
             .flex_col()
             .bg(rgb(PANEL))
             .min_h_0()
+            .id("workflows-pane-scroll")
+            .overflow_y_scroll()
+            .child(saved)
+            .children(self.workflow_all_runs_control(cx))
             .child(
                 div()
                     .flex()
@@ -38,7 +53,7 @@ impl RootView {
                     .border_color(rgb(BORDER))
                     .child(
                         div()
-                            .text_size(px(12.))
+                            .text_size(px(ui_size(12.)))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(rgb(TEXT))
                             .child(format!("Workflows & Subagents ({})", runs.len())),
@@ -51,7 +66,7 @@ impl RootView {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_size(px(12.))
+                    .text_size(px(ui_size(12.)))
                     .text_color(rgb(MUTED))
                     .child("No workflow runs in this conversation.")
             } else {
@@ -81,7 +96,6 @@ impl RootView {
         let is_running = run.status == "running";
         let is_completed = run.status == "completed";
         let is_err = run.status == "errored";
-        let is_stopped = run.status == "stopped";
 
         let status_color = if is_completed {
             SUCCESS
@@ -94,7 +108,15 @@ impl RootView {
         };
 
         let run_id = run.run_id.clone();
-        let can_resume = run.resumable.unwrap_or(false) || is_stopped;
+        let state = self.state.read(cx);
+        let owner = state.active_ws_key().zip(state.active.clone());
+        let pending = owner
+            .as_ref()
+            .is_some_and(|(workspace, sid)| state.workflow_resume_pending(workspace, sid, &run_id));
+        let can_resume = run.resumable == Some(true)
+            && run.status == "stopped"
+            && run.superseded_by.is_none()
+            && !state.is_read_only_view();
 
         div()
             .flex()
@@ -108,8 +130,9 @@ impl RootView {
             .child(
                 div()
                     .flex()
-                    .items_center()
-                    .justify_between()
+                    .flex_col()
+                    .items_start()
+                    .gap_1()
                     .child(
                         div()
                             .flex()
@@ -117,14 +140,14 @@ impl RootView {
                             .gap_2()
                             .child(
                                 div()
-                                    .text_size(px(12.))
+                                    .text_size(px(ui_size(12.)))
                                     .font_weight(gpui::FontWeight::SEMIBOLD)
                                     .text_color(rgb(TEXT))
                                     .child(format!("Run #{}", idx + 1)),
                             )
                             .child(
                                 div()
-                                    .text_size(px(10.))
+                                    .text_size(px(ui_size(10.)))
                                     .px_1p5()
                                     .rounded_sm()
                                     .bg(rgb(PANEL))
@@ -136,50 +159,46 @@ impl RootView {
                         div()
                             .flex()
                             .items_center()
+                            .flex_wrap()
                             .gap_1()
                             .when(can_resume, |el| {
                                 let rid = run_id.clone();
+                                let owner = owner.clone();
                                 el.child(
-                                    div()
-                                        .id(ElementId::NamedInteger("resume-wf".into(), idx as u64))
-                                        .px_2()
-                                        .py_0p5()
-                                        .rounded_sm()
-                                        .text_size(px(10.5))
-                                        .bg(rgb(PANEL))
-                                        .text_color(rgb(ACCENT))
-                                        .cursor(CursorStyle::PointingHand)
-                                        .hover(|h| h.bg(rgb(HOVER)))
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            cx.stop_propagation();
-                                            let r = rid.clone();
-                                            this.state.update(cx, |state, cx| {
-                                                state.resume_workflow_run(&r, None, cx);
-                                            });
-                                        }))
-                                        .child("Resume"),
+                                    ely_gpui_component::buttons::Button::new(
+                                        gpui::SharedString::from(format!("resume-wf-{idx}")),
+                                        crate::shared::i18n::label("Resume", "继续"),
+                                    )
+                                    .size(ely_gpui_component::theme::ControlSize::Sm)
+                                    .disabled(pending)
+                                    .loading(pending)
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            if let Some((workspace, sid)) = &owner {
+                                                this.state.update(cx, |state, cx| {
+                                                    state.resume_workflow_run_for(
+                                                        workspace, sid, &rid, cx,
+                                                    )
+                                                });
+                                            }
+                                        },
+                                    )),
                                 )
                             })
+                            .children(self.workflow_open_run_control(
+                                &run_id,
+                                run.tool_call_id.as_deref(),
+                                cx,
+                            ))
+                            .children(self.workflow_navigation_control(&run_id, cx))
+                            .children(self.workflow_settings_control(&run_id, cx))
                             .when(is_running, |el| {
-                                el.child(
-                                    div()
-                                        .id(ElementId::NamedInteger("stop-wf".into(), idx as u64))
-                                        .px_2()
-                                        .py_0p5()
-                                        .rounded_sm()
-                                        .text_size(px(10.5))
-                                        .bg(rgb(PANEL))
-                                        .text_color(rgb(DANGER))
-                                        .cursor(CursorStyle::PointingHand)
-                                        .hover(|h| h.bg(rgb(HOVER)))
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            cx.stop_propagation();
-                                            this.state.update(cx, |state, cx| {
-                                                state.stop(cx);
-                                            });
-                                        }))
-                                        .child("Stop"),
-                                )
+                                // 工作流取消必须指向 runId；foreground stop 可能误停当前模型回合。
+                                el.children(self.activity_cancel_button(
+                                    format!("stop-wf-{idx}"),
+                                    run_id.clone(),
+                                    cx,
+                                ))
                             }),
                     ),
             )
@@ -187,8 +206,9 @@ impl RootView {
                 div()
                     .flex()
                     .items_center()
+                    .flex_wrap()
                     .gap_3()
-                    .text_size(px(10.5))
+                    .text_size(px(ui_size(10.5)))
                     .text_color(rgb(MUTED))
                     .child(format!("Tokens: {}", run.usage.spent_tokens))
                     .child(format!("Nodes: {}", run.usage.nodes_used))
@@ -196,6 +216,8 @@ impl RootView {
                         el.child(format!("Model: {model}"))
                     }),
             )
+            .children(self.workflow_settings_form(&run_id, cx))
+            .children(self.workflow_artifacts_section(&run_id, cx))
             .when(!run.actors.is_empty(), |el| {
                 el.child(
                     div()
@@ -207,7 +229,7 @@ impl RootView {
                         .border_color(rgb(BORDER))
                         .child(
                             div()
-                                .text_size(px(11.))
+                                .text_size(px(ui_size(11.)))
                                 .font_weight(gpui::FontWeight::MEDIUM)
                                 .text_color(rgb(MUTED))
                                 .child("Subagents (Actors):"),
@@ -226,7 +248,7 @@ impl RootView {
                         .border_color(rgb(BORDER))
                         .child(
                             div()
-                                .text_size(px(11.))
+                                .text_size(px(ui_size(11.)))
                                 .font_weight(gpui::FontWeight::MEDIUM)
                                 .text_color(rgb(MUTED))
                                 .child("Execution Nodes:"),
@@ -263,7 +285,7 @@ impl RootView {
                     .gap_2()
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .font_weight(gpui::FontWeight::MEDIUM)
                             .text_color(rgb(TEXT))
                             .child(name.to_string()),
@@ -271,7 +293,7 @@ impl RootView {
                     .when_some(actor.phase_name.as_deref(), |el, p| {
                         el.child(
                             div()
-                                .text_size(px(10.))
+                                .text_size(px(ui_size(10.)))
                                 .text_color(rgb(MUTED))
                                 .child(format!("({p})")),
                         )
@@ -279,7 +301,7 @@ impl RootView {
             )
             .child(
                 div()
-                    .text_size(px(10.))
+                    .text_size(px(ui_size(10.)))
                     .text_color(rgb(badge_color))
                     .child(actor.status.clone()),
             )
@@ -317,13 +339,13 @@ impl RootView {
                             .gap_2()
                             .child(
                                 div()
-                                    .text_size(px(10.5))
+                                    .text_size(px(ui_size(10.5)))
                                     .text_color(rgb(TOOL))
                                     .child(node.kind.clone().unwrap_or_else(|| "step".into())),
                             )
                             .child(
                                 div()
-                                    .text_size(px(10.))
+                                    .text_size(px(ui_size(10.)))
                                     .text_color(rgb(phase_color))
                                     .child(node.phase.clone()),
                             ),
@@ -331,7 +353,7 @@ impl RootView {
                     .when_some(node.outcome.as_deref(), |el, out| {
                         el.child(
                             div()
-                                .text_size(px(10.))
+                                .text_size(px(ui_size(10.)))
                                 .text_color(if out == "ok" {
                                     rgb(SUCCESS)
                                 } else {
@@ -344,7 +366,7 @@ impl RootView {
             .when_some(node.instructions_head.as_deref(), |el, head| {
                 el.child(
                     div()
-                        .text_size(px(10.))
+                        .text_size(px(ui_size(10.)))
                         .text_color(rgb(TEXT))
                         .child(head.to_string()),
                 )
@@ -355,7 +377,7 @@ impl RootView {
                         .flex()
                         .items_center()
                         .gap_1p5()
-                        .text_size(px(9.5))
+                        .text_size(px(ui_size(9.5)))
                         .text_color(rgb(MUTED))
                         .child(format!("tool: {}", tool.name))
                         .when_some(tool.target.as_deref(), |el, t| el.child(format!("→ {t}"))),

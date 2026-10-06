@@ -1,15 +1,16 @@
 //! Right dock container: tab strip (Review / Files) + the active
-//! pane, toggled from the header pill or Ctrl+B (PARITY.md M3 "pane
+//! pane, toggled from the header pill or CmdOrCtrl+Alt+B (PARITY.md M3 "pane
 //! container: dockable right pane + shortcuts").
 
 use crate::app::root::RootView;
+use crate::shared::theme::ui_size;
 use crate::shared::theme::{BORDER, CARD, HOVER, MUTED, PANEL, TEXT};
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, Context, CursorStyle, InteractiveElement, IntoElement, ParentElement, SharedString,
-    Styled, actions, div, prelude::*, px, rgb,
+    Styled, actions, div, prelude::*, px,
 };
 
-// Ctrl+B toggles the right dock (aligned with desktop SidePane shortcuts).
 actions!(zcode_gpui, [ToggleDock]);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -50,7 +51,11 @@ impl DockTab {
 
 impl RootView {
     /// The whole dock column, shown when `dock_open`.
-    pub(crate) fn dock_pane(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn dock_pane(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         self.sync_dock_workspace(cx);
         let active = self.dock_tab;
         // Floating overlay (desktop "Git tools" parity): draws over the
@@ -86,7 +91,7 @@ impl RootView {
                             .px_1p5()
                             .py_0p5()
                             .rounded_sm()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .cursor(CursorStyle::PointingHand)
                             .when(selected, |el| el.bg(rgb(CARD)).text_color(rgb(TEXT)))
                             .when(!selected, |el| {
@@ -105,7 +110,7 @@ impl RootView {
                             .id("dock-close")
                             .px_1p5()
                             .rounded_sm()
-                            .text_size(px(11.))
+                            .text_size(px(ui_size(11.)))
                             .text_color(rgb(MUTED))
                             .cursor(CursorStyle::PointingHand)
                             .hover(|h| h.text_color(rgb(TEXT)))
@@ -130,7 +135,7 @@ impl RootView {
                         DockTab::Workflows => self.workflows_pane(cx),
                         DockTab::Usage => self.usage_pane(cx),
                         DockTab::Mcp => self.mcp_pane(cx),
-                        DockTab::Plugins => self.plugins_pane(cx),
+                        DockTab::Plugins => self.plugins_pane(window, cx),
                     }),
             )
             .into_any_element()

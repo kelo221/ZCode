@@ -1,35 +1,32 @@
 //! Slash commands catalog, filtering, and execution mapping.
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SlashCommand {
     pub name: String,
     pub description: String,
     pub input_hint: Option<String>,
+    pub source: Option<SlashSource>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SlashSource {
+    Builtin,
+    Custom,
+}
+
+#[cfg(test)]
 pub fn builtin_slash_commands() -> Vec<SlashCommand> {
-    vec![
-        SlashCommand {
-            name: "compact".into(),
-            description: "Compact session conversation history to free context".into(),
+    ["compact", "goal", "init", "help"]
+        .into_iter()
+        .map(|name| SlashCommand {
+            name: name.into(),
+            description: format!("Test {name}"),
             input_hint: None,
-        },
-        SlashCommand {
-            name: "goal".into(),
-            description: "Set or update turn goal/objective".into(),
-            input_hint: Some("<objective>".into()),
-        },
-        SlashCommand {
-            name: "clear".into(),
-            description: "Clear conversation transcript".into(),
-            input_hint: None,
-        },
-        SlashCommand {
-            name: "help".into(),
-            description: "Show available commands and usage".into(),
-            input_hint: None,
-        },
-    ]
+            source: Some(SlashSource::Builtin),
+        })
+        .collect()
 }
 
 /// Matches slash commands against an input string starting with `/`.
@@ -59,6 +56,8 @@ pub fn filter_slash_commands<'a>(
 pub enum SlashAction {
     Compact,
     Goal(String),
+    ResumeGoal,
+    Plan(String),
     Plain(String),
 }
 
@@ -75,7 +74,9 @@ pub fn classify_slash_command(text: &str) -> SlashAction {
     let rest = parts.next().unwrap_or("").trim();
 
     match cmd.as_str() {
+        "plan" => SlashAction::Plan(rest.to_string()),
         "compact" | "compress" => SlashAction::Compact,
+        "goal" | "target" if rest.eq_ignore_ascii_case("resume") => SlashAction::ResumeGoal,
         "goal" | "target" => SlashAction::Goal(rest.to_string()),
         _ => SlashAction::Plain(text.to_string()),
     }

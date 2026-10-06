@@ -14,6 +14,22 @@ fn opt(provider: &str, model: &str, name: &str, provider_name: &str) -> ModelOpt
 }
 
 #[test]
+fn workspace_slash_catalog_is_whole_replacement_without_builtin_fallback() {
+    let mut config = WorkspaceConfig::default();
+    config.apply_state(
+        &serde_json::json!({"slashCommands":[{"name":"init","description":"Initialize"}]}),
+    );
+    assert_eq!(config.slash_commands()[0].name, "init");
+    config.apply_state(&serde_json::json!({"slashCommands":[]}));
+    assert!(config.slash_commands().is_empty());
+    config.apply_state(
+        &serde_json::json!({"slashCommands":[{"name":"init","description":"Initialize"}]}),
+    );
+    config.apply_state(&serde_json::json!({"configOptions":[]}));
+    assert!(config.slash_commands().is_empty());
+}
+
+#[test]
 fn test_group_models_by_provider() {
     let models = vec![
         opt("zaiPlan", "glm-4.6", "GLM-4.6", "GLM Coding Plan"),

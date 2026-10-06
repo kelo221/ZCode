@@ -20,6 +20,10 @@ impl AppState {
         let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
             return;
         };
+        if self.set_restored_model(provider, model, thought) {
+            cx.notify();
+            return;
+        }
         let payload = json!({ "provider": provider, "model": model, "thought": thought });
         self.send_session_command(
             &ws_key,
@@ -30,10 +34,8 @@ impl AppState {
 
     /// Thinking-level-only switch: same provider/model, different `thought`.
     pub fn switch_thought(&mut self, thought: &str, cx: &mut Context<Self>) {
-        let Some(c) = self.active_conversation() else {
-            return;
-        };
-        let (provider, model) = (c.config.provider.clone(), c.config.model.clone());
+        let effective = self.effective_config();
+        let (provider, model) = (effective.provider, effective.model);
         self.switch_model(&provider, &model, thought, cx);
     }
 
@@ -42,6 +44,10 @@ impl AppState {
         let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
             return;
         };
+        if self.set_restored_mode(mode) {
+            cx.notify();
+            return;
+        }
         let payload = json!({ "mode": mode });
         self.send_session_command(
             &ws_key,
@@ -96,6 +102,59 @@ impl AppState {
     /// Effective session config for rendering: live session config, else the
     /// draft selections, else workspace defaults from the config topic.
     pub fn effective_config(&self) -> EffectiveConfig {
+        self.effective_config_with_override(true)
+    }
+
+    fn effective_config_with_override(&self, use_override: bool) -> EffectiveConfig {
+        if use_override && let Value::Object(config) = self.submission_override() {
+            let config = Value::Object(config);
+            let base = self.effective_config_with_override(false);
+            return EffectiveConfig {
+                provider: config
+                    .pointer("/modelSelection/providerId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| base.provider.clone()),
+                model: config
+                    .pointer("/modelSelection/modelId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| base.model.clone()),
+                thought: config
+                    .pointer("/modelSelection/options/reasoningLevel")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| base.thought.clone()),
+                thought_levels: self
+                    .active_ws_key()
+                    .and_then(|key| self.workspace_configs.get(&key))
+                    .and_then(|catalog| {
+                        catalog.models.iter().find(|m| {
+                            Some(m.provider.as_str())
+                                == config
+                                    .pointer("/modelSelection/providerId")
+                                    .and_then(Value::as_str)
+                                && Some(m.model.as_str())
+                                    == config
+                                        .pointer("/modelSelection/modelId")
+                                        .and_then(Value::as_str)
+                        })
+                    })
+                    .map(|m| m.thought_levels.clone())
+                    .unwrap_or_else(|| base.thought_levels.clone()),
+                model_label: base.model_label,
+                mode: if config.get("planEnabled").and_then(Value::as_bool) == Some(true) {
+                    "plan".into()
+                } else {
+                    config
+                        .get("mode")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| base.mode.clone())
+                },
+                has_session: self.active.is_some(),
+            };
+        }
         if let Some(c) = self.active_conversation() {
             return EffectiveConfig {
                 provider: c.config.provider.clone(),

@@ -3,9 +3,11 @@
 //!
 //! Spec source: packages/shared/src/zcode-protocol-v4/ (snapshot.ts:208-225, command.ts:166-174).
 
+use crate::shared::theme::ui_size;
+use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString, Styled, div,
-    prelude::*, px, rgb,
+    prelude::*, px,
 };
 use serde_json::Value;
 
@@ -16,6 +18,9 @@ pub struct QueueItem {
     pub queue_item_id: String,
     pub text: String,
     pub state: String,
+    pub kind: String,
+    pub attachments: Vec<crate::composer::attachment::AttachmentRef>,
+    pub config: Value,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -48,6 +53,25 @@ impl QueueState {
                     queue_item_id,
                     text,
                     state,
+                    kind: it
+                        .get("kind")
+                        .and_then(Value::as_str)
+                        .unwrap_or("sendText")
+                        .into(),
+                    attachments: serde_json::from_value(
+                        it.get("attachments")
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!([])),
+                    )
+                    .ok()?,
+                    config: Value::Object(
+                        ["modelSelection", "mode", "planEnabled"]
+                            .into_iter()
+                            .filter_map(|key| {
+                                it.get(key).cloned().map(|value| (key.to_owned(), value))
+                            })
+                            .collect(),
+                    ),
                 })
             })
             .collect();
@@ -67,6 +91,7 @@ impl QueueState {
 /// Render the follow-up queue panel if there are queued items.
 pub fn render_queue_panel(
     queue: &QueueState,
+    state: &gpui::Entity<crate::app::store::AppState>,
     cx: &mut Context<crate::app::root::RootView>,
 ) -> Option<AnyElement> {
     if queue.items.is_empty() {
@@ -107,7 +132,7 @@ pub fn render_queue_panel(
                             .when(!auto_drain, |el| {
                                 el.child(
                                     div()
-                                        .text_size(px(10.))
+                                        .text_size(px(ui_size(10.)))
                                         .px_1()
                                         .rounded_sm()
                                         .bg(rgb(BORDER))
@@ -123,7 +148,7 @@ pub fn render_queue_panel(
                             .py_0p5()
                             .rounded_sm()
                             .bg(rgb(BORDER))
-                            .text_size(px(10.))
+                            .text_size(px(ui_size(10.)))
                             .text_color(rgb(TEXT))
                             .cursor_pointer()
                             .child(if auto_drain { "Pause" } else { "Resume" })
@@ -163,6 +188,9 @@ pub fn render_queue_panel(
                                 .flex()
                                 .items_center()
                                 .gap_1()
+                                .children(crate::conversation::queue_edit::edit_button(
+                                    item, state, cx,
+                                ))
                                 .child(
                                     div()
                                         .id(SharedString::from(format!("q-send-now-{idx}")))
@@ -170,7 +198,7 @@ pub fn render_queue_panel(
                                         .py_0p5()
                                         .rounded_sm()
                                         .bg(rgb(ACCENT))
-                                        .text_size(px(10.))
+                                        .text_size(px(ui_size(10.)))
                                         .font_weight(gpui::FontWeight::BOLD)
                                         .text_color(rgb(0x000000))
                                         .cursor_pointer()
@@ -193,7 +221,7 @@ pub fn render_queue_panel(
                                             .py_0p5()
                                             .rounded_sm()
                                             .bg(rgb(MUTED))
-                                            .text_size(px(10.))
+                                            .text_size(px(ui_size(10.)))
                                             .text_color(rgb(0x000000))
                                             .cursor_pointer()
                                             .child("↑")
@@ -221,7 +249,7 @@ pub fn render_queue_panel(
                                             .py_0p5()
                                             .rounded_sm()
                                             .bg(rgb(MUTED))
-                                            .text_size(px(10.))
+                                            .text_size(px(ui_size(10.)))
                                             .text_color(rgb(0x000000))
                                             .cursor_pointer()
                                             .child("↓")
@@ -246,7 +274,7 @@ pub fn render_queue_panel(
                                         .py_0p5()
                                         .rounded_sm()
                                         .bg(rgb(DANGER))
-                                        .text_size(px(10.))
+                                        .text_size(px(ui_size(10.)))
                                         .font_weight(gpui::FontWeight::BOLD)
                                         .text_color(rgb(0xffffff))
                                         .cursor_pointer()

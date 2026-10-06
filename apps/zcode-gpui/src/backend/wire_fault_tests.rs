@@ -207,3 +207,129 @@ fn concurrent_assembly_limit() {
         .unwrap_err();
     assert!(err.contains("ConcurrentLimit"), "{err}");
 }
+
+// --- Review finding 4/5 regression tests (2026-10-05) -----------------------
+
+use std::time::Duration;
+
+#[test]
+fn global_staging_budget_covers_later_fragments() {
+    // Finding 4: the budget must hold for later fragments, not only for
+    // assembly creation. A 16-byte budget: assembly A stages 10; B's first
+    // fragment of 7 must fault instead of staging 17 total.
+    let mut asm = FrameAssembler::with_limits(16, ASSEMBLY_TIMEOUT);
+    let ten = [b'a'; 10];
+    let seven = [b'b'; 7];
+    let crc_a = crc32fast::hash(&ten);
+    let crc_b = crc32fast::hash(&seven);
+    // Assembly A: fragment 0 of 2 stages 10 bytes and stays incomplete.
+    assert!(
+        asm.ingest(&fragment_params("tA", "s", 1, "f", 0, 2, 10, &ten, crc_a))
+            .unwrap()
+            .is_none()
+    );
+    // Assembly B's first fragment (7 bytes) crosses the 16-byte global
+    // budget: fault instead of staging 17 total.
+    let err = asm
+        .ingest(&fragment_params("tB", "s", 1, "f", 0, 2, 14, &seven, crc_b))
+        .unwrap_err();
+    assert!(err.contains("BudgetExceeded"), "{err}");
+    // The faulted assembly is released: bytes return to the budget and only
+    // A's assembly remains.
+    assert_eq!(asm.staged_decoded_bytes, 10);
+    assert_eq!(asm.assemblies.len(), 1);
+}
+
+#[test]
+fn checksum_requires_lowercase_hex() {
+    let mut asm = FrameAssembler::new();
+    let one = b"x".to_vec();
+    let mut p = fragment_params("t", "s", 1, "f", 0, 1, 1, &one, 0xdeadbeef);
+    // Canonical schema demands ^[0-9a-f]{8}$: uppercase is a fault, not a
+    // normalizable variant (review finding 5).
+    p["checksum"]["value"] = serde_json::json!("DEADBEEF");
+    assert!(asm.ingest(&p).unwrap_err().contains("bad fragment fields"));
+}
+
+#[test]
+fn extra_physical_keys_are_rejected() {
+    let mut asm = FrameAssembler::new();
+    let one = b"x".to_vec();
+    let mut p = fragment_params("t", "s", 1, "f", 0, 1, 1, &one, crc32fast::hash(&one));
+    p["sneakyExtra"] = serde_json::json!(1);
+    let err = asm.ingest(&p).unwrap_err();
+    assert!(err.contains("unexpected envelope key"), "{err}");
+    // Complete frames enforce the same strictness.
+    let mut c = complete_params("t", "s", 1, "f", logical_frame("t", "s", 0, 1));
+    c["sneakyExtra"] = serde_json::json!(1);
+    assert!(
+        asm.ingest(&c)
+            .unwrap_err()
+            .contains("unexpected envelope key")
+    );
+}
+
+#[test]
+fn tombstones_never_move_backward() {
+    let mut asm = FrameAssembler::new();
+    // Settle ordinal 5.
+    assert!(
+        asm.ingest(&complete_params(
+            "t",
+            "s",
+            5,
+            "f-5",
+            logical_frame("t", "s", 0, 1)
+        ))
+        .unwrap()
+        .is_some()
+    );
+    // A malformed stale frame (ordinal 3, invalid deliveryKind) is dropped
+    // as STALE before field validation — the tombstone, not the first
+    // malformed field, decides staleness (review finding 5).
+    let mut stale = complete_params("t", "s", 3, "f-3", logical_frame("t", "s", 0, 1));
+    stale["deliveryKind"] = serde_json::json!("sneaky");
+    assert!(asm.ingest(&stale).unwrap().is_none());
+    // Nothing below the tombstone can settle at all (staleness is checked
+    // before any fault path), so a lower ordinal can never drag it
+    // backward: ordinal 4 stays silently stale.
+    let four = complete_params("t", "s", 4, "f-4", logical_frame("t", "s", 0, 1));
+    assert!(asm.ingest(&four).unwrap().is_none());
+    // Faults above the tombstone still settle forward: a route-mismatch
+    // fault at ordinal 6 tombstones (6, f-6), so an exact replay of 6 is
+    // dropped instead of being applied twice.
+    let bad6 = complete_params("t", "s", 6, "f-6", logical_frame("other", "s", 0, 1));
+    assert!(asm.ingest(&bad6).unwrap_err().contains("route mismatch"));
+    let six = complete_params("t", "s", 6, "f-6", logical_frame("t", "s", 0, 1));
+    assert!(asm.ingest(&six).unwrap().is_none());
+}
+
+#[test]
+fn timed_out_assemblies_surface_for_resync() {
+    // Finding 5: the sweep must return the expired topics (events.rs resyncs
+    // them); the caller-side sweep replaced the swallowed in-ingest sweep.
+    let mut asm = FrameAssembler::with_limits(MAX_STAGED_DECODED_BYTES, Duration::from_millis(5));
+    let chunk = b"aaaa".to_vec();
+    let crc = crc32fast::hash(&[chunk.as_slice(), chunk.as_slice()].concat());
+    assert!(
+        asm.ingest(&fragment_params("t", "s", 1, "f", 0, 2, 8, &chunk, crc))
+            .unwrap()
+            .is_none()
+    );
+    std::thread::sleep(Duration::from_millis(15));
+    assert_eq!(asm.sweep_timeouts(), vec!["t".to_string()]);
+    assert!(asm.assemblies.is_empty());
+    assert_eq!(asm.staged_decoded_bytes, 0);
+}
+
+#[test]
+fn fragment_frames_reject_backwards_seq_ranges() {
+    // Finding 5: assembled fragments enforce toSeq >= fromSeq just like
+    // complete frames.
+    let mut asm = FrameAssembler::new();
+    let frame = logical_frame("t", "s", 9, 4);
+    let bytes = frame.to_string().into_bytes();
+    let crc = crc32fast::hash(&bytes);
+    let err = send_fragments(&mut asm, "t", "s", 1, 2, &bytes, crc).unwrap_err();
+    assert!(err.contains("toSeq < fromSeq"), "{err}");
+}

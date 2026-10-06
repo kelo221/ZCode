@@ -62,12 +62,26 @@ fn plain_output_and_lone_escape_pass_through() {
 #[test]
 fn pixel_dims_are_clamped_for_pty() {
     // Tiny / degenerate areas fall back to the minimum grid.
-    assert_eq!(dims_for_pixels(0., 0.), TermDims { cols: 20, rows: 8 });
     assert_eq!(
-        dims_for_pixels(f32::NAN, f32::NAN),
+        dims_for_pixels(0., 0., Default::default()),
         TermDims { cols: 20, rows: 8 }
     );
+    assert_eq!(
+        dims_for_pixels(f32::NAN, f32::NAN, Default::default()),
+        TermDims { cols: 20, rows: 8 }
+    );
+    assert_eq!(
+        dims_for_pixels(
+            250.,
+            200.,
+            crate::terminal::metrics::CellMetrics {
+                width: 10.,
+                height: 20.
+            }
+        ),
+        TermDims { cols: 25, rows: 10 }
+    );
     // Huge areas must not overflow PtySize's u16 fields.
-    let huge = dims_for_pixels(1.0e9, 1.0e9);
+    let huge = dims_for_pixels(1.0e9, 1.0e9, Default::default());
     assert!(huge.cols <= u16::MAX as usize && huge.rows <= u16::MAX as usize);
 }

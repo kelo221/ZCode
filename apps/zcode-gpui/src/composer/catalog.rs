@@ -197,30 +197,11 @@ impl WorkspaceConfig {
                 _ => {}
             }
         }
-        if let Some(cmds) = state.get("slashCommands").and_then(Value::as_array) {
-            let mut list = Vec::new();
-            for c in cmds {
-                if let Some(name) = c.get("name").and_then(Value::as_str) {
-                    let description = c
-                        .get("description")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    let input_hint = c
-                        .get("inputHint")
-                        .and_then(Value::as_str)
-                        .map(str::to_string);
-                    list.push(SlashCommand {
-                        name: name.to_string(),
-                        description,
-                        input_hint,
-                    });
-                }
-            }
-            if !list.is_empty() {
-                self.slash_commands = list;
-            }
-        }
+        // 整体替换也包括空目录；保留旧列表或补内置项会复活 owner 已隐藏的命令。
+        self.slash_commands = state
+            .get("slashCommands")
+            .and_then(|value| crate::composer::slash_catalog::parse_commands(value).ok())
+            .unwrap_or_default();
         // The standalone CLI's workspace-config topic may carry an EMPTY model
         // list (the catalog is host-provided there); never clobber a catalog
         // harvested from the legacy session/create probe with empty data.
@@ -233,13 +214,9 @@ impl WorkspaceConfig {
         self.raw_options = options;
     }
 
-    /// Available slash commands for this workspace (falls back to builtins).
+    #[cfg(test)]
     pub fn slash_commands(&self) -> Vec<SlashCommand> {
-        if !self.slash_commands.is_empty() {
-            self.slash_commands.clone()
-        } else {
-            crate::composer::slash::builtin_slash_commands()
-        }
+        self.slash_commands.clone()
     }
 
     /// Merge the legacy session/create settings snapshot
