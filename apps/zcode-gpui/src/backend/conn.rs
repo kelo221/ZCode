@@ -23,6 +23,7 @@ pub enum ConnEvent {
 }
 
 pub struct Connection {
+    pub(crate) pid: u32,
     pub events: futures::channel::mpsc::UnboundedReceiver<ConnEvent>,
     /// Protocol lines to write to child stdin (LF-terminated).
     pub inbound: Sender<String>,
@@ -87,7 +88,7 @@ fn attach_job(child: &Child) -> Option<JobHandle> {
 }
 
 #[cfg(windows)]
-fn make_kill(child: &Child) -> Box<dyn FnOnce() + Send> {
+pub(crate) fn make_kill(child: &Child) -> Box<dyn FnOnce() + Send> {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let pid = child.id();
@@ -170,6 +171,7 @@ pub fn spawn_connection(launch: &BackendLaunch, workspace: &Path) -> std::io::Re
         .stderr(Stdio::piped())
         .spawn()?;
 
+    let pid = child.id();
     let missing = |what: &str| std::io::Error::other(format!("child {what} was not piped"));
     let (Some(mut stdin), Some(stdout), Some(stderr)) =
         (child.stdin.take(), child.stdout.take(), child.stderr.take())
@@ -244,6 +246,7 @@ pub fn spawn_connection(launch: &BackendLaunch, workspace: &Path) -> std::io::Re
     }
 
     Ok(Connection {
+        pid,
         events: ev_rx,
         inbound: in_tx,
         kill,

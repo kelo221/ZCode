@@ -213,7 +213,7 @@ impl crate::app::root::RootView {
                     .py_1p5()
                     .text_size(px(ui_size(12.)))
                     .text_color(rgb(MUTED))
-                    .child("No tasks yet")
+                    .child(crate::shared::i18n::t("taskList.noTasks"))
                     .into_any_element(),
             );
         } else {
@@ -314,7 +314,7 @@ impl crate::app::root::RootView {
                     .child(icon(I_ADD, 12., MUTED)),
             );
 
-        div()
+        let sidebar = div()
             .w(px(264.))
             .h_full()
             .flex()
@@ -376,8 +376,13 @@ impl crate::app::root::RootView {
                     .text_color(rgb(MUTED))
                     .truncate()
                     .child(footer),
-            )
-            .into_any_element()
+            );
+        #[cfg(test)]
+        let sidebar = crate::app::test_support::track_children(
+            div().child(sidebar),
+            vec!["workspace-sidebar".into()],
+        );
+        sidebar.into_any_element()
     }
 }
 

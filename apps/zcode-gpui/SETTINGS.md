@@ -1,8 +1,35 @@
 # Settings and safety slice
 
-Status: first Settings/safety slice implemented and automated gates verified,
-2026-10-06. Native visual acceptance and full executable end-to-end evidence remain
-open. This spec extends PARITY.md without expanding its host/platform exclusions.
+Status, 2026-10-06: native navigation, complete shortcut vectors, configured-model inspection
+and opt-in local Subagents management are implemented using the unchanged full Services Host.
+The rejected inventory has been rebuilt with grouped horizontal Ely rows and inline overrides.
+**The redesign has not passed actual native visual acceptance.** Current verification and
+remaining GUI/restart cases are in SETTINGS_ACCEPTANCE.md. This spec does not expand PARITY.md exclusions.
+
+## Approved local management extension (2026-10-06)
+
+Subagents gains explicit real-local activation through the unchanged full Services Host.
+It cannot start from render before consent. Native preference admission suspends and drains
+before the Host starts; other sections/Close manager/idle initiate quiescent stop, observed
+process exit and strict reload/rebase before persistence resumes. Deferred recent projects
+stay on the existing bounded preference owner. Isolated preferences remain read-only.
+Unsupported native appearance fields are not sent through ISettingService; effective theme
+and font remain stable in memory if canonical normalization omits them. No stale full-file
+restoration or cross-process ownership guarantee is added. See SERVICES_RPC.md.
+
+Settings is an exclusive per-window destination: its navigation replaces the workspace
+sidebar while open. Projects, Tasks, New task, workspace Search and runtime status are not
+rendered alongside it. Back to workspace lives in the Settings navigation and restores the
+same workspace/session, draft, sidebar expansion/limits, dock and terminal. Active streams,
+permissions and Host cleanup remain owned by their existing state owners. No workspace is
+removed or unloaded by this render transition. At narrow widths the Settings navigation
+becomes a bounded top region, still without the workspace sidebar.
+
+One selected-section heading supplies the page title. Subagents uses compact scope/count/right-search,
+custom-header Refresh/New, rounded shared lists, dense horizontal Ely icon/badge rows,
+aligned switch/delete and plugin/builtin inline selectors. Ordinary Subagents content does
+not include the full-width advanced settings-file button. Responsive/focus/locale/theme
+native acceptance precedes any visual-complete claim. Earlier counts below are historical.
 
 ## Product behavior
 
@@ -11,9 +38,25 @@ open. This spec extends PARITY.md without expanding its host/platform exclusions
   the page. Back/Escape restore workspace focus without changing workspace/session,
   draft, transcript state, dock, or terminal. Session streaming and lifecycle work
   continue while Settings is displayed.
-- General exposes System/English/Chinese language. Appearance exposes System/dark/light
-  theme and UI font size (12–20 px). Theme preference and effective OS appearance are
-  distinct. UI typography scales without scaling icons, geometry, code, or terminal.
+- General has one language selector. English is the default when no valid language
+  preference is saved; an explicit English, Chinese or System selection remains respected.
+  UI labels render only the selected language, never concatenated English/Chinese text.
+  The existing serialized preference owner persists selection and projects the same effective
+  locale to native labels and Ely components after a successful save. No second locale writer
+  is added. Selecting language while preference persistence is suspended/read-only remains
+  refused; debug acceptance locale overrides are non-persisting and isolated-only.
+  One resolver reads `localePreference`, falling back to legacy `locale` only when the
+  preference is absent; unset/invalid values resolve to English without saving a default.
+  System remains an explicit choice. English choices read English / Chinese (Simplified) /
+  System; Chinese choices use their Chinese labels. Ely's existing I18n global is a derived
+  projection with its built-in English/Chinese component catalog, not another preference owner.
+  Changing language does not rewrite user or plugin content. Synthetic default acceptance
+  data uses monolingual English labels/content. The native acceptance harness may use
+  `--locale preference` to omit the non-persisting locale override and verify the scratch
+  settings' actual default/readback; this does not make isolated preferences writable.
+- Appearance exposes System/dark/light theme and UI font size (12–20 px). Theme preference
+  and effective OS appearance are distinct. UI typography scales without scaling icons,
+  geometry, code, or terminal.
 - Shortcuts show only commands implemented in this client. Overrides use the shared
   command IDs and binding syntax; unsupported IDs are preserved but not advertised.
   Invalid/conflicting overrides fail validation. Empty overrides disable a command;
@@ -29,14 +72,53 @@ open. This spec extends PARITY.md without expanding its host/platform exclusions
 
 ## Confirmed remaining Settings owner ports (2026-10-06)
 
-Skills enable/delete, Commands CRUD/toggle and Subagents profile/model-override management
-remain unavailable: current React uses its service-owned writes, while the CLI stdio
-surface has no matching public management command. Composer reference catalogs and
+Skills enable/delete and Commands CRUD/toggle remain unavailable: current React uses
+service-owned writes, while CLI stdio has no matching public management command. Subagents
+uses the separate existing Services channel after explicit local activation; CLI stdio alone
+still has no profile-management API. Composer reference catalogs and
 runtime child navigation are not configuration owners. Hooks has a real
 `workspace/hooks/trustGrant` write, but Settings still lacks a CLI-owned canonical hook
 snapshot read supplying current `bundleDigest`/`hookDeclarationDigest`. Trust must not
 be exposed using invented digests or a second frontend config parser. These are explicit
 integration blockers, not completed parity or permission to edit configuration directly.
+
+## Native-only remaining configuration boundary (2026-10-06)
+
+The existing TypeScript backend remains unchanged by owner requirement. The proposed new
+configuration worker and service/repository edits were withdrawn. SUBAGENTS_SETTINGS.md
+records opt-in local capability, preference suspension and observed Host exit/reload. The
+current CLI has child-session queries, not profile CRUD or model-override management.
+Canonical controls use the unchanged full Services Host, in disposable acceptance or
+explicitly activated local management. No new protocol route or frontend-owned
+configuration writer is authorized. Models, Skills, Commands, Hooks and MCP
+configuration have the same owner-access prerequisite where existing native ports are
+missing. Browser execution remains excluded.
+
+The unchanged-interface assessment in SUBAGENTS_SETTINGS.md confirms that Desktop's
+service port is private Electron IPC, not an external native attachment endpoint. The
+existing server stdio entry exposes the service but constructs a full Host with eager
+provider startup and conditional shared-storage migration. Opt-in local management now
+accepts those disclosed existing-Host behaviors; it is not lossless, migration-free,
+concurrent-safe or standalone packaged parity. No native profile writer is claimed.
+
+## Approved native-only implementation (2026-10-06)
+
+SERVICES_RPC.md defines a Rust client for the existing unchanged full stdio Host. Disposable
+--isolated-settings uses owned roots and read-only native preferences. Ordinary Subagents
+navigation starts no Host until activation consent; management suspends native preference
+writes and returns ownership only after verified process-tree exit and fresh reload.
+The CLI conversation connection stays unchanged; no backend, protocol or service edits.
+
+Settings navigation adds grouped sections, typed direct-section intents, per-window
+remembered section, bounded scrolling and smaller-window layout. The native `--settings-section <section>` launch intent opens a known section through the same typed path; invalid section names are rejected before launch. This launch intent does not bypass local-management activation. Configured Models is
+a read-only view of existing workspace model metadata, not provider configuration or
+Subagents defaults. Shortcuts search and edit the complete binding vector without
+clobbering another binding; clear/reset retain current semantics. No unsupported command
+is advertised. All controls use Ely and existing theme/typography/localization adapters.
+
+Native interaction cases cover duplicate/direct entry, Back/Escape during streaming,
+per-window isolation, narrow layout, models without changing session selection, shortcut
+multi-binding edits/reset/conflicts, and refusal of preference writes in isolation.
 
 ## Owners and event order
 
@@ -89,7 +171,11 @@ skip native geometry persistence, keep-awake, and notification side effects. GUI
 execution is reported separately from unit coverage. No historical test count establishes
 current success.
 
-## Recorded validation (2026-10-06, Windows checkout)
+## Earlier slice validation (2026-10-06, Windows checkout)
+
+The following counts describe the earlier Settings/safety slice, not the final native-only
+Subagents implementation. SETTINGS_ACCEPTANCE.md records current gate results, real Host
+and same-server runtime evidence, the rejected appearance and remaining production gates.
 
 - `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings`: passed.
   Cargo reports the ReFS incremental-cache hard-link fallback, not a source lint.
@@ -173,9 +259,11 @@ current success.
   url 2.5.8 for strict OAuth URL parsing and image 0.25.10 for bounded static preview,
   not a new production framework pin.
 
-Not recorded: native platform screenshot/visual acceptance, actual executable restart,
-full GPUI-to-real-backend rendered conversation, native folder-picker cancellation,
-and macOS/Linux test execution. Those remain evidence gaps, not passing scenarios.
+Later isolated Windows Subagents screenshots and pointer/typing/create evidence are
+recorded in SETTINGS_ACCEPTANCE.md. The appearance was rejected; screenshots are not
+visual acceptance. Actual executable persistence restart, full GPUI-to-real-backend
+rendered conversation, native folder-picker cancellation and macOS/Linux execution
+remain evidence gaps, not passing scenarios.
 
 ## Workspace-backed inspection sections
 
@@ -280,8 +368,10 @@ CRUD remain separate evidence/port gaps; no fake credential/configuration store 
 
 Plugins Manage Installed, MCP inspection and workspace/range-scoped Usage are now
 reachable Settings sections alongside committed Memory runtime preferences.
-Provider/Subagents/Skills/Commands/Hooks/Browser Use still require missing owner ports
-or further bounded work. Current provider/updateAccountConfig is an account overlay,
+Configured Models is read-only. Subagents supports explicit opt-in local management through
+the unchanged full Host, with preference handoff and truthful uncertain outcomes. Its rebuilt
+inventory has inspected native captures, but full native actions/reference visual parity remain incomplete. Provider CRUD,
+Skills/Commands/Hooks/Browser Use still require missing owner ports or further bounded work. Current provider/updateAccountConfig is an account overlay,
 not an API-key provider settings write; connectivity testing does not persist credentials.
 Skills/referenceCatalog and workspace/readPresentation are read-only presentation ports,
 not Settings CRUD. Hooks trustGrant requires owner-supplied bundle/declaration digests

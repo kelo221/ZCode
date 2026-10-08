@@ -16,7 +16,10 @@ pub(crate) const TEMP_PREFIX: &str = "zcode-gpui-paste-";
 /// Private per-process paste directory: another GPUI process can never
 /// own, reuse or delete this process's paste files (review finding 10).
 fn paste_dir() -> PathBuf {
-    std::env::temp_dir().join(format!("{TEMP_PREFIX}{}", std::process::id()))
+    let root = crate::shared::isolation::active()
+        .map(|i| i.temp())
+        .unwrap_or_else(std::env::temp_dir);
+    root.join(format!("{TEMP_PREFIX}{}", std::process::id()))
 }
 
 /// Write a separate file per paste; the caller owns deletion through [`delete_owned`].
@@ -73,6 +76,9 @@ pub(crate) fn delete_owned(path: &Path) {
 /// including whole directories left behind by dead processes. Only paths
 /// carrying the owned prefix are ever considered.
 pub(crate) fn scavenge_stale() {
+    if crate::shared::isolation::active().is_some() {
+        return;
+    }
     let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
         return;
     };

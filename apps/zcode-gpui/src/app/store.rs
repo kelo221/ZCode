@@ -73,6 +73,7 @@ pub struct AppState {
     /// Temp files from submitted pasted images: kept until quit (the backend
     /// may still read the reference), deleted on app exit.
     pub(crate) retired_temp_files: Vec<PathBuf>,
+    pub(crate) profiles: crate::app::profile_state::ProfileState,
 }
 
 impl AppState {
@@ -98,6 +99,10 @@ impl AppState {
             viewing_child: None,
             launch_candidates: candidates.clone(),
             retired_temp_files: Vec::new(),
+            profiles: crate::app::profile_state::ProfileState {
+                isolated: crate::shared::isolation::active().cloned(),
+                ..Default::default()
+            },
             draft: false,
             workspace_configs: HashMap::new(),
             ui_model_value: None,
@@ -163,6 +168,7 @@ impl AppState {
 
     /// Terminate all workspace agents cleanly.
     pub fn shutdown_all_workspaces(&mut self) {
+        self.profiles.shutdown();
         for w in &mut self.workspaces {
             w.shutdown();
         }
@@ -175,6 +181,13 @@ impl AppState {
     /// rewrites the file whole), in which case the project still exists for
     /// this session.
     pub(crate) fn add_workspace(&mut self, raw: &Path, cx: &mut Context<Self>) {
+        if let Some(isolated) = crate::shared::isolation::active()
+            && !isolated.allows_workspace(raw)
+        {
+            self.push_error("Isolated Settings mode only permits disposable workspaces".into());
+            cx.notify();
+            return;
+        }
         let canonical = crate::backend::workspace::canonical_workspace_string(raw);
         if !Path::new(&canonical).is_dir() {
             self.push_error(format!("not a directory: {canonical}"));

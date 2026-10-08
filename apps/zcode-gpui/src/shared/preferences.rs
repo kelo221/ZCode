@@ -90,8 +90,12 @@ pub(crate) struct Preferences {
     pub snapshot: AppSettings,
     pub saving: bool,
     pub error: Option<String>,
-    queue: VecDeque<PreferenceChange>,
-    path: std::path::PathBuf,
+    pub read_only: bool,
+    pub suspended: bool,
+    pub(super) queue: VecDeque<PreferenceChange>,
+    pub(super) deferred: VecDeque<PreferenceChange>,
+    pub(super) drain_waiters: Vec<futures::channel::oneshot::Sender<()>>,
+    pub(super) path: std::path::PathBuf,
     desktop_active: std::sync::Arc<dyn Fn() -> bool + Send + Sync>,
 }
 
@@ -118,7 +122,11 @@ impl Preferences {
             snapshot: settings,
             saving: false,
             error: None,
+            read_only: crate::shared::isolation::active().is_some(),
+            suspended: false,
             queue: VecDeque::new(),
+            deferred: VecDeque::new(),
+            drain_waiters: Vec::new(),
             path,
             desktop_active,
         });
@@ -129,6 +137,24 @@ impl Preferences {
     pub fn enqueue(change: PreferenceChange, cx: &mut App) {
         let owner = cx.global::<PreferenceOwner>().0.clone();
         owner.update(cx, |this, cx| {
+            if this.read_only {
+                this.error =
+                    Some("Application preferences are read-only in isolated Settings mode".into());
+                cx.notify();
+                return;
+            }
+            if this.suspended {
+                if matches!(change, PreferenceChange::RecentProject(_)) && this.deferred.len() < 64
+                {
+                    this.deferred.push_back(change);
+                } else {
+                    this.error = Some(
+                        "Close Subagents manager before saving application preferences".into(),
+                    );
+                }
+                cx.notify();
+                return;
+            }
             if let Err(error) = change.validate(&this.snapshot) {
                 this.error = Some(error);
                 cx.notify();
@@ -142,9 +168,12 @@ impl Preferences {
         });
     }
 
-    fn start_next(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn start_next(&mut self, cx: &mut Context<Self>) {
         let Some(change) = self.queue.pop_front() else {
             self.saving = false;
+            for waiter in self.drain_waiters.drain(..) {
+                let _ = waiter.send(());
+            }
             return;
         };
         self.saving = true;
@@ -156,7 +185,14 @@ impl Preferences {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 match result {
-                    Ok(snapshot) => {
+                    Ok(mut snapshot) => {
+                        // Host 会移除原生外观字段；后续 recentProjects 写入只更新磁盘补丁，不丢失当前有效外观。
+                        if snapshot.theme_preference.is_none() {
+                            snapshot.theme_preference = this.snapshot.theme_preference.clone();
+                        }
+                        if snapshot.ui_font_size.is_none() {
+                            snapshot.ui_font_size = this.snapshot.ui_font_size;
+                        }
                         this.error = None;
                         this.snapshot = snapshot;
                         Self::apply_snapshot(&this.snapshot, cx);
@@ -177,15 +213,8 @@ impl Preferences {
         Self::apply_snapshot(&settings, cx);
     }
 
-    fn apply_snapshot(settings: &AppSettings, cx: &mut App) {
-        let pref = LocalePreference::parse(
-            settings
-                .locale_preference
-                .as_deref()
-                .or(settings.locale.as_deref())
-                .unwrap_or("system"),
-        );
-        crate::shared::i18n::set_current_locale(pref.resolve());
+    pub(super) fn apply_snapshot(settings: &AppSettings, cx: &mut App) {
+        crate::shared::i18n::apply_locale(settings.language_preference().resolve(), cx);
         let mode = ThemeMode::parse(
             settings
                 .theme_preference
@@ -199,6 +228,7 @@ impl Preferences {
         ely_gpui_component::theme::Theme::update(cx, |theme| {
             theme.font_scale = crate::shared::theme::font_size_base() / 14.0;
         });
+        crate::shared::acceptance::apply_runtime(cx);
         cx.refresh_windows();
     }
 }

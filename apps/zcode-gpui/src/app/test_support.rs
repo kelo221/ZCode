@@ -8,6 +8,10 @@ pub(crate) static RUNTIME_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::ne
 pub(crate) struct TestTargets(pub std::collections::HashMap<String, gpui::Bounds<gpui::Pixels>>);
 impl gpui::Global for TestTargets {}
 
+#[derive(Default)]
+pub(crate) struct TestLabels(pub std::collections::HashMap<String, String>);
+impl gpui::Global for TestLabels {}
+
 pub(crate) fn track_children(element: gpui::Div, ids: Vec<String>) -> gpui::Div {
     element.on_children_prepainted(move |bounds, _, cx| {
         if cx.has_global::<TestTargets>() {
@@ -64,6 +68,7 @@ impl AppState {
             viewing_child: None,
             launch_candidates: vec![],
             retired_temp_files: vec![],
+            profiles: Default::default(),
         }
     }
 }

@@ -80,6 +80,7 @@ pub struct WorkspaceHandle {
     pub status: String,
     pub sessions: Vec<SessionEntry>,
     pub(crate) inbound: Option<Sender<String>>,
+    pub(crate) process_id: Option<u32>,
     candidates: Vec<BackendLaunch>,
     candidate_idx: usize,
     /// Index of the candidate that last worked, so respawn skips dead ones.
@@ -160,6 +161,7 @@ impl WorkspaceHandle {
             status: "idle — click to connect".into(),
             sessions: Vec::new(),
             inbound: None,
+            process_id: None,
             candidates,
             candidate_idx: 0,
             working_candidate: 0,
@@ -200,6 +202,7 @@ impl WorkspaceHandle {
         }
         self.started = false;
         self.inbound = None;
+        self.process_id = None;
     }
 
     /// Spawn (or fall back to) the next backend candidate. Returns the event
@@ -217,6 +220,7 @@ impl WorkspaceHandle {
                 self.status = format!("starting ({description})");
                 self.conn_desc = description;
                 self.working_candidate = used;
+                self.process_id = Some(conn.pid);
                 self.inbound = Some(conn.inbound);
                 self.kill = Some(conn.kill);
                 self.backlog = Some(conn.backlog);
@@ -271,6 +275,7 @@ impl WorkspaceHandle {
             kill();
         }
         self.inbound = None;
+        self.process_id = None;
         self.started = false;
         self.pumping = false;
         self.pending.clear();

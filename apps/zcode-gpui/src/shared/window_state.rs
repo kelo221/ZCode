@@ -60,11 +60,7 @@ impl WindowState {
 }
 
 pub fn window_state_path() -> PathBuf {
-    let home = std::env::var("ZCODE_DESKTOP_HOME_DIR")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .or_else(|_| std::env::var("HOME"))
-        .unwrap_or_default();
-    PathBuf::from(home)
+    crate::shared::settings::resolve_user_home_dir()
         .join(".zcode")
         .join("v2")
         .join("gpui_window_state.json")

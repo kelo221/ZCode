@@ -1,4 +1,5 @@
 use crate::app::root::RootView;
+use crate::app::settings_navigation::settings_layout;
 use crate::shared::i18n::{LocalePreference, t};
 use crate::shared::preferences::{PreferenceChange, PreferenceOwner, Preferences};
 use crate::shared::theme::{ThemeMode, active_theme, font_size_base};
@@ -9,26 +10,67 @@ use gpui::{AnyElement, Context, FocusHandle, IntoElement, Window, div, prelude::
 
 gpui::actions!(settings, [OpenSettings]);
 
-#[derive(Default, Clone, Copy, PartialEq)]
+pub(crate) fn language_choices() -> [Choice; 3] {
+    use crate::shared::i18n::label;
+    [
+        Choice::new("system", label("System", "跟随系统")),
+        Choice::new("en-US", label("English", "英语")),
+        Choice::new("zh-CN", label("Chinese (Simplified)", "简体中文")),
+    ]
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingsSection {
     #[default]
     General,
     Appearance,
     Shortcuts,
     Memory,
+    Models,
+    Subagents,
     Plugins,
     Mcp,
     Usage,
 }
 
+impl SettingsSection {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "general" => Self::General,
+            "appearance" => Self::Appearance,
+            "shortcuts" => Self::Shortcuts,
+            "memory" => Self::Memory,
+            "models" => Self::Models,
+            "subagents" => Self::Subagents,
+            "plugins" => Self::Plugins,
+            "mcp" => Self::Mcp,
+            "usage" => Self::Usage,
+            _ => return None,
+        })
+    }
+}
+
 pub(crate) struct SettingsView {
     pub open: bool,
     pub section: SettingsSection,
+    pub query: String,
+    pub shortcut_query: String,
+    pub model_query: String,
     pub focus: FocusHandle,
 }
 
 impl RootView {
     pub(crate) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_settings_section(self.settings.section, window, cx);
+    }
+
+    pub(crate) fn open_settings_section(
+        &mut self,
+        section: SettingsSection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.select_settings_section(section, cx);
         self.settings.open = true;
         self.quickpick_open = false;
         self.cancel_middle_scroll(cx);
@@ -38,6 +80,8 @@ impl RootView {
 
     pub(crate) fn close_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.settings.open = false;
+        self.subagents.form = None;
+        self.state.update(cx, |s, cx| s.close_profiles(cx));
         let focus = self.state.read(cx).composer.read(cx).focus.clone();
         window.focus(&focus, cx);
         cx.notify();
@@ -64,104 +108,63 @@ impl RootView {
         let preferences = owner.read(cx);
         let settings = preferences.snapshot.clone();
         let saving = preferences.saving;
+        let read_only = preferences.read_only;
+        let suspended = preferences.suspended;
+        let blocked = saving || read_only || suspended;
         let error = preferences.error.clone();
-        let mut navigation = div().w(px(190.)).flex().flex_col().gap_2().p_4();
-        for (section, key, id) in [
-            (
-                SettingsSection::General,
-                "settings.systemTitle",
-                "settings-general",
-            ),
-            (
-                SettingsSection::Appearance,
-                "settings.appearanceTitle",
-                "settings-appearance",
-            ),
-            (
-                SettingsSection::Shortcuts,
-                "settings.shortcuts.title",
-                "settings-shortcuts",
-            ),
-            (SettingsSection::Memory, "", "settings-memory"),
-            (
-                SettingsSection::Plugins,
-                "settings.pluginsTitle",
-                "settings-plugins",
-            ),
-            (
-                SettingsSection::Mcp,
-                "settings.mcpServersTitle",
-                "settings-mcp",
-            ),
-            (
-                SettingsSection::Usage,
-                "settings.usageStatsTitle",
-                "settings-usage",
-            ),
-        ] {
-            let name = match section {
-                SettingsSection::Memory => crate::shared::i18n::label("Memory", "记忆"),
-                SettingsSection::Plugins => crate::shared::i18n::label("Plugins", "插件"),
-                SettingsSection::Mcp => crate::shared::i18n::label("MCP Servers", "MCP 服务器"),
-                SettingsSection::Usage => crate::shared::i18n::label("Usage stats", "用量统计"),
-                _ => t(key),
-            };
-            navigation = navigation.child(Button::new(id, name).on_click(cx.listener(
-                move |this, _, _, cx| {
-                    this.select_settings_section(section, cx);
-                },
-            )));
-        }
-        #[cfg(test)]
-        let navigation = crate::app::test_support::track_children(
-            navigation,
-            [
-                "settings-general",
-                "settings-appearance",
-                "settings-shortcuts",
-                "settings-memory",
-                "settings-plugins",
-                "settings-mcp",
-                "settings-usage",
-            ]
-            .into_iter()
-            .map(str::to_owned)
-            .collect(),
+        let layout = settings_layout(f32::from(window.viewport_size().width));
+        let back = div().child(
+            Button::new(
+                "settings-back",
+                crate::shared::i18n::label("Back to workspace", "返回工作区"),
+            )
+            .icon(IconName::ArrowLeft)
+            .on_click(cx.listener(|this, _, window, cx| this.close_settings(window, cx))),
         );
+        #[cfg(test)]
+        let back = crate::app::test_support::track_children(back, vec!["settings-back".into()]);
+        let navigation = div()
+            .id("settings-navigation")
+            .min_h_0()
+            .min_w_0()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .gap_4()
+            .p_4()
+            .when(layout.compact, |el| {
+                el.w_full().h(px(layout.navigation_height)).flex_shrink_0()
+            })
+            .when(!layout.compact, |el| {
+                el.w(px(264.)).h_full().flex_shrink_0()
+            })
+            .child(back)
+            .child(self.render_settings_navigation(window, cx));
         let content = match self.settings.section {
             SettingsSection::General => {
-                let selected = settings
-                    .locale_preference
-                    .as_deref()
-                    .or(settings.locale.as_deref())
-                    .unwrap_or("system")
-                    .to_owned();
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_4()
-                    .child(t("settings.locale"))
-                    .child(
-                        Select::new(
-                            "settings-locale",
-                            [
-                                Choice::new(
-                                    "system",
-                                    crate::shared::i18n::label("System", "跟随系统"),
-                                ),
-                                Choice::new("en-US", "English"),
-                                Choice::new("zh-CN", "简体中文"),
-                            ],
-                        )
+                let selected = settings.language_preference().as_str();
+                let selector = div().child(
+                    Select::new("settings-locale", language_choices())
                         .selected(selected)
-                        .disabled(saving)
+                        .disabled(blocked)
                         .on_change(|value, _, cx| {
                             Preferences::enqueue(
                                 PreferenceChange::Locale(LocalePreference::parse(value)),
                                 cx,
                             )
                         }),
-                    )
+                );
+                #[cfg(test)]
+                let selector = crate::app::test_support::track_children(
+                    selector,
+                    vec!["settings-locale".into()],
+                );
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .child(t("settings.locale"))
+                    .child(selector)
                     .child(
                         div()
                             .text_color(rgb(theme.muted))
@@ -200,7 +203,7 @@ impl RootView {
                             ],
                         )
                         .selected(selected)
-                        .disabled(saving)
+                        .disabled(blocked)
                         .on_change(|value, _, cx| {
                             Preferences::enqueue(
                                 PreferenceChange::Theme(ThemeMode::parse(value)),
@@ -217,7 +220,7 @@ impl RootView {
                         Slider::new("settings-font-size", f64::from(font_size_base()))
                             .range(12., 20.)
                             .step(1.)
-                            .disabled(saving)
+                            .disabled(blocked)
                             .on_change(|value, _, cx| {
                                 Preferences::enqueue(PreferenceChange::FontSize(value as f32), cx)
                             }),
@@ -231,7 +234,7 @@ impl RootView {
                         settings.memory_enabled.unwrap_or(false),
                     )
                     .label(crate::shared::i18n::label("Enable Memory", "启用记忆"))
-                    .disabled(saving)
+                    .disabled(blocked)
                     .on_change(|enabled, _, cx| {
                         Preferences::enqueue(PreferenceChange::MemoryEnabled(enabled), cx)
                     }),
@@ -248,7 +251,11 @@ impl RootView {
                     ),
                 )).into_any_element()
             }
-            SettingsSection::Shortcuts => self.render_shortcut_settings(&settings, saving, cx),
+            SettingsSection::Shortcuts => {
+                self.render_shortcut_settings(&settings, blocked, window, cx)
+            }
+            SettingsSection::Models => self.render_model_settings(window, cx),
+            SettingsSection::Subagents => self.render_subagents_settings(window, cx),
             SettingsSection::Plugins => self.plugins_pane(window, cx),
             SettingsSection::Mcp => self.mcp_pane(cx),
             SettingsSection::Usage => self.usage_pane(cx),
@@ -266,57 +273,67 @@ impl RootView {
             .text_size(px(font_size_base()))
             .child(
                 div()
-                    .p_4()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
                     .flex()
-                    .items_center()
-                    .gap_4()
+                    .when(layout.compact, |el| el.flex_col())
+                    .child(navigation)
                     .child(
-                        Button::new(
-                            "settings-back",
-                            crate::shared::i18n::label("Back to workspace", "返回工作区"),
-                        )
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.close_settings(window, cx)),
-                        ),
-                    )
-                    .child(t("quickPick.command.settings")),
-            )
-            .child(
-                div().flex_1().min_h_0().flex().child(navigation).child(
-                    div()
-                        .id("settings-content")
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_y_scroll()
-                        .p_6()
-                        .flex()
-                        .flex_col()
-                        .gap_4()
-                        .child(content)
-                        .when(saving, |el| {
-                            el.child(crate::shared::i18n::label("Saving…", "正在保存…"))
-                        })
-                        .children(
-                            error.map(|error| div().text_color(rgb(theme.danger)).child(error)),
-                        )
-                        .child(
-                            Button::new(
-                                "settings-file",
-                                crate::shared::i18n::label("Open settings file", "打开设置文件"),
+                        div()
+                            .id("settings-content")
+                            .flex_1()
+                            .min_w_0()
+                            .min_h_0()
+                            .overflow_y_scroll()
+                            .when(layout.compact, |el| el.p_4())
+                            .when(!layout.compact, |el| el.p_6())
+                            .flex()
+                            .flex_col()
+                            .gap_4()
+                            .child(self.settings.section.title())
+                            .child(content)
+                            .when(read_only, |el| {
+                                el.child(crate::shared::i18n::label(
+                            "Application preferences are read-only in isolated Settings mode.",
+                            "隔离设置模式下应用偏好设置为只读。",
+                        ))
+                            })
+                            .when(saving, |el| {
+                                el.child(crate::shared::i18n::label("Saving…", "正在保存…"))
+                            })
+                            .children(
+                                error.map(|error| div().text_color(rgb(theme.danger)).child(error)),
                             )
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let path = crate::shared::settings::settings_file_path();
-                                if let Err(error) =
-                                    crate::shared::os::file_launcher::open_in_editor(&path)
-                                {
-                                    this.state.update(cx, |state, cx| {
-                                        state.push_error(error.to_string());
-                                        cx.notify();
-                                    });
-                                }
-                            })),
-                        ),
-                ),
+                            .when(suspended && self.settings.section != SettingsSection::Subagents, |el| {
+                                el.child(crate::shared::i18n::label("Preference saves are paused until the Subagents Host exits.", "子智能体 Host 退出前，偏好保存暂停。"))
+                                    .child(Button::new("settings-close-manager", crate::shared::i18n::label("Close manager", "关闭管理"))
+                                        .on_click(cx.listener(|this, _, _, cx| this.state.update(cx, |s, cx| s.close_profiles(cx)))))
+                            })
+                            .when(self.settings.section != SettingsSection::Subagents, |el| el.child(
+                                Button::new(
+                                    "settings-file",
+                                    crate::shared::i18n::label(
+                                        "Open settings file",
+                                        "打开设置文件",
+                                    ),
+                                )
+                                .disabled(blocked)
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        let path = crate::shared::settings::settings_file_path();
+                                        if let Err(error) =
+                                            crate::shared::os::file_launcher::open_in_editor(&path)
+                                        {
+                                            this.state.update(cx, |state, cx| {
+                                                state.push_error(error.to_string());
+                                                cx.notify();
+                                            });
+                                        }
+                                    },
+                                )),
+                            )),
+                    ),
             )
             .into_any_element()
     }
