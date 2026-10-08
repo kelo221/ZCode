@@ -98,7 +98,7 @@ fn command_center_action_keeps_input_out_of_composer() {
 #[test]
 fn settings_pointer_entries_sections_and_back() {
     use crate::app::settings::SettingsSection;
-    use gpui::{MouseButton, point, px, size};
+    use gpui::{MouseButton, px, size};
     let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!("gpui-pointer-{}", uuid::Uuid::now_v7()));
     let mut app = test_app(dir.join("setting.json"), false);
@@ -127,7 +127,10 @@ fn settings_pointer_entries_sections_and_back() {
     window.simulate_click(shortcuts, MouseButton::Left);
     window.read(|view, _| assert!(view.settings.section == SettingsSection::Shortcuts));
     window.draw();
-    window.simulate_click(point(px(340.), px(32.)), MouseButton::Left);
+    let back = app.read(|cx| {
+        cx.global::<crate::app::test_support::TestTargets>().0["settings-back"].center()
+    });
+    window.simulate_click(back, MouseButton::Left);
     window.read(|view, cx| {
         assert!(!view.settings.open);
         assert_eq!(
@@ -165,11 +168,15 @@ fn shortcut_recorder_consumes_application_keys_and_restores_focus() {
         let owner = cx.global::<PreferenceOwner>().0.read(cx);
         assert_eq!(
             owner.snapshot.shortcut_bindings.as_ref().unwrap()["openCommandCenter"],
-            [if cfg!(target_os = "macos") {
-                "Cmd+y"
-            } else {
-                "Ctrl+y"
-            }]
+            // 旧断言隐含录制会覆盖整个向量；已批准的逐绑定编辑必须保留另一个默认绑定。
+            [
+                if cfg!(target_os = "macos") {
+                    "Cmd+y"
+                } else {
+                    "Ctrl+y"
+                },
+                "CmdOrCtrl+Shift+p",
+            ]
         );
     });
     window.read(|view, _| assert!(!view.quickpick_open));
@@ -189,6 +196,42 @@ fn shortcut_recorder_consumes_application_keys_and_restores_focus() {
         "ctrl-y"
     });
     window.read(|view, _| assert!(!view.quickpick_open));
+    app.read(|cx| {
+        let values = &cx
+            .global::<PreferenceOwner>()
+            .0
+            .read(cx)
+            .snapshot
+            .shortcut_bindings
+            .as_ref()
+            .unwrap()["openCommandCenter"];
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[1], "CmdOrCtrl+Shift+p");
+    });
+    window.draw();
+    window.simulate_click(recorder, MouseButton::Left);
+    window.simulate_keystroke("backspace");
+    app.read(|cx| {
+        // 清除只移除正在录制的 binding；剩余绑定仍要能通过同一应用路由执行。
+        assert_eq!(
+            cx.global::<PreferenceOwner>()
+                .0
+                .read(cx)
+                .snapshot
+                .shortcut_bindings
+                .as_ref()
+                .unwrap()["openCommandCenter"],
+            ["CmdOrCtrl+Shift+p"]
+        );
+    });
+    window.update(|view, window, _| assert!(view.settings.focus.is_focused(window)));
+    window.simulate_keystroke(if cfg!(target_os = "macos") {
+        "cmd-shift-p"
+    } else {
+        "ctrl-shift-p"
+    });
+    window.read(|view, _| assert!(view.quickpick_open));
+    window.simulate_keystroke("escape");
     window.draw();
     window.simulate_click(recorder, MouseButton::Left);
     window.simulate_keystroke("backspace");
@@ -202,8 +245,9 @@ fn shortcut_recorder_consumes_application_keys_and_restores_focus() {
                 .as_ref()
                 .unwrap()["openCommandCenter"]
                 .is_empty()
-        )
+        );
     });
+    window.update(|view, window, _| assert!(view.settings.focus.is_focused(window)));
     window.draw();
     let reset = app.read(|cx| {
         cx.global::<crate::app::test_support::TestTargets>().0["reset-openCommandCenter"].center()

@@ -56,6 +56,8 @@ mod saved_workflow_safety_tests;
 #[cfg(test)]
 mod saved_workflow_tests;
 mod send_cmds;
+pub(crate) mod services_launch;
+pub(crate) mod services_rpc;
 pub(crate) mod session_cmds;
 mod slash_catalog;
 #[cfg(test)]

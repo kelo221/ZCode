@@ -37,8 +37,8 @@ impl Locale {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum LocalePreference {
-    #[default]
     System,
+    #[default]
     EnUs,
     ZhCn,
 }
@@ -56,7 +56,9 @@ impl LocalePreference {
         match s {
             "zh-CN" | "zh" => Self::ZhCn,
             "en-US" | "en" => Self::EnUs,
-            _ => Self::System,
+            "system" => Self::System,
+            // 未设置或损坏的语言偏好默认英文；只有明确选择 System 才读取系统语言。
+            _ => Self::EnUs,
         }
     }
 
@@ -77,6 +79,21 @@ pub fn set_current_locale(locale: Locale) {
         Locale::ZhCn => 1,
     };
     CURRENT_LOCALE.store(val, Ordering::Relaxed);
+}
+
+pub(crate) fn apply_locale(locale: Locale, cx: &mut gpui::App) {
+    use ely_gpui_component::i18n::I18n;
+    // Ely 原本默认英文；由同一次已提交偏好投影同步语言，避免中文界面混入英文组件提示。
+    if !cx.has_global::<I18n>() {
+        cx.set_global(
+            I18n::new(locale.as_str())
+                .catalog("en-US", &[])
+                .catalog("zh-CN", &[]),
+        );
+    } else if cx.global::<I18n>().locale().tag != locale.as_str() {
+        I18n::set_locale(locale.as_str(), cx);
+    }
+    set_current_locale(locale);
 }
 
 pub fn current_locale() -> Locale {
@@ -156,6 +173,20 @@ pub fn t_fmt(key: &str, vars: &[(&str, &str)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn language_defaults_to_english_and_system_is_explicit() {
+        assert_eq!(LocalePreference::default(), LocalePreference::EnUs);
+        for invalid in ["", "unknown", "zh-JP", "en-unsupported"] {
+            assert_eq!(LocalePreference::parse(invalid), LocalePreference::EnUs);
+        }
+        assert_eq!(LocalePreference::parse("system"), LocalePreference::System);
+        assert_eq!(LocalePreference::parse("zh-CN"), LocalePreference::ZhCn);
+        assert_eq!(LocalePreference::parse("zh"), LocalePreference::ZhCn);
+        assert_eq!(LocalePreference::parse("en-US"), LocalePreference::EnUs);
+        assert_eq!(LocalePreference::parse("en"), LocalePreference::EnUs);
+        assert_eq!(LocalePreference::System.resolve(), detect_system_locale());
+    }
 
     #[test]
     fn test_translations_loaded() {

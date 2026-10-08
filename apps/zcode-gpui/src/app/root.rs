@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-/// Reading width of the transcript and composer (left-leaning layout).
+/// Reading width of the transcript and composer.
 pub(crate) const CONTENT_WIDTH: f32 = 920.;
 
 pub struct RootView {
@@ -28,8 +28,7 @@ pub struct RootView {
     pub(crate) list_state: ListState,
     pub(crate) row_index: Vec<u64>,
     pub(crate) last_bounds: (u64, u64),
-    /// Session the current row index belongs to (row ids repeat across
-    /// conversations, so a switch must force a list reset).
+    /// Session-scoped row IDs require a list reset when switching conversations.
     pub(crate) last_session: Option<String>,
     pub(crate) follow_bottom: Arc<AtomicBool>,
     pub(crate) last_row_count: usize,
@@ -42,7 +41,6 @@ pub struct RootView {
     pub(crate) confirm: Option<String>,
     /// Question picks per interaction: interactionId → question index → labels.
     pub(crate) question_picks: HashMap<String, HashMap<usize, Vec<String>>>,
-    // --- M3 tool panes ---
     pub(crate) dock_open: bool,
     pub(crate) dock_tab: DockTab,
     pub(crate) term_open: bool,
@@ -52,7 +50,6 @@ pub struct RootView {
     pub(crate) term: TermPane,
     /// Phase of the last render; a completed turn refreshes git status.
     last_phase: String,
-    /// Auto-opened the dock for the current turn's plan (once per turn).
     auto_opened_this_turn: bool,
     last_plan_present: bool,
     pub(crate) middle_scroll: Option<crate::transcript::scroll::MiddleScrollState>,
@@ -63,11 +60,11 @@ pub struct RootView {
     pub(crate) quickpick_selected: usize,
     pub(crate) os_lifecycle: crate::app::os_lifecycle::OsLifecycleState,
     pub(crate) plugin_segment: crate::app::plugin_pane::PluginSegment,
-    /// Closed folders (active folder toggles; sessions/sidebar.rs). View state.
     pub(crate) ws_collapsed: HashSet<String>,
     /// Per-workspace session-row step (0=3 latest, 1=extended, 2=all).
     pub(crate) session_limit_step: HashMap<String, u8>,
     pub(crate) settings: crate::app::settings::SettingsView,
+    pub(crate) subagents: crate::app::subagents_settings::SubagentsView,
     pub(crate) composer_compact: bool,
 }
 
@@ -119,10 +116,14 @@ impl RootView {
             plugin_segment: crate::app::plugin_pane::PluginSegment::Public,
             ws_collapsed: HashSet::new(),
             session_limit_step: HashMap::new(),
+            subagents: Default::default(),
             settings: crate::app::settings::SettingsView {
                 open: false,
                 section: Default::default(),
                 focus: cx.focus_handle(),
+                query: String::new(),
+                shortcut_query: String::new(),
+                model_query: String::new(),
             },
         }
     }
@@ -303,9 +304,9 @@ impl Render for RootView {
                     this.handle_middle_up(ev, cx);
                 }),
             )
-            .child(self.sidebar(cx))
-            // Main column: a rounded panel inset from the window edge, as in
-            // the desktop workspace layout.
+            // Settings 是独立目的地；只切换渲染，不能卸载 workspace 或改变其业务状态。
+            .when(!self.settings.open, |el| el.child(self.sidebar(cx)))
+            // Main column retains the workspace panel outside Settings.
             .child(if self.settings.open {
                 self.render_settings(window, cx)
             } else {

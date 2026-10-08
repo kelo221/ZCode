@@ -54,16 +54,41 @@ fn main() {
     }));
 
     let mut workspace: Option<PathBuf> = None;
+    let mut isolated_settings = false;
+    let mut settings_section = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--workspace" => workspace = args.next().map(PathBuf::from),
+            "--isolated-settings" => isolated_settings = true,
+            "--settings-section" => {
+                settings_section = args
+                    .next()
+                    .and_then(|value| app::settings::SettingsSection::parse(&value));
+                if settings_section.is_none() {
+                    eprintln!("--settings-section requires a known Settings section");
+                    std::process::exit(2);
+                }
+            }
             other => {
                 if workspace.is_none() {
                     workspace = Some(PathBuf::from(other));
                 }
             }
         }
+    }
+    let acceptance =
+        shared::acceptance::AcceptanceRequest::read(isolated_settings).unwrap_or_else(|error| {
+            eprintln!("{error}");
+            std::process::exit(2);
+        });
+    if isolated_settings {
+        let isolated = acceptance.open_isolated().unwrap_or_else(|error| {
+            eprintln!("{error}");
+            std::process::exit(2);
+        });
+        workspace = Some(isolated.workspace());
+        isolated.install();
     }
     let workspace = workspace
         .and_then(|p| p.canonicalize().ok())
@@ -73,14 +98,6 @@ fn main() {
     // M5: Load settings, locale, theme, and font size on launch
     let settings = shared::settings::load_settings();
     shared::data_paths::initialize(settings.data_base_dir.as_deref());
-    if let Some(loc_str) = settings
-        .locale_preference
-        .as_deref()
-        .or(settings.locale.as_deref())
-    {
-        let pref = shared::i18n::LocalePreference::parse(loc_str);
-        shared::i18n::set_current_locale(pref.resolve());
-    }
     if let Some(theme_str) = settings
         .theme_preference
         .as_deref()
@@ -99,20 +116,25 @@ fn main() {
         action: "activate".into(),
         workspace: Some(workspace.to_string_lossy().into_owned()),
     };
-    let mutex_key = std::env::var("ZCODE_GPUI_INSTANCE_MUTEX")
-        .unwrap_or_else(|_| "Local\\ZCodeGPUI_SingleInstance_Mutex".into());
-    let _instance_guard = match shared::os::single_instance::try_acquire_single_instance(
-        &mutex_key,
-        instance_msg,
-        |_msg| {
-            // Primary instance received launch message from secondary instance
-        },
-    ) {
-        shared::os::single_instance::InstanceRole::Secondary => {
-            // Already forwarded to running primary instance, exit cleanly
-            return;
+    let _instance_guard = if shared::isolation::active().is_some() {
+        // 通用 IPC 端口文件仍解析真实 HOME；scratch 已持有独占文件锁，不能触碰真实用户目录。
+        None
+    } else {
+        let mutex_key = std::env::var("ZCODE_GPUI_INSTANCE_MUTEX")
+            .unwrap_or_else(|_| "Local\\ZCodeGPUI_SingleInstance_Mutex".into());
+        match shared::os::single_instance::try_acquire_single_instance(
+            &mutex_key,
+            instance_msg,
+            |_msg| {
+                // Primary instance received launch message from secondary instance
+            },
+        ) {
+            shared::os::single_instance::InstanceRole::Secondary => {
+                // Already forwarded to running primary instance, exit cleanly
+                return;
+            }
+            shared::os::single_instance::InstanceRole::Primary(guard) => Some(guard),
         }
-        shared::os::single_instance::InstanceRole::Primary(guard) => guard,
     };
 
     // gpui_platform::application() replaces the removed gpui::Application::new
@@ -123,6 +145,7 @@ fn main() {
         .run(move |cx: &mut App| {
             ely_gpui_component::init(cx);
             shared::preferences::Preferences::install(settings.clone(), cx);
+            shared::acceptance::apply_runtime(cx);
             // One agent per known workspace (desktop parity: processes are keyed by
             // workspace key; the project list comes from ~/.zcode/v2/setting.json).
             let workspaces = discover_workspaces(&workspace, 8);
@@ -147,9 +170,17 @@ fn main() {
                         })
                         .detach();
                     let state = cx.new(|cx| AppState::new(workspaces, candidates, cx));
-                    let root = cx.new(|cx| RootView::new(state, cx));
+                    let root = cx.new(|cx| {
+                        let mut root = RootView::new(state, cx);
+                        if let Some(section) = settings_section {
+                            root.open_settings_section(section, window, cx);
+                        }
+                        root
+                    });
                     let focus = root.read(cx).state.read(cx).composer.read(cx).focus.clone();
-                    window.focus(&focus, cx);
+                    if settings_section.is_none() {
+                        window.focus(&focus, cx);
+                    }
                     root
                 },
             )

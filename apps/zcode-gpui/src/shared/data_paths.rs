@@ -46,10 +46,15 @@ impl DataPaths {
 static PATHS: OnceLock<DataPaths> = OnceLock::new();
 
 pub(crate) fn initialize(persisted_base: Option<&str>) {
-    let _ = PATHS.set(DataPaths::resolve(
-        |k| std::env::var(k).ok(),
-        persisted_base,
-    ));
+    let value = if let Some(isolated) = crate::shared::isolation::active() {
+        DataPaths {
+            settings_home: isolated.home(),
+            data_base: isolated.data_base(),
+        }
+    } else {
+        DataPaths::resolve(|k| std::env::var(k).ok(), persisted_base)
+    };
+    let _ = PATHS.set(value);
 }
 
 pub(crate) fn paths() -> &'static DataPaths {

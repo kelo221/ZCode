@@ -72,7 +72,7 @@ pub(crate) fn singleton_lock_held(user_data: &Path) -> bool {
 }
 
 #[cfg(windows)]
-fn desktop_process_running() -> bool {
+fn desktop_process_running(owned: &[u32]) -> bool {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
@@ -89,42 +89,73 @@ fn desktop_process_running() -> bool {
             ..Default::default()
         };
         let my_pid = std::process::id();
-        let mut found = false;
-        if Process32FirstW(snapshot, &mut entry).is_ok() {
-            loop {
-                if entry.th32ProcessID != my_pid {
-                    let len = entry
-                        .szExeFile
-                        .iter()
-                        .position(|&c| c == 0)
-                        .unwrap_or(entry.szExeFile.len());
-                    let exe = String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase();
-                    if DESKTOP_EXE_NAMES.contains(&exe.as_str()) {
-                        found = true;
-                        break;
-                    }
-                }
-                if Process32NextW(snapshot, &mut entry).is_err() {
-                    break;
-                }
+        let mut entries = Vec::new();
+        if Process32FirstW(snapshot, &mut entry).is_err() {
+            let _ = CloseHandle(snapshot);
+            return true;
+        }
+        loop {
+            entries.push(entry);
+            if Process32NextW(snapshot, &mut entry).is_err() {
+                break;
             }
         }
+        let entries = entries
+            .into_iter()
+            .map(|entry| {
+                let len = entry
+                    .szExeFile
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(entry.szExeFile.len());
+                (
+                    entry.th32ProcessID,
+                    entry.th32ParentProcessID,
+                    String::from_utf16_lossy(&entry.szExeFile[..len]).to_lowercase(),
+                )
+            })
+            .collect::<Vec<_>>();
         let _ = CloseHandle(snapshot);
-        found
+        desktop_snapshot_running(&entries, my_pid, owned)
     }
 }
 
+#[cfg(any(windows, test))]
+fn desktop_snapshot_running(entries: &[(u32, u32, String)], my_pid: u32, owned: &[u32]) -> bool {
+    // CLI 与 Host 使用相同 Electron 可执行文件；仅排除 owned 子树，不能忽略其他桌面实例。
+    let mut excluded = owned.to_vec();
+    excluded.push(my_pid);
+    for _ in 0..entries.len() {
+        let before = excluded.len();
+        for (pid, parent, _) in entries {
+            if excluded.contains(parent) && !excluded.contains(pid) {
+                excluded.push(*pid);
+            }
+        }
+        if excluded.len() == before {
+            break;
+        }
+    }
+    entries
+        .iter()
+        .any(|(pid, _, name)| !excluded.contains(pid) && DESKTOP_EXE_NAMES.contains(&name.as_str()))
+}
+
 #[cfg(not(windows))]
-fn desktop_process_running() -> bool {
+fn desktop_process_running(_owned: &[u32]) -> bool {
     false
 }
 
 /// True when any ZCode desktop instance may be running.
 pub fn is_desktop_running() -> bool {
+    is_desktop_running_except(&[])
+}
+
+pub(crate) fn is_desktop_running_except(owned: &[u32]) -> bool {
     desktop_user_data_dirs()
         .iter()
         .any(|d| singleton_lock_held(d))
-        || desktop_process_running()
+        || desktop_process_running(owned)
 }
 
 #[cfg(test)]
@@ -165,6 +196,23 @@ mod tests {
         // Stale file after a crash: not held.
         assert!(!singleton_lock_held(&d));
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn owned_runtime_tree_is_excluded_without_ignoring_unowned_desktop() {
+        let row = |pid, parent, name: &str| (pid, parent, name.to_owned());
+        let mut snapshot = vec![
+            row(10, 1, "zcode-gpui.exe"),
+            row(11, 10, "zcode.exe"),
+            row(12, 11, "zcode.exe"),
+            row(20, 1, "zcode.exe"),
+        ];
+        assert!(!desktop_snapshot_running(&snapshot, 10, &[20]));
+        assert!(desktop_snapshot_running(&snapshot, 10, &[]));
+        snapshot.pop();
+        assert!(!desktop_snapshot_running(&snapshot, 10, &[]));
+        snapshot.push(row(30, 1, "zcode.exe"));
+        assert!(desktop_snapshot_running(&snapshot, 10, &[20]));
     }
 
     #[test]

@@ -2,6 +2,37 @@ use super::*;
 use crate::shared::settings::SettingsError;
 
 #[test]
+fn read_only_owner_refuses_before_queue_or_disk_write() {
+    let _guard = crate::app::test_support::RUNTIME_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let mut app = gpui::TestApp::with_text_system_and_assets(
+        std::sync::Arc::new(gpui::NoopTextSystem::new()),
+        std::sync::Arc::new(ely_gpui_component::Assets),
+    );
+    let dir = std::env::temp_dir().join(format!("gpui-readonly-{}", uuid::Uuid::now_v7()));
+    let path = dir.join("setting.json");
+    app.update(|cx| {
+        ely_gpui_component::init(cx);
+        Preferences::install_at(
+            AppSettings::default(),
+            path.clone(),
+            std::sync::Arc::new(|| false),
+            cx,
+        );
+        let owner = cx.global::<PreferenceOwner>().0.clone();
+        owner.update(cx, |s, _| s.read_only = true);
+        Preferences::enqueue(PreferenceChange::MemoryEnabled(true), cx);
+        let owner = owner.read(cx);
+        assert!(owner.queue.is_empty());
+        assert!(!owner.saving);
+        assert_eq!(owner.snapshot.memory_enabled, None);
+        assert!(owner.error.as_ref().unwrap().contains("read-only"));
+    });
+    assert!(!path.exists());
+}
+
+#[test]
 fn disk_boundary_revalidates_against_latest_shortcuts() {
     let dir = std::env::temp_dir().join(format!("gpui-pref-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&dir).unwrap();

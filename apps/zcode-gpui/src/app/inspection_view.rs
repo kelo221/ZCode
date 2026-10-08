@@ -100,6 +100,10 @@ impl RootView {
         section: SettingsSection,
         cx: &mut Context<Self>,
     ) {
+        if self.settings.section != section && self.settings.section == SettingsSection::Subagents {
+            self.subagents.form = None;
+            self.state.update(cx, |s, cx| s.close_profiles(cx));
+        }
         self.settings.section = section;
         if section == SettingsSection::Plugins {
             self.plugin_segment = crate::app::plugin_pane::PluginSegment::ManageInstalled;

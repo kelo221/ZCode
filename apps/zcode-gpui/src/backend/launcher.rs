@@ -30,10 +30,7 @@ pub struct BackendLaunch {
 pub fn resolve_candidates(workspace: &Path) -> Vec<BackendLaunch> {
     let mut out = Vec::new();
 
-    // Only the GPUI-specific variable overrides: the desktop app exports
-    // `GLM_BINARY_PATH` / `ZCODE_AGENT_SERVER_COMMAND` to every child process,
-    // so honouring them would silently bypass bun when launched from a ZCode
-    // terminal.
+    // Only GPUI overrides apply; inherited Desktop agent overrides bypass source resolution.
     if let Ok(program) = std::env::var("ZCODE_GPUI_AGENT_PROGRAM") {
         let args = std::env::var("ZCODE_GPUI_AGENT_ARGS")
             .map(|a| parse_agent_args(&a))
@@ -160,7 +157,7 @@ fn bun_source_launch(workspace: &Path) -> Option<BackendLaunch> {
     })
 }
 
-fn find_installed_bundle() -> Option<(PathBuf, PathBuf)> {
+pub(crate) fn find_installed_bundle() -> Option<(PathBuf, PathBuf)> {
     #[cfg(target_os = "windows")]
     {
         let mut app_dirs = Vec::new();
@@ -281,7 +278,7 @@ fn parse_agent_args(raw: &str) -> Vec<String> {
     raw.split_whitespace().map(str::to_string).collect()
 }
 
-fn common_backend_envs() -> Vec<(String, String)> {
+pub(crate) fn common_backend_envs() -> Vec<(String, String)> {
     let mut envs = system_env_passthrough();
     envs.push(("ZCODE_RUNTIME_ENV".into(), "desktop".into()));
     let paths = crate::shared::data_paths::paths();
@@ -321,6 +318,9 @@ fn common_backend_envs() -> Vec<(String, String)> {
         if let Ok(val) = std::env::var(key) {
             envs.push((key.into(), val));
         }
+    }
+    if let Some(isolated) = crate::shared::isolation::active() {
+        isolated.apply_child_environment(&mut envs);
     }
     envs
 }
@@ -371,7 +371,12 @@ fn installed_app_launch() -> Option<BackendLaunch> {
             "--surface".into(),
             "desktop".into(),
         ],
-        envs,
+        envs: if let Some(isolated) = crate::shared::isolation::active() {
+            isolated.apply_child_environment(&mut envs);
+            envs
+        } else {
+            envs
+        },
         describe: "installed ZCode app runtime".into(),
     })
 }

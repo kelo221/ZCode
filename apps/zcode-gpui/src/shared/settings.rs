@@ -117,8 +117,22 @@ pub struct AppSettings {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
+impl AppSettings {
+    pub(crate) fn language_preference(&self) -> crate::shared::i18n::LocalePreference {
+        // selector 与运行时必须使用同一回退规则；无效偏好不能偷偷跟随系统或旧 locale。
+        self.locale_preference
+            .as_deref()
+            .or(self.locale.as_deref())
+            .map(crate::shared::i18n::LocalePreference::parse)
+            .unwrap_or_default()
+    }
+}
+
 /// Resolve the user directory holding `.zcode/v2/setting.json`.
 pub fn resolve_user_home_dir() -> PathBuf {
+    if let Some(isolated) = crate::shared::isolation::active() {
+        return isolated.home();
+    }
     crate::shared::data_paths::DataPaths::resolve(|k| std::env::var(k).ok(), None).settings_home
 }
 
