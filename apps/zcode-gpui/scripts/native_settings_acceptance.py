@@ -233,8 +233,9 @@ def launch(evidence, previous, args):
     if previous:
         _, token = capability(previous["root"], previous["ticket"])
         env.update(ZCODE_GPUI_ACCEPTANCE_TICKET=previous["ticket"], ZCODE_GPUI_ACCEPTANCE_TOKEN=token)
+    # Default is the launcher's own order (bun + source first); opt into the Desktop runtime explicitly.
     runtime = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs/ZCode/ZCode.exe"
-    if runtime.is_file():
+    if args.desktop_runtime and runtime.is_file():
         env["ZCODE_GPUI_SERVICES_RUNTIME"] = str(runtime)
     stdout_path = evidence / f"stdout-{generation}.log"
     with stdout_path.open("wb") as stdout, (evidence / f"stderr-{generation}.log").open("wb") as stderr:
@@ -294,6 +295,7 @@ def main():
     parser.add_argument("--theme", choices=("zai-dark", "zai-light"))
     parser.add_argument("--locale", choices=("preference", "en-US", "zh-CN"), help="default reads saved scratch preference; other values are non-persisting overrides")
     parser.add_argument("--section", default="subagents")
+    parser.add_argument("--desktop-runtime", action="store_true", help="run the Services Host under the installed Desktop runtime instead of bun")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=900)
     parser.add_argument("--populated", action="store_true", help="start, stop, seed compact synthetic inventory, then reattach")
