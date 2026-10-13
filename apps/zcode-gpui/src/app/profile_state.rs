@@ -31,6 +31,9 @@ pub(crate) enum ProfileRequest {
 #[derive(Default)]
 pub(crate) struct ProfileState {
     pub isolated: Option<std::sync::Arc<crate::shared::isolation::IsolatedSettings>>,
+    /// Persisted opt-in file; `None` for isolated and test states, which never persist.
+    pub consent_path: Option<std::path::PathBuf>,
+    pub consented: bool,
     pub local_enabled: bool,
     pub activating: bool,
     pub closing: bool,

@@ -99,9 +99,16 @@ impl AppState {
             viewing_child: None,
             launch_candidates: candidates.clone(),
             retired_temp_files: Vec::new(),
-            profiles: crate::app::profile_state::ProfileState {
-                isolated: crate::shared::isolation::active().cloned(),
-                ..Default::default()
+            profiles: {
+                use crate::shared::profile_consent;
+                let isolated = crate::shared::isolation::active().cloned();
+                let consent_path = isolated.is_none().then(profile_consent::path);
+                crate::app::profile_state::ProfileState {
+                    consented: consent_path.as_deref().is_some_and(profile_consent::load),
+                    consent_path,
+                    isolated,
+                    ..Default::default()
+                }
             },
             draft: false,
             workspace_configs: HashMap::new(),

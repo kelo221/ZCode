@@ -104,7 +104,12 @@ impl RootView {
             self.subagents.form = None;
             self.state.update(cx, |s, cx| s.close_profiles(cx));
         }
+        let entering_subagents =
+            self.settings.section != section && section == SettingsSection::Subagents;
         self.settings.section = section;
+        if entering_subagents && self.state.read(cx).profiles.consented {
+            self.state.update(cx, |s, cx| s.activate_profiles(cx));
+        }
         if section == SettingsSection::Plugins {
             self.plugin_segment = crate::app::plugin_pane::PluginSegment::ManageInstalled;
         }

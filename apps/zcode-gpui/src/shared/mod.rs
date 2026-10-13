@@ -19,6 +19,7 @@ pub(crate) mod preference_handoff;
 #[cfg(test)]
 mod preference_handoff_tests;
 pub(crate) mod preferences;
+pub(crate) mod profile_consent;
 pub(crate) mod redact;
 pub(crate) mod saved_workflows;
 pub(crate) mod settings;

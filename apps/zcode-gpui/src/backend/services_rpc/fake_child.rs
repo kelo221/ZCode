@@ -28,6 +28,7 @@ fn spawn_configured(
 ) -> Result<ServiceClient, ServiceSpawnError> {
     let program = std::env::var_os("ZCODE_GPUI_TEST_NODE")
         .map(PathBuf::from)
+        .or_else(crate::backend::launcher::find_bun)
         .unwrap_or_else(|| {
             if cfg!(windows) {
                 PathBuf::from("C:/Users/V/AppData/Local/Programs/ZCode/ZCode.exe")

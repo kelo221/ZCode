@@ -29,7 +29,7 @@ impl RootView {
         if self.subagents.activation_confirm {
             body = body.child(div().flex().flex_col().gap_2().rounded_lg().border_1().border_color(rgb(theme.border)).p_4()
                 .child(label("Before enabling", "启用前须知"))
-                .child(label("The full Host adds roughly 190–194 MiB RSS while active. Startup and listing may migrate or normalize existing storage.", "完整 Host 活跃时约增加 190–194 MiB 内存。启动和列举可能迁移或规范化现有存储。"))
+                .child(label("The full Host adds roughly 160 MiB (Bun) to 195 MiB (Desktop runtime) while active and stops when idle. Startup and listing may migrate or normalize existing storage.", "完整 Host 活跃时约增加 160 MiB（Bun）至 195 MiB（桌面运行时）内存，空闲时停止。启动和列举可能迁移或规范化现有存储。"))
                 .child(label("Edits rewrite supported metadata; unknown YAML fields and comments may be discarded. Desktop and other configuration writers must be closed.", "编辑会重写受支持的元数据；未知 YAML 字段和注释可能丢失。请关闭桌面端及其他配置写入客户端。"))
                 .child(label("Application preference saves pause until this owned Host exits. Concurrent clients are unsupported; process detection is best-effort, not a lock.", "应用偏好保存会暂停，直至本 Host 完全退出。不支持并发客户端；进程检测并非互斥锁。")));
         }
@@ -56,6 +56,35 @@ impl RootView {
                             cx.notify();
                         })),
                 );
+        } else if p.consented {
+            // Already opted in: the Host starts on entry and unloads when idle,
+            // so resuming needs no second confirmation.
+            body = body.child(div().text_color(rgb(theme.muted)).child(label(
+                "Local management is enabled. The Services Host stops when idle to save memory.",
+                "本地管理已启用。服务 Host 空闲时会停止以节省内存。",
+            )));
+            controls = controls
+                .child(
+                    Button::new("subagents-resume", label("Resume", "继续"))
+                        .primary()
+                        .disabled(busy)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.state.update(cx, |s, cx| s.activate_profiles(cx));
+                        })),
+                )
+                .child(
+                    Button::new(
+                        "subagents-forget-consent",
+                        label("Stop managing automatically", "停止自动管理"),
+                    )
+                    .disabled(busy)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.state.update(cx, |s, cx| {
+                            s.set_profile_consent(false, cx);
+                            cx.notify();
+                        });
+                    })),
+                );
         } else {
             controls = controls.child(
                 Button::new(
@@ -69,7 +98,9 @@ impl RootView {
                 })),
             );
         }
-        if busy {
+        if p.activating {
+            body = body.child(label("Starting Services Host…", "正在启动服务 Host…"));
+        } else if busy {
             body = body.child(label(
                 "Finishing preference handoff…",
                 "正在完成偏好写入交接…",
@@ -98,6 +129,8 @@ impl RootView {
                     "subagents-activate-confirm".into(),
                     "subagents-activate-cancel".into(),
                 ]
+            } else if p.consented {
+                vec!["subagents-resume".into(), "subagents-forget-consent".into()]
             } else {
                 vec!["subagents-activate".into()]
             },

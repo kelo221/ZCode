@@ -97,7 +97,7 @@ pub(crate) fn bun_source_ready(root: &Path) -> bool {
 
 /// Absolute bun executable: `BUN_INSTALL`, then `PATH`, then `~/.bun/bin`.
 /// Resolved up front so a GUI launch without the shell's PATH still works.
-fn find_bun() -> Option<PathBuf> {
+pub(crate) fn find_bun() -> Option<PathBuf> {
     let exe = if cfg!(windows) { "bun.exe" } else { "bun" };
     let from_install = std::env::var_os("BUN_INSTALL").map(|d| PathBuf::from(d).join("bin"));
     let from_path = std::env::var_os("PATH")

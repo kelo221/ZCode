@@ -44,6 +44,7 @@ impl AppState {
                 s.profiles.activating = false;
                 match result {
                     Ok(()) if !s.profiles.closing => {
+                        s.set_profile_consent(true, cx);
                         s.profiles.local_enabled = true;
                         s.profiles.queries.clear();
                         s.read_profiles("user", true, cx);
@@ -155,6 +156,21 @@ impl AppState {
             self.profiles.recovery_reviewed = false;
             self.profiles.closing = true;
             self.maintain_profiles(cx);
+        }
+    }
+
+    /// Records or revokes the opt-in that lets Settings › Subagents start the Host
+    /// on entry. Isolated and test states have no consent path and never persist.
+    pub(crate) fn set_profile_consent(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.profiles.consented == enabled {
+            return;
+        }
+        self.profiles.consented = enabled;
+        if let Some(path) = self.profiles.consent_path.clone() {
+            cx.background_spawn(async move {
+                let _ = crate::shared::profile_consent::store(&path, enabled);
+            })
+            .detach();
         }
     }
 

@@ -56,6 +56,42 @@ fn activation_disclosure_and_cancel_do_not_launch_or_suspend_preferences() {
 }
 
 #[test]
+fn consented_page_offers_resume_and_forget_without_launching() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (mut app, state, path) = fixture();
+    let mut window = app.open_window(|window, cx| {
+        let mut view = RootView::new(state.clone(), cx);
+        view.open_settings_section(SettingsSection::Subagents, window, cx);
+        view
+    });
+    app.update_entity(&state, |s, _| s.profiles.consented = true);
+    app.update(|cx| cx.set_global(TestTargets::default()));
+    window.draw();
+    let targets = app.read(|cx| cx.global::<TestTargets>().0.clone());
+    assert!(targets.contains_key("subagents-resume"));
+    assert!(!targets.contains_key("subagents-activate"));
+    window.simulate_click(
+        targets["subagents-forget-consent"].center(),
+        MouseButton::Left,
+    );
+    app.read_entity(&state, |s, cx| {
+        assert!(!s.profiles.consented);
+        assert!(s.profiles.consent_path.is_none());
+        assert!(!s.profiles.activating);
+        assert!(s.profiles.client.is_none());
+        assert!(!cx.global::<PreferenceOwner>().0.read(cx).suspended);
+    });
+    app.update(|cx| cx.set_global(TestTargets::default()));
+    window.draw();
+    assert!(app.read(|cx| {
+        cx.global::<TestTargets>()
+            .0
+            .contains_key("subagents-activate")
+    }));
+    assert!(!path.exists());
+}
+
+#[test]
 fn close_waits_for_admitted_work_then_reloads_without_replay() {
     let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let (mut app, state, path) = fixture();
