@@ -56,6 +56,8 @@ impl RootView {
                             cx.notify();
                         })),
                 );
+        } else if p.consented && p.activating {
+            // Automatic start in progress: only the status line below is shown.
         } else if p.consented {
             // Already opted in: the Host starts on entry and unloads when idle,
             // so resuming needs no second confirmation.
@@ -129,6 +131,8 @@ impl RootView {
                     "subagents-activate-confirm".into(),
                     "subagents-activate-cancel".into(),
                 ]
+            } else if p.consented && p.activating {
+                vec![]
             } else if p.consented {
                 vec!["subagents-resume".into(), "subagents-forget-consent".into()]
             } else {

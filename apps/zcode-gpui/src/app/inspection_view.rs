@@ -104,8 +104,10 @@ impl RootView {
             self.subagents.form = None;
             self.state.update(cx, |s, cx| s.close_profiles(cx));
         }
+        // 原因：关闭 Settings 会停掉 Host，但重新打开时 section 未变，旧判断不视为“进入”，
+        // 页面停在 Resume。修复：Settings 尚未打开时进入 Subagents 也算进入。
         let entering_subagents =
-            self.settings.section != section && section == SettingsSection::Subagents;
+            enters_subagents(self.settings.section, section, self.settings.open);
         self.settings.section = section;
         if entering_subagents && self.state.read(cx).profiles.consented {
             self.state.update(cx, |s, cx| s.activate_profiles(cx));
@@ -114,5 +116,23 @@ impl RootView {
             self.plugin_segment = crate::app::plugin_pane::PluginSegment::ManageInstalled;
         }
         cx.notify();
+    }
+}
+
+fn enters_subagents(current: SettingsSection, target: SettingsSection, open: bool) -> bool {
+    target == SettingsSection::Subagents && (current != target || !open)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reopening_settings_on_subagents_counts_as_entering() {
+        use SettingsSection::{General, Subagents};
+        assert!(enters_subagents(General, Subagents, true));
+        assert!(enters_subagents(Subagents, Subagents, false));
+        assert!(!enters_subagents(Subagents, Subagents, true));
+        assert!(!enters_subagents(Subagents, General, false));
     }
 }
