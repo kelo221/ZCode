@@ -1,0 +1,158 @@
+//! Workspace destination outside Settings: the centre panel (header, transcript,
+//! composer, terminal) and, when open and it fits, the docked side pane.
+
+use crate::app::layout::{
+    CENTER_MIN_WIDTH, PANEL_GAP, PANEL_RADIUS, SIDE_PANE_WIDTH, SIDEBAR_WIDTH,
+    conversation_padding, conversation_width, side_pane_fits,
+};
+use crate::app::root::RootView;
+use crate::composer::input::Composer;
+use crate::conversation::turn_meta::PlanState;
+use crate::shared::theme::{BORDER, MUTED, PANEL, ui_size};
+use crate::shared::theme_colors::color as rgb;
+use gpui::{AnyElement, Context, Entity, SharedString, Window, div, prelude::*, px};
+
+pub(crate) struct PanelInputs {
+    pub title: SharedString,
+    pub context_tag: Option<SharedString>,
+    pub plan: Option<PlanState>,
+    pub phase: String,
+    pub errors: Vec<String>,
+    pub phase_error: Option<(String, String)>,
+    pub has_more: bool,
+    pub is_read_only: bool,
+    pub is_draft: bool,
+    pub pending_interactions: Vec<crate::conversation::interactions::PendingInteraction>,
+    pub rows_empty: bool,
+    pub queue: Option<crate::conversation::queue::QueueState>,
+    pub intent: crate::conversation::msg_actions::ComposerIntent,
+    pub composer: Entity<Composer>,
+    pub running: bool,
+}
+
+impl RootView {
+    pub(crate) fn workspace_panel(
+        &mut self,
+        input: PanelInputs,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let window_width = f32::from(window.viewport_size().width);
+        let docked = self.dock_open && side_pane_fits(window_width, true);
+        let side = if docked {
+            SIDE_PANE_WIDTH + PANEL_GAP
+        } else {
+            0.
+        };
+        let center = (window_width - SIDEBAR_WIDTH - PANEL_GAP - side).max(CENTER_MIN_WIDTH);
+        let column = conversation_width(center, input.is_draft || input.rows_empty);
+        let padding = conversation_padding(center);
+        self.conversation_column = column;
+        let PanelInputs {
+            title,
+            context_tag,
+            plan,
+            phase,
+            errors,
+            phase_error,
+            has_more,
+            is_read_only,
+            pending_interactions,
+            rows_empty,
+            queue,
+            intent,
+            composer,
+            running,
+            ..
+        } = input;
+        let panel = |el: gpui::Div| {
+            el.rounded(px(PANEL_RADIUS))
+                .overflow_hidden()
+                .bg(rgb(PANEL))
+                .border_1()
+                .border_color(rgb(BORDER))
+        };
+        let centre = panel(div().flex_1().min_w_0().flex().flex_col())
+            .child(self.main_header(title, context_tag, plan.as_ref(), &phase, cx))
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .flex_1()
+                    .min_h_0()
+                    .children(self.error_banners(errors, phase_error, cx))
+                    // Pinned strip above the transcript: history paging, subagent
+                    // navigation and pending interaction cards.
+                    .child(
+                        div()
+                            .w(px(column))
+                            .pt_2()
+                            .flex()
+                            .flex_col()
+                            .gap_1()
+                            .children(self.subagent_back_bar(cx))
+                            .children(self.load_earlier_btn(has_more, cx))
+                            .children(if is_read_only {
+                                Vec::new()
+                            } else {
+                                self.interaction_cards(&pending_interactions, cx)
+                            }),
+                    )
+                    .child(if rows_empty {
+                        div()
+                            .w_full()
+                            .flex_1()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(rgb(MUTED))
+                            .text_size(px(ui_size(13.)))
+                            .child(crate::shared::i18n::label(
+                                "Start a new conversation",
+                                "开始新对话",
+                            ))
+                            .into_any_element()
+                    } else {
+                        self.transcript_list(cx)
+                    })
+                    // Narrow windows keep the side pane as an overlay.
+                    .when(self.dock_open && !docked, |el| {
+                        el.child(self.dock_pane(false, window, cx))
+                    }),
+            )
+            .child(
+                div().w_full().flex().justify_center().child(
+                    div()
+                        .w(px(column))
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_1p5()
+                        .pt_1()
+                        .pb(px(padding / 2.))
+                        .when(!is_read_only, |el| {
+                            el.children(self.queue_panel(queue.as_ref(), cx))
+                                .children(self.intent_banner(&intent, cx))
+                                .child(self.composer_card(composer, running, cx))
+                        })
+                        .when(is_read_only, |el| {
+                            el.child(self.subagent_read_only_banner(cx))
+                        }),
+                ),
+            )
+            .when(self.term_open, |el| el.child(self.term_drawer(window, cx)));
+        div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_row()
+            .gap(px(PANEL_GAP))
+            .py(px(PANEL_GAP))
+            .pr(px(PANEL_GAP))
+            .child(centre)
+            .when(docked, |el| el.child(self.dock_pane(true, window, cx)))
+            .into_any_element()
+    }
+}

@@ -7,20 +7,16 @@ use crate::composer::input::Composer;
 use crate::conversation::model::format_preview;
 use crate::files::pane::FilesState;
 use crate::review::git::GitState;
-use crate::shared::theme::ui_size;
-use crate::shared::theme::{BG, BORDER, MUTED, PANEL, TEXT};
+use crate::shared::theme::{BG, TEXT};
 use crate::shared::theme_colors::color as rgb;
 use crate::terminal::pane::{TermPane, ToggleTerminal};
 use gpui::{
     Context, Entity, IntoElement, ListState, MouseButton, ParentElement, Render, SharedString,
-    Styled, Window, div, prelude::*, px,
+    Styled, Window, div, prelude::*,
 };
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-
-/// Reading width of the transcript and composer.
-pub(crate) const CONTENT_WIDTH: f32 = 920.;
 
 pub struct RootView {
     pub(crate) state: Entity<AppState>,
@@ -66,6 +62,8 @@ pub struct RootView {
     pub(crate) settings: crate::app::settings::SettingsView,
     pub(crate) subagents: crate::app::subagents_settings::SubagentsView,
     pub(crate) composer_compact: bool,
+    /// Conversation column width from the last layout pass (transcript rows).
+    pub(crate) conversation_column: f32,
 }
 
 impl RootView {
@@ -84,6 +82,7 @@ impl RootView {
         Self {
             state,
             composer_compact: true,
+            conversation_column: 672.,
             list_state,
             row_index: Vec::new(),
             last_bounds: (0, 0),
@@ -310,87 +309,27 @@ impl Render for RootView {
             .child(if self.settings.open {
                 self.render_settings(window, cx)
             } else {
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .my_1()
-                    .mr_1()
-                    .rounded_lg()
-                    .overflow_hidden()
-                    .bg(rgb(PANEL))
-                    .border_1()
-                    .border_color(rgb(BORDER))
-                    .flex()
-                    .flex_col()
-                    .child(self.main_header(title, context_tag, plan.as_ref(), &phase, cx))
-                    .child(
-                        div()
-                            .relative()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_h_0()
-                            .children(self.error_banners(errors, phase_error, cx))
-                            // Pinned strip above the transcript: history paging,
-                            // plan checklist and pending interaction cards.
-                            .child(
-                                div()
-                                    .w_full()
-                                    .max_w(px(CONTENT_WIDTH))
-                                    .px_6()
-                                    .pt_2()
-                                    .flex()
-                                    .flex_col()
-                                    .gap_1()
-                                    .children(self.subagent_back_bar(cx))
-                                    .children(self.load_earlier_btn(has_more, cx))
-                                    .children(if is_read_only {
-                                        Vec::new()
-                                    } else {
-                                        self.interaction_cards(&pending_interactions, cx)
-                                    }),
-                            )
-                            .child(if rows_empty {
-                                div()
-                                    .h_full()
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .text_color(rgb(MUTED))
-                                    .text_size(px(ui_size(13.)))
-                                    .child(crate::shared::i18n::label(
-                                        "Start a new conversation",
-                                        "开始新对话",
-                                    ))
-                                    .into_any_element()
-                            } else {
-                                self.transcript_list(cx)
-                            })
-                            // Floating tool dock draws over the transcript.
-                            .when(self.dock_open, |el| el.child(self.dock_pane(window, cx))),
-                    )
-                    .child(
-                        div()
-                            .w_full()
-                            .max_w(px(CONTENT_WIDTH))
-                            .min_w_0()
-                            .px_6()
-                            .flex()
-                            .flex_col()
-                            .gap_1p5()
-                            .pt_1()
-                            .pb_3()
-                            .when(!is_read_only, |el| {
-                                el.children(self.queue_panel(queue.as_ref(), cx))
-                                    .children(self.intent_banner(&intent, cx))
-                                    .child(self.composer_card(composer, running, cx))
-                            })
-                            .when(is_read_only, |el| {
-                                el.child(self.subagent_read_only_banner(cx))
-                            }),
-                    )
-                    .when(self.term_open, |el| el.child(self.term_drawer(window, cx)))
-                    .into_any_element()
+                self.workspace_panel(
+                    crate::app::workspace_panel::PanelInputs {
+                        title,
+                        context_tag,
+                        plan,
+                        phase,
+                        errors,
+                        phase_error,
+                        has_more,
+                        is_read_only,
+                        is_draft,
+                        pending_interactions,
+                        rows_empty,
+                        queue,
+                        intent,
+                        composer,
+                        running,
+                    },
+                    window,
+                    cx,
+                )
             })
             .children(
                 self.quickpick_open

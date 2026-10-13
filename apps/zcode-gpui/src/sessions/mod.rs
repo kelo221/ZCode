@@ -2,4 +2,5 @@
 
 pub(crate) mod items;
 pub(crate) mod rows;
+pub(crate) mod section_header;
 pub(crate) mod sidebar;

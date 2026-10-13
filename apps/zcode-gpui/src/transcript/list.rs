@@ -217,10 +217,15 @@ impl RootView {
             .unwrap_or_else(|| div().into_any_element());
         div()
             .w_full()
-            .max_w(px(crate::app::root::CONTENT_WIDTH))
-            .px_6()
-            .py_2()
-            .child(content)
+            .flex()
+            .justify_center()
+            .child(
+                div()
+                    .w(px(self.conversation_column))
+                    .min_w_0()
+                    .py_2()
+                    .child(content),
+            )
             .into_any_element()
     }
 }

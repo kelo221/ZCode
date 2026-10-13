@@ -9,13 +9,14 @@
 use crate::backend::workspace::WorkspacePurpose;
 pub use crate::sessions::items::filter_session_indices;
 use crate::sessions::items::nav_row;
+use crate::sessions::section_header::section_header;
 use crate::shared::theme::ui_size;
 use crate::shared::theme::{
-    BG, DANGER, HOVER, I_ADD, I_CHEVRON_DOWN, I_CHEVRON_RIGHT, I_FOLDER, I_SEARCH, MUTED, TEXT,
-    icon,
+    BORDER, DANGER, HOVER, I_ADD, I_CHEVRON_DOWN, I_CHEVRON_RIGHT, I_FOLDER, I_SEARCH, MUTED,
+    SIDEBAR, TEXT, icon,
 };
 use crate::shared::theme_colors::color as rgb;
-use gpui::{AnyElement, ClickEvent, Context, CursorStyle, SharedString, div, prelude::*, px};
+use gpui::{AnyElement, ClickEvent, Context, SharedString, div, prelude::*, px};
 
 /// One workspace's rendered rows: the visible session rows plus, when the
 /// list was truncated, a "Load more" row for the hidden remainder.
@@ -119,6 +120,8 @@ impl crate::app::root::RootView {
         let key_toggle = key.to_string();
         let is_active_at_render = active;
         nav_row(SharedString::from(format!("ws-{key}")), false)
+            .h(px(32.))
+            .pl(px(6.))
             .mt_1()
             // Folder toggle (desktop handleHeaderClick): the active folder
             // collapses/expands on click; a collapsed folder opens (and
@@ -152,7 +155,7 @@ impl crate::app::root::RootView {
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .text_color(rgb(if active { TEXT } else { 0xc8c8c8 }))
+                    .text_color(rgb(TEXT))
                     .child(display.to_string()),
             )
             .when(failed, |el| {
@@ -236,13 +239,24 @@ impl crate::app::root::RootView {
             let expanded = active && !self.ws_collapsed.contains(key.as_str());
             projects_list.push(self.project_row(key, display, status, active, expanded, cx));
             if expanded {
-                let VisibleRows { rows, hidden } =
+                let VisibleRows { mut rows, hidden } =
                     self.visible_session_rows(key, indices, *active_index, cx);
-                projects_list.extend(rows);
                 if hidden > 0 {
                     let step = self.session_limit_step.get(key).copied().unwrap_or(0);
-                    projects_list.push(self.load_more_row(key, step, hidden, cx));
+                    rows.push(self.load_more_row(key, step, hidden, cx));
                 }
+                // Desktop group content: indented under the header with a guide line.
+                projects_list.push(
+                    div()
+                        .ml(px(24.))
+                        .py(px(1.))
+                        .border_l_1()
+                        .border_color(rgb(BORDER))
+                        .flex()
+                        .flex_col()
+                        .children(rows)
+                        .into_any_element(),
+                );
             }
         }
 
@@ -256,70 +270,30 @@ impl crate::app::root::RootView {
                 .into()
         };
 
-        let tasks_header = div()
-            .px_4()
-            .pt_3()
-            .pb_1()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .child(
-                div()
-                    .text_size(px(ui_size(12.)))
-                    .text_color(rgb(MUTED))
-                    .child(crate::shared::i18n::label("Tasks", "任务")),
-            )
-            .child(
-                div()
-                    .id("new-conversation-task")
-                    .cursor(CursorStyle::PointingHand)
-                    .hover(|s| s.bg(rgb(HOVER)))
-                    .rounded_sm()
-                    .p_1()
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.close_settings(window, cx);
-                        this.state.update(cx, |s, cx| s.new_conversation_chat(cx));
-                    }))
-                    .child(icon(I_ADD, 12., MUTED)),
-            );
-
-        // Projects section header with the add-project button (Electron
-        // WorkspaceSidebar: "+" on the projects header → Open folder).
-        let projects_header = div()
-            .px_4()
-            .pt_4()
-            .pb_1()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .child(
-                div()
-                    .text_size(px(ui_size(12.)))
-                    .text_color(rgb(MUTED))
-                    .child(crate::shared::i18n::label("Projects", "项目")),
-            )
-            .child(
-                div()
-                    .id("add-project")
-                    .cursor(CursorStyle::PointingHand)
-                    .hover(|s| s.bg(rgb(HOVER)))
-                    .rounded_sm()
-                    .p_1()
-                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                        this.close_settings(window, cx);
-                        this.open_project_dialog(cx);
-                    }))
-                    .child(icon(I_ADD, 12., MUTED)),
-            );
+        let tasks_header = section_header(
+            "new-conversation-task",
+            crate::shared::i18n::label("Tasks", "任务").into(),
+            cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.close_settings(window, cx);
+                this.state.update(cx, |s, cx| s.new_conversation_chat(cx));
+            }),
+        );
+        // Electron WorkspaceSidebar: "+" on the projects header → Open folder.
+        let projects_header = section_header(
+            "add-project",
+            crate::shared::i18n::label("Projects", "项目").into(),
+            cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.close_settings(window, cx);
+                this.open_project_dialog(cx);
+            }),
+        );
 
         let sidebar = div()
             .w(px(264.))
             .h_full()
             .flex()
             .flex_col()
-            .bg(rgb(BG))
+            .bg(rgb(SIDEBAR))
             .pt_3()
             .child(
                 nav_row("new-chat".into(), false)

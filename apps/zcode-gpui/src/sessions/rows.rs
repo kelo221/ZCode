@@ -41,7 +41,6 @@ impl crate::app::root::RootView {
         Some(
             nav_row(SharedString::from(sid.clone()), is_active)
                 .group(ROW_GROUP)
-                .pl(px(34.))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     this.close_settings(window, cx);
                     this.state

@@ -38,6 +38,11 @@ pub const LINK: u32 = 0x77abec;
 pub const DIFF_ADD_BG: u32 = 0x182c1f;
 pub const DIFF_DEL_BG: u32 = 0x3a1d1b;
 pub const DIFF_HUNK_BG: u32 = 0x19273a;
+pub const SIDEBAR: u32 = 0x161616;
+pub const SURFACE: u32 = 0x252525;
+pub const INPUT: u32 = 0x2b2b2b;
+pub const TAG: u32 = 0x363636;
+pub const SUBTLEST: u32 = 0x5a5a5a;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThemeMode {

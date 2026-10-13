@@ -23,6 +23,7 @@ pub(crate) mod header;
 mod held_queue_controls_tests;
 mod held_queue_view;
 mod inspection_view;
+pub(crate) mod layout;
 pub(crate) mod maintenance;
 #[cfg(test)]
 mod mcp_authorization_controls_tests;
@@ -132,3 +133,4 @@ mod workflow_navigation_view;
 #[cfg(test)]
 mod workflow_settings_controls_tests;
 pub(crate) mod workflow_settings_view;
+pub(crate) mod workspace_panel;

@@ -29,15 +29,22 @@ pub(crate) fn color(token: u32) -> gpui::Rgba {
         DIFF_ADD_BG => p.diff_add_bg,
         DIFF_DEL_BG => p.diff_del_bg,
         DIFF_HUNK_BG => p.diff_hunk_bg,
+        SIDEBAR => p.sidebar,
+        SURFACE => p.surface,
+        INPUT => p.input,
+        TAG => p.tag,
+        SUBTLEST => p.subtlest,
         _ => gpui::rgb(token),
     }
 }
 
 /// A token at reduced alpha, for Desktop-style translucent badges and banners
-/// (`bg-<color>/15` and similar).
+/// (`bg-<color>/15` and similar). Multiplies, so translucent tokens such as
+/// the border stay translucent (`border-border/50`).
 pub(crate) fn tinted(token: u32, alpha: f32) -> gpui::Rgba {
+    let c = color(token);
     gpui::Rgba {
-        a: alpha,
-        ..color(token)
+        a: c.a * alpha,
+        ..c
     }
 }

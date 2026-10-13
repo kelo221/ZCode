@@ -2,6 +2,7 @@
 //! pane, toggled from the header pill or CmdOrCtrl+Alt+B (PARITY.md M3 "pane
 //! container: dockable right pane + shortcuts").
 
+use crate::app::layout::{PANEL_RADIUS, SIDE_PANE_WIDTH};
 use crate::app::root::RootView;
 use crate::shared::theme::ui_size;
 use crate::shared::theme::{BORDER, CARD, HOVER, MUTED, PANEL, TEXT};
@@ -50,25 +51,34 @@ impl DockTab {
 }
 
 impl RootView {
-    /// The whole dock column, shown when `dock_open`.
+    /// The whole dock column, shown when `dock_open`. Docked it is a full-height
+    /// side panel beside the centre panel; on narrow windows it floats over the
+    /// transcript instead.
     pub(crate) fn dock_pane(
         &mut self,
+        docked: bool,
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         self.sync_dock_workspace(cx);
         let active = self.dock_tab;
-        // Floating overlay (desktop "Git tools" parity): draws over the
-        // transcript instead of taking layout space from it.
         div()
-            .absolute()
-            .top_2()
-            .right_2()
-            .w(px(DOCK_WIDTH))
-            .h(px(DOCK_MAX_HEIGHT))
+            .when(docked, |el| {
+                el.w(px(SIDE_PANE_WIDTH))
+                    .flex_none()
+                    .h_full()
+                    .rounded(px(PANEL_RADIUS))
+            })
+            .when(!docked, |el| {
+                el.absolute()
+                    .top_2()
+                    .right_2()
+                    .w(px(DOCK_WIDTH))
+                    .h(px(DOCK_MAX_HEIGHT))
+                    .rounded_lg()
+            })
             .flex()
             .flex_col()
-            .rounded_lg()
             .overflow_hidden()
             .bg(rgb(PANEL))
             .border_1()

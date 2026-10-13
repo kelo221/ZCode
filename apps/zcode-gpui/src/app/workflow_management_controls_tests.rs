@@ -65,7 +65,8 @@ fn workflow_management_save_cancel_and_delete_are_pointer_reachable() {
     window.simulate_scroll(point(manage.center().x, px(420.)), point(px(0.), px(-320.)));
     window.draw();
     let save = app.update(|cx| cx.global::<TestTargets>().0["workflow-meta-save"]);
-    assert!(save.bottom() < px(620.), "Save bounds: {save:?}");
+    // The docked side pane runs the full window height (1200px).
+    assert!(save.bottom() < px(1196.), "Save bounds: {save:?}");
     window.simulate_click(save.center(), MouseButton::Left);
     app.read_entity(&state, |s, cx| {
         assert!(
