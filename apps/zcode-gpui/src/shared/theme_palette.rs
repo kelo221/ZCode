@@ -9,6 +9,9 @@ use gpui::{Hsla, Rgba, rgba};
 pub struct ThemePalette {
     pub background: Rgba,
     pub sidebar: Rgba,
+    /// Windows window frame (`--color-background-win-alt`): Desktop paints the
+    /// opaque root surface, sidebar included, with it.
+    pub window_frame: Rgba,
     pub panel: Rgba,
     pub card: Rgba,
     pub surface: Rgba,
@@ -49,6 +52,7 @@ impl ThemePalette {
         Self {
             background: rgba(0x161616ff),
             sidebar: rgba(0x161616ff),
+            window_frame: rgba(0x2b2b2bff),
             panel: rgba(0x202020ff),
             card: rgba(0x2b2b2bff),
             surface: rgba(0xffffff0d),
@@ -87,6 +91,7 @@ impl ThemePalette {
         Self {
             background: rgba(0xf8f8f8ff),
             sidebar: rgba(0xf0f0f0ff),
+            window_frame: rgba(0xececeeff),
             panel: rgba(0xffffffff),
             card: rgba(0xffffffff),
             surface: rgba(0x0d0d0d08),

@@ -19,19 +19,19 @@ fn grouped_navigation_is_complete_unique_and_searchable() {
     assert_eq!(sections.len(), 9);
     assert_eq!(
         sections[0],
-        (SettingsGroup::Preferences, SettingsSection::General)
+        (SettingsGroup::Basics, SettingsSection::General)
     );
     assert_eq!(
-        sections[4],
-        (SettingsGroup::Capabilities, SettingsSection::Models)
+        sections[2],
+        (SettingsGroup::Basics, SettingsSection::Models)
     );
     assert_eq!(
         sections[5],
-        (SettingsGroup::Capabilities, SettingsSection::Subagents)
+        (SettingsGroup::AgentCapabilities, SettingsSection::Subagents)
     );
     assert_eq!(
         sections[8],
-        (SettingsGroup::Activity, SettingsSection::Usage)
+        (SettingsGroup::DataAndStats, SettingsSection::Usage)
     );
     for (_, section) in &sections {
         assert_eq!(
@@ -43,11 +43,11 @@ fn grouped_navigation_is_complete_unique_and_searchable() {
         );
     }
     assert_eq!(
-        navigation_sections("  configured MODELS  "),
-        vec![(SettingsGroup::Capabilities, SettingsSection::Models,)]
+        navigation_sections("  model SETTINGS  "),
+        vec![(SettingsGroup::Basics, SettingsSection::Models,)]
     );
     assert_eq!(
-        navigation_sections("子代理")[0].1,
+        navigation_sections("子智能体")[0].1,
         SettingsSection::Subagents
     );
     assert!(navigation_sections("missing section").is_empty());
@@ -207,7 +207,7 @@ fn measured_search_and_narrow_navigation_keep_models_read_only() {
     window.draw();
     let search = app.read(|cx| cx.global::<TestTargets>().0["settings-search"].center());
     window.simulate_click(search, MouseButton::Left);
-    window.simulate_input("models");
+    window.simulate_input("model");
     window.draw();
     let models = app.read(|cx| cx.global::<TestTargets>().0["settings-models"].center());
     assert!(models.y < px(600.));
@@ -217,7 +217,7 @@ fn measured_search_and_narrow_navigation_keep_models_read_only() {
     window.simulate_click(search, MouseButton::Left);
     window.simulate_input("beta");
     window.read(|view, cx| {
-        assert_eq!(view.settings.query, "models");
+        assert_eq!(view.settings.query, "model");
         assert_eq!(view.settings.model_query, "beta");
         let state = view.state.read(cx);
         assert_eq!(state.ui_model_value.as_deref(), Some("first/Alpha"));

@@ -7,7 +7,7 @@ use crate::composer::input::Composer;
 use crate::conversation::model::format_preview;
 use crate::files::pane::FilesState;
 use crate::review::git::GitState;
-use crate::shared::theme::{BG, TEXT};
+use crate::shared::theme::{FRAME, TEXT};
 use crate::shared::theme_colors::color as rgb;
 use crate::terminal::pane::{TermPane, ToggleTerminal};
 use gpui::{
@@ -258,7 +258,7 @@ impl Render for RootView {
             .flex()
             .flex_row()
             .font_family(crate::shared::theme::UI_FONT)
-            .bg(rgb(BG))
+            .bg(rgb(FRAME))
             .text_color(rgb(TEXT))
             .key_context("Root")
             .on_action(cx.listener(|this, _: &ToggleDock, _, cx| {

@@ -1,11 +1,11 @@
 use crate::app::root::RootView;
 use crate::app::subagent_profiles::{SettingsScope, group_plugin_rows, group_rows};
-use crate::shared::i18n::label;
-use crate::shared::theme::active_theme;
-use ely_gpui_component::buttons::{Button, ButtonVariant};
+use crate::shared::i18n::{label, t};
+use crate::shared::theme::{active_theme, ui_size};
+use ely_gpui_component::buttons::{Button, ButtonVariant, IconButton};
 use ely_gpui_component::forms::{Choice, Input, InputEvent, Select, TextInput};
-use ely_gpui_component::primitives::IconName;
-use ely_gpui_component::theme::ControlSize;
+use ely_gpui_component::primitives::{Icon, IconName};
+use ely_gpui_component::theme::{ControlSize, IconSize};
 use gpui::{
     AnyElement, AppContext, Context, Entity, IntoElement, SharedString, Window, div, prelude::*, px,
 };
@@ -71,7 +71,7 @@ impl RootView {
             .update(cx, |s, cx| s.read_profiles(&scope, false, cx));
         if self.subagents.search.is_none() {
             let input = cx.new(|cx| {
-                TextInput::new(window, cx).placeholder(label("Search agents", "搜索智能体"))
+                TextInput::new(window, cx).placeholder(t("settings.subagents.searchPlaceholder"))
             });
             cx.subscribe(&input, |_, _, event: &InputEvent, cx| {
                 if *event == InputEvent::Changed {
@@ -86,7 +86,7 @@ impl RootView {
         let state = self.state.read(cx);
         let pending = state.profiles.mutation_pending;
         let uncertain = state.profiles.uncertain;
-        let mut choices = vec![Choice::new("user", label("User", "用户"))];
+        let mut choices = vec![Choice::new("user", t("settings.plugin.scope.user"))];
         for ws in &state.workspaces {
             if state.profile_workspace(&ws.key).is_some() {
                 choices.push(Choice::new(ws.key.clone(), ws.display.clone()));
@@ -124,7 +124,7 @@ impl RootView {
             .gap_3()
             .flex_wrap()
             .child(
-                div().w(px(180.)).child(
+                div().w(px(160.)).child(
                     Select::new("subagents-scope", choices)
                         .selected(scope.clone())
                         .disabled(pending || uncertain)
@@ -142,20 +142,39 @@ impl RootView {
                         })),
                 ),
             )
-            .child(div().w(px(1.)).h(px(20.)).bg(theme.border))
-            .child(div().text_color(theme.subtle).child(format!(
-                "{} {}",
-                rows.len(),
-                label("agents", "个智能体")
-            )))
+            .child(div().w(px(1.)).h(px(16.)).bg(theme.border))
+            // Desktop count label: "Subagents" plus a subtle count.
+            .child(
+                div()
+                    .h(px(28.))
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .gap_1()
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .text_color(theme.foreground)
+                    .child(t("settings.subagents.title").to_owned())
+                    .child(
+                        div()
+                            .text_size(px(ui_size(12.)))
+                            .text_color(theme.subtle)
+                            .child(rows.len().to_string()),
+                    ),
+            )
             .child(div().flex_1())
             .child(
                 div()
                     .w(px(if compact { 220. } else { 256. }))
                     .min_w_0()
-                    .child(Input::new(&search)),
+                    .child(
+                        Input::new(&search).size(ControlSize::Lg).prefix(
+                            Icon::new(IconName::Search)
+                                .size(IconSize::Sm)
+                                .color(theme.subtle),
+                        ),
+                    ),
             );
-        let mut body = div().flex().flex_col().gap_5().min_w_0().child(toolbar);
+        let mut body = div().flex().flex_col().gap_8().min_w_0().child(toolbar);
         if local {
             body = body.child(
                 div()
@@ -212,10 +231,10 @@ impl RootView {
             .items_center()
             .gap_2()
             .child(
-                Button::new("subagents-refresh", label("Refresh", "刷新"))
-                    .icon(IconName::RefreshCw)
-                    .size(ControlSize::Sm)
-                    .variant(ButtonVariant::Ghost)
+                IconButton::new("subagents-refresh", IconName::RefreshCw)
+                    .size(ControlSize::Md)
+                    .variant(ButtonVariant::Outline)
+                    .tooltip(label("Refresh", "刷新"))
                     .disabled(loading || pending)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.state
@@ -223,9 +242,10 @@ impl RootView {
                     })),
             )
             .child(
-                Button::new("subagents-new", label("New agent", "新建智能体"))
+                Button::new("subagents-new", t("settings.create.action"))
                     .icon(IconName::Plus)
-                    .size(ControlSize::Sm)
+                    .size(ControlSize::Md)
+                    .variant(ButtonVariant::Primary)
                     .disabled(pending || uncertain || !can_create)
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.open_profile_form(None, false, window, cx)
@@ -236,30 +256,34 @@ impl RootView {
             controls,
             vec!["subagents-refresh".into(), "subagents-new".into()],
         );
+        let installed_header = div()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(crate::app::subagents_rows::group_header(
+                t("settings.subagents.group.user"),
+                groups.user.len(),
+            ))
+            .child(controls);
         body = body.child(
             div()
                 .flex()
-                .items_center()
-                .justify_between()
-                .gap_3()
-                .child(format!(
-                    "{} ({})",
-                    label("Custom agents", "自定义智能体"),
-                    groups.user.len()
-                ))
-                .child(controls),
+                .flex_col()
+                .gap_4()
+                .child(installed_header)
+                .child(self.profile_rows(groups.user, pending || uncertain, compact, cx)),
         );
-        body = body.child(self.profile_rows(groups.user, pending || uncertain, compact, cx));
         for (_, rows) in group_plugin_rows(&groups.plugin) {
             let name = rows
                 .first()
                 .and_then(|r| r.agent.plugin_name.as_deref())
-                .unwrap_or(label("Plugin", "插件"))
-                .to_owned();
+                .map(crate::app::subagents_rows::canonical_plugin_name)
+                .unwrap_or_else(|| label("Plugin", "插件").to_owned());
             body = body.child(self.profile_group(&name, rows, pending || uncertain, compact, cx));
         }
         body = body.child(self.profile_group(
-            label("Built-in", "内置"),
+            t("settings.subagents.group.builtIn"),
             groups.built_in,
             pending || uncertain,
             compact,

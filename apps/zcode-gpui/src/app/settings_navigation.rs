@@ -6,17 +6,18 @@ use gpui::{AnyElement, Context, IntoElement, Window, div, prelude::*, px};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingsGroup {
-    Preferences,
-    Capabilities,
-    Activity,
+    Basics,
+    AgentCapabilities,
+    DataAndStats,
 }
 
 impl SettingsGroup {
+    /// Desktop `settings.sidebar.group.*`.
     fn title(self) -> &'static str {
         match self {
-            Self::Preferences => label("Preferences", "偏好设置"),
-            Self::Capabilities => label("Capabilities", "能力"),
-            Self::Activity => label("Activity", "活动"),
+            Self::Basics => label("Basics", "基础设置"),
+            Self::AgentCapabilities => label("Agent capabilities", "Agent 能力"),
+            Self::DataAndStats => label("Data and statistics", "数据与统计"),
         }
     }
 }
@@ -27,17 +28,18 @@ impl SettingsSection {
         label(en, zh)
     }
 
+    /// Desktop section titles (`settingsPageConfig.ts` title ids).
     fn labels(self) -> (&'static str, &'static str) {
         match self {
             Self::General => ("General", "常规"),
             Self::Appearance => ("Appearance", "外观"),
-            Self::Shortcuts => ("Shortcuts", "快捷键"),
+            Self::Shortcuts => ("Keyboard Shortcuts", "键盘快捷键"),
             Self::Memory => ("Memory", "记忆"),
-            Self::Models => ("Configured models", "已配置模型"),
-            Self::Subagents => ("Subagents", "子代理"),
+            Self::Models => ("Model settings", "模型设置"),
+            Self::Subagents => ("Subagents", "子智能体"),
             Self::Plugins => ("Plugins", "插件"),
             Self::Mcp => ("MCP Servers", "MCP 服务器"),
-            Self::Usage => ("Usage stats", "用量统计"),
+            Self::Usage => ("Usage stats", "使用统计"),
         }
     }
 
@@ -83,15 +85,15 @@ pub(crate) fn navigation_sections(query: &str) -> Vec<(SettingsGroup, SettingsSe
     use SettingsGroup::*;
     use SettingsSection::*;
     [
-        (Preferences, General),
-        (Preferences, Appearance),
-        (Preferences, Shortcuts),
-        (Capabilities, Memory),
-        (Capabilities, Models),
-        (Capabilities, Subagents),
-        (Capabilities, Plugins),
-        (Capabilities, Mcp),
-        (Activity, Usage),
+        (Basics, General),
+        (Basics, Appearance),
+        (Basics, Models),
+        (Basics, Shortcuts),
+        (AgentCapabilities, Memory),
+        (AgentCapabilities, Subagents),
+        (AgentCapabilities, Plugins),
+        (AgentCapabilities, Mcp),
+        (DataAndStats, Usage),
     ]
     .into_iter()
     .filter(|(_, section)| {
@@ -251,11 +253,14 @@ impl RootView {
             (!compact).then(|| self.settings_search(SettingsSearch::Navigation, window, cx));
         let mut groups = div().flex().flex_col().gap_4();
         let sections = navigation_sections(&self.settings.query);
-        for group in [
-            SettingsGroup::Preferences,
-            SettingsGroup::Capabilities,
-            SettingsGroup::Activity,
-        ] {
+        for (index, group) in [
+            SettingsGroup::Basics,
+            SettingsGroup::AgentCapabilities,
+            SettingsGroup::DataAndStats,
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let entries: Vec<_> = sections
                 .iter()
                 .filter(|(g, _)| *g == group)
@@ -264,7 +269,7 @@ impl RootView {
             if entries.is_empty() {
                 continue;
             }
-            let mut buttons = div().flex().flex_col().gap_0p5();
+            let mut buttons = div().flex().flex_col().gap_1();
             for section in &entries {
                 let section = *section;
                 buttons =
@@ -291,6 +296,10 @@ impl RootView {
                     .flex()
                     .flex_col()
                     .when(compact, |el| el.items_center())
+                    // The rail separates groups with a rule instead of labels.
+                    .when(compact && index > 0, |el| {
+                        el.pt_3().border_t_1().border_color(active_theme().border)
+                    })
                     .when(!compact, |el| {
                         el.child(
                             div()

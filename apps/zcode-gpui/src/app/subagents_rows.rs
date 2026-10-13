@@ -2,15 +2,17 @@ use crate::app::{
     root::RootView,
     subagent_profiles::{AgentColor, AgentSource, ProfileRow, allows_all_tools},
 };
-use crate::shared::{i18n::label, theme::active_theme};
+use crate::shared::{
+    i18n::{label, t, t_fmt},
+    theme::{active_theme, ui_size},
+};
 use ely_gpui_component::{
-    buttons::{Button, ButtonVariant},
-    data_display::{Avatar, Badge},
+    buttons::{ButtonVariant, IconButton},
     forms::Switch,
     primitives::{IconName, Tooltip},
-    theme::{AvatarSize, ControlSize},
+    theme::ControlSize,
 };
-use gpui::{AnyElement, Context, IntoElement, div, prelude::*, px};
+use gpui::{AnyElement, Context, IntoElement, SharedString, div, prelude::*, px};
 
 impl RootView {
     pub(super) fn profile_group(
@@ -27,9 +29,9 @@ impl RootView {
         div()
             .flex()
             .flex_col()
-            .gap_3()
+            .gap_4()
             .min_w_0()
-            .child(format!("{title} ({})", rows.len()))
+            .child(group_header(title, rows.len()))
             .child(self.profile_rows(rows, blocked, compact, cx))
             .into_any_element()
     }
@@ -42,14 +44,13 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = active_theme();
+        // Desktop renderAgentList: one surface card, rows split by border/50.
         let mut list = div()
             .flex()
             .flex_col()
             .min_w_0()
-            .rounded_lg()
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.card)
+            .rounded_xl()
+            .bg(theme.surface)
             .overflow_hidden();
         if rows.is_empty() {
             list = list.child(
@@ -72,26 +73,43 @@ impl RootView {
             } else {
                 &agent.config.name
             };
-            let avatar = Avatar::new(format!("agent-avatar-{}", agent.id), name.to_owned())
-                .icon(if agent.source == AgentSource::Plugin {
-                    IconName::Puzzle
-                } else {
-                    IconName::Bot
-                })
-                .size(AvatarSize::Sm)
-                .square();
-            let avatar = if let Some(color) = agent.config.color {
-                avatar.ring_color(agent_color(color).into())
-            } else {
-                avatar
-            };
+            let avatar = div()
+                .relative()
+                .flex_none()
+                .size(px(36.))
+                .rounded_xl()
+                .bg(theme.background)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    gpui::svg()
+                        .path(IconName::Bot.path())
+                        .size(px(16.))
+                        .text_color(theme.subtle),
+                )
+                .children(agent.config.color.map(|color| {
+                    div()
+                        .absolute()
+                        .bottom(px(-4.))
+                        .right(px(-4.))
+                        .size(px(14.))
+                        .rounded_full()
+                        .bg(theme.card)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(div().size(px(8.)).rounded_full().bg(agent_color(color)))
+                }));
             let tools = if allows_all_tools(agent.config.tools.as_deref()) {
-                label("All tools", "全部工具").to_owned()
+                t("settings.subagents.tools.all").to_owned()
             } else {
-                format!(
-                    "{} {}",
-                    agent.config.tools.as_ref().map_or(0, Vec::len),
-                    label("tools", "个工具")
+                t_fmt(
+                    "settings.subagents.toolsCount",
+                    &[(
+                        "count",
+                        &agent.config.tools.as_ref().map_or(0, Vec::len).to_string(),
+                    )],
                 )
             };
             let mut heading = div()
@@ -100,21 +118,25 @@ impl RootView {
                 .flex_wrap()
                 .gap_2()
                 .min_w_0()
-                .child(div().min_w_0().truncate().child(name.to_owned()))
-                .child(Badge::new(tools));
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(theme.foreground)
+                        .child(name.to_owned()),
+                );
             if agent.override_target().is_none()
                 && let Some(model) = &agent.config.model_selection
             {
-                heading = heading.child(
-                    div()
-                        .max_w(px(220.))
-                        .truncate()
-                        .child(Badge::new(model.model_id.clone())),
-                );
+                heading = heading.child(chip(model.model_id.clone()).max_w(px(220.)));
             }
+            heading = heading.child(chip(tools));
             let description = div()
                 .id(format!("profile-description-{}", agent.id))
                 .min_w_0()
+                .mt(px(2.))
+                .text_size(px(ui_size(12.)))
                 .text_color(theme.subtle)
                 .line_clamp(2)
                 .tooltip(Tooltip::text(agent.config.description.clone()))
@@ -128,7 +150,6 @@ impl RootView {
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .gap_1()
                 .tab_index(0)
                 .child(heading)
                 .child(description)
@@ -196,34 +217,116 @@ impl RootView {
             if agent.can_delete() {
                 let target = agent.clone();
                 actions = actions.child(
-                    Button::new(format!("profile-delete-{}", agent.id), "")
-                        .icon(IconName::Trash2)
-                        .size(ControlSize::Sm)
-                        .variant(ButtonVariant::Ghost)
-                        .disabled(blocked)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.subagents.delete_target = Some(target.clone());
-                            cx.notify();
-                        })),
+                    IconButton::new(
+                        SharedString::from(format!("profile-delete-{}", agent.id)),
+                        IconName::Trash2,
+                    )
+                    .size(ControlSize::Md)
+                    .variant(ButtonVariant::Ghost)
+                    .disabled(blocked)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        cx.stop_propagation();
+                        this.subagents.delete_target = Some(target.clone());
+                        cx.notify();
+                    })),
                 );
+            }
+            if index != 0 {
+                list = list.child(div().h(px(1.)).bg(half_border()));
             }
             list = list.child(
                 div()
                     .flex()
-                    .items_start()
+                    .items_center()
                     .gap_3()
                     .px_4()
                     .py_3()
                     .min_w_0()
-                    .when(index != 0, |el| el.border_t_1().border_color(theme.border))
-                    .child(div().w(px(36.)).flex_shrink_0().child(avatar))
+                    .text_size(px(ui_size(14.)))
+                    .when(editable, |el| el.hover(|s| s.bg(theme.hover)))
+                    .child(avatar)
                     .child(text)
                     .child(actions),
             );
         }
         list.into_any_element()
     }
+}
+
+/// Desktop `AgentBadge`: model and tool-count chips beside the name.
+fn chip(text: impl Into<SharedString>) -> gpui::Div {
+    let theme = active_theme();
+    div()
+        .flex_none()
+        .truncate()
+        .rounded_md()
+        .bg(theme.surface)
+        .border_1()
+        .border_color(theme.border)
+        .px(px(6.))
+        .py(px(1.))
+        .text_size(px(ui_size(12.)))
+        .text_color(theme.subtle)
+        .child(text.into())
+}
+
+fn half_border() -> gpui::Rgba {
+    let border = active_theme().border;
+    gpui::Rgba {
+        a: border.a * 0.5,
+        ..border
+    }
+}
+
+/// Desktop `SettingsResourceGroupHeader`: medium title, subtlest item count.
+pub(super) fn group_header(title: &str, count: usize) -> gpui::Div {
+    let theme = active_theme();
+    let key = if count == 1 {
+        "settings.resourceGroup.item.one"
+    } else {
+        "settings.resourceGroup.item.other"
+    };
+    div()
+        .px_1()
+        .flex()
+        .items_baseline()
+        .gap_3()
+        .text_size(px(ui_size(14.)))
+        .child(
+            div()
+                .truncate()
+                .font_weight(gpui::FontWeight::MEDIUM)
+                .text_color(theme.foreground)
+                .child(title.to_owned()),
+        )
+        .child(
+            div()
+                .flex_none()
+                .text_color(theme.subtlest)
+                .child(t_fmt(key, &[("count", &count.to_string())])),
+        )
+}
+
+/// Desktop `formatCanonicalPluginName`, the fallback when no store listing
+/// supplies a display name: title-cased slug parts with known acronyms.
+pub(super) fn canonical_plugin_name(name: &str) -> String {
+    name.trim()
+        .split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| match part.to_lowercase().as_str() {
+            "aws" => "AWS".to_owned(),
+            "mcp" => "MCP".to_owned(),
+            "zcode" => "ZCode".to_owned(),
+            _ => {
+                let mut chars = part.chars();
+                chars
+                    .next()
+                    .map(|c| c.to_uppercase().chain(chars).collect())
+                    .unwrap_or_default()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn agent_color(color: AgentColor) -> gpui::Rgba {
@@ -235,5 +338,17 @@ fn agent_color(color: AgentColor) -> gpui::Rgba {
         AgentColor::Yellow | AgentColor::Orange => t.tool,
         AgentColor::Purple | AgentColor::Pink => t.reasoning,
         AgentColor::Cyan => t.info,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_plugin_name;
+
+    #[test]
+    fn plugin_names_follow_desktop_canonical_fallback() {
+        assert_eq!(canonical_plugin_name("documents"), "Documents");
+        assert_eq!(canonical_plugin_name("aws-mcp_tools"), "AWS MCP Tools");
+        assert_eq!(canonical_plugin_name(" zcode-guide "), "ZCode Guide");
     }
 }

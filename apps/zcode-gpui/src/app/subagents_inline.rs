@@ -15,7 +15,10 @@ impl RootView {
     ) -> AnyElement {
         let models = self.state.read(cx).profiles.models.as_ref();
         let selection = agent.model_selection_override.as_ref();
-        let mut choices = vec![Choice::new("", label("Inherit model", "继承模型"))];
+        let mut choices = vec![Choice::new(
+            "",
+            crate::shared::i18n::t("settings.subagents.model.defaultMain"),
+        )];
         if let Some(view) = models {
             for group in model_choices(view, "") {
                 for choice in group.choices {

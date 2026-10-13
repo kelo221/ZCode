@@ -12,8 +12,8 @@ use crate::sessions::items::nav_row;
 use crate::sessions::section_header::section_header;
 use crate::shared::theme::ui_size;
 use crate::shared::theme::{
-    BORDER, DANGER, HOVER, I_ADD, I_CHEVRON_DOWN, I_CHEVRON_RIGHT, I_FOLDER, I_SEARCH, MUTED,
-    SIDEBAR, TEXT, icon,
+    BORDER, DANGER, FRAME, HOVER, I_ADD, I_CHEVRON_DOWN, I_CHEVRON_RIGHT, I_FOLDER, I_SEARCH,
+    MUTED, TEXT, icon,
 };
 use crate::shared::theme_colors::color as rgb;
 use gpui::{AnyElement, ClickEvent, Context, SharedString, div, prelude::*, px};
@@ -296,7 +296,7 @@ impl crate::app::root::RootView {
             .h_full()
             .flex()
             .flex_col()
-            .bg(rgb(SIDEBAR))
+            .bg(rgb(FRAME))
             .pt_3()
             .child(
                 nav_row("new-chat".into(), false)

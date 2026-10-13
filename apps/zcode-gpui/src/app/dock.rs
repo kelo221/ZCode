@@ -2,11 +2,15 @@
 //! pane, toggled from the header pill or CmdOrCtrl+Alt+B (PARITY.md M3 "pane
 //! container: dockable right pane + shortcuts").
 
+use crate::app::layout::HEADER_HEIGHT;
 use crate::app::layout::{PANEL_RADIUS, SIDE_PANE_WIDTH};
 use crate::app::root::RootView;
 use crate::shared::theme::ui_size;
-use crate::shared::theme::{BORDER, CARD, HOVER, MUTED, PANEL, TEXT};
-use crate::shared::theme_colors::color as rgb;
+use crate::shared::theme::{BORDER, HOVER, MUTED, PANEL, SELECTED, TEXT};
+use crate::shared::theme_colors::{color as rgb, tinted};
+use ely_gpui_component::buttons::{ButtonVariant, IconButton};
+use ely_gpui_component::primitives::IconName;
+use ely_gpui_component::theme::ControlSize;
 use gpui::{
     AnyElement, Context, CursorStyle, InteractiveElement, IntoElement, ParentElement, SharedString,
     Styled, actions, div, prelude::*, px,
@@ -84,52 +88,63 @@ impl RootView {
             .border_1()
             .border_color(rgb(BORDER))
             .min_h_0()
-            // Tab strip.
+            // Tab strip: header height and divider match the workspace header;
+            // tabs scroll horizontally when the overlay is too narrow for all six.
             .child(
                 div()
+                    .h(px(HEADER_HEIGHT))
+                    .flex_none()
                     .flex()
                     .items_center()
                     .gap_1()
-                    .px_2()
-                    .h(px(34.))
+                    .pl_2()
+                    .pr_2()
                     .border_b_1()
-                    .border_color(rgb(BORDER))
-                    .children(TABS.map(|tab| {
-                        let selected = tab == active;
-                        div()
-                            .id(SharedString::from(format!("dock-tab-{}", tab.label())))
-                            .px_1p5()
-                            .py_0p5()
-                            .rounded_sm()
-                            .text_size(px(ui_size(11.)))
-                            .cursor(CursorStyle::PointingHand)
-                            .when(selected, |el| el.bg(rgb(CARD)).text_color(rgb(TEXT)))
-                            .when(!selected, |el| {
-                                el.text_color(rgb(MUTED)).hover(|h| h.bg(rgb(HOVER)))
-                            })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.dock_tab = tab;
-                                this.on_dock_tab(tab, cx);
-                            }))
-                            .child(tab.label())
-                    }))
-                    .child(div().flex_1())
+                    .border_color(tinted(BORDER, 0.5))
                     .child(
                         div()
-                            .id("dock-close")
-                            .px_1p5()
-                            .rounded_sm()
-                            .text_size(px(ui_size(11.)))
-                            .text_color(rgb(MUTED))
-                            .cursor(CursorStyle::PointingHand)
-                            .hover(|h| h.text_color(rgb(TEXT)))
+                            .id("dock-tabs")
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_x_scroll()
+                            .flex()
+                            .items_center()
+                            .gap_0p5()
+                            .children(TABS.map(|tab| {
+                                let selected = tab == active;
+                                div()
+                                    .id(SharedString::from(format!("dock-tab-{}", tab.label())))
+                                    .flex_none()
+                                    .h(px(28.))
+                                    .px(px(10.))
+                                    .flex()
+                                    .items_center()
+                                    .rounded_lg()
+                                    .text_size(px(ui_size(13.)))
+                                    .cursor(CursorStyle::PointingHand)
+                                    .when(selected, |el| el.bg(rgb(SELECTED)).text_color(rgb(TEXT)))
+                                    .when(!selected, |el| {
+                                        el.text_color(rgb(MUTED))
+                                            .hover(|h| h.bg(rgb(HOVER)).text_color(rgb(TEXT)))
+                                    })
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.dock_tab = tab;
+                                        this.on_dock_tab(tab, cx);
+                                    }))
+                                    .child(tab.label())
+                            })),
+                    )
+                    .child(
+                        IconButton::new("dock-close", IconName::X)
+                            .size(ControlSize::Md)
+                            .variant(ButtonVariant::Ghost)
+                            .tooltip("Close")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 cx.stop_propagation();
                                 this.dock_open = false;
                                 cx.notify();
-                            }))
-                            .child("✕"),
+                            })),
                     ),
             )
             // Active pane body.

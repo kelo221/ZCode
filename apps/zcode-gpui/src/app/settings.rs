@@ -89,9 +89,15 @@ impl RootView {
     }
 
     pub(crate) fn settings_footer(&self, cx: &mut Context<Self>) -> AnyElement {
-        let footer = div().child(
-            Button::new("open-settings", t("quickPick.command.settings"))
-                .icon(IconName::Settings)
+        // Desktop sidebar footer: a plain sidebar row, not a bordered button.
+        let footer = div().py_1().child(
+            crate::sessions::items::nav_row("open-settings".into(), false)
+                .child(crate::shared::theme::icon(
+                    IconName::Settings,
+                    16.,
+                    crate::shared::theme::MUTED,
+                ))
+                .child(t("quickPick.command.settings").to_string())
                 .on_click(cx.listener(|this, _, window, cx| this.open_settings(window, cx))),
         );
         #[cfg(test)]
@@ -271,7 +277,7 @@ impl RootView {
             .h_full()
             .flex()
             .track_focus(&self.settings.focus)
-            .bg(theme.sidebar)
+            .bg(crate::shared::theme_colors::color(crate::shared::theme::FRAME))
             .text_color(theme.foreground)
             .text_size(px(font_size_base()))
             .child(navigation)
