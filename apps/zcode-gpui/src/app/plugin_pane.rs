@@ -172,7 +172,7 @@ impl RootView {
             .gap_1p5()
             .px_3()
             .py_1p5()
-            .bg(rgb(0x131d2e))
+            .bg(crate::shared::theme::active_theme().accent)
             .border_b_1()
             .border_color(rgb(BORDER))
             .child(

@@ -1,32 +1,43 @@
-//! Compatibility bridge for legacy token-based renderers.
+//! Compatibility bridge: legacy token identities to Desktop's Zai semantic colors.
 
 use crate::shared::theme::*;
 
 pub(crate) fn color(token: u32) -> gpui::Rgba {
-    let palette = active_theme();
-    let resolved = match token {
-        BG => palette.bg,
-        PANEL => palette.panel,
-        CARD => palette.card,
-        CARD_HOVER => palette.card_hover,
-        BORDER => palette.border,
-        HOVER => palette.hover,
-        SELECTED => palette.selected,
-        TEXT => palette.text,
-        MUTED => palette.muted,
-        ACCENT => palette.accent,
-        USER_BLUE => palette.user_blue,
-        REASONING => palette.reasoning,
-        TOOL => palette.tool,
-        DANGER => palette.danger,
-        SUCCESS => palette.success,
-        CODE_BG => palette.code_bg,
-        CODE_BORDER => palette.code_border,
-        CODE_HEADER => palette.code_header,
-        DIFF_ADD_BG => palette.diff_add_bg,
-        DIFF_DEL_BG => palette.diff_del_bg,
-        DIFF_HUNK_BG => palette.diff_hunk_bg,
-        _ => token,
-    };
-    gpui::rgb(resolved)
+    let p = active_theme();
+    match token {
+        BG => p.background,
+        PANEL => p.panel,
+        CARD => p.card,
+        CARD_HOVER => p.menu_hover,
+        BORDER => p.border,
+        HOVER => p.hover,
+        SELECTED => p.selected,
+        // TEXT and PRIMARY share an identity.
+        TEXT => p.foreground,
+        MUTED => p.subtle,
+        ACCENT => p.brand,
+        // USER_BLUE and LINK share an identity.
+        USER_BLUE => p.link,
+        REASONING => p.reasoning,
+        // TOOL, AMBER and WARNING share an identity.
+        TOOL => p.warning,
+        DANGER => p.destructive,
+        SUCCESS => p.success,
+        CODE_BG => p.background,
+        CODE_BORDER => p.border,
+        CODE_HEADER => p.surface,
+        DIFF_ADD_BG => p.diff_add_bg,
+        DIFF_DEL_BG => p.diff_del_bg,
+        DIFF_HUNK_BG => p.diff_hunk_bg,
+        _ => gpui::rgb(token),
+    }
+}
+
+/// A token at reduced alpha, for Desktop-style translucent badges and banners
+/// (`bg-<color>/15` and similar).
+pub(crate) fn tinted(token: u32, alpha: f32) -> gpui::Rgba {
+    gpui::Rgba {
+        a: alpha,
+        ..color(token)
+    }
 }

@@ -5,7 +5,7 @@ use crate::app::{
 use crate::composer::catalog::{ModelGroup, ModelOption, group_models};
 use crate::shared::i18n::label;
 use crate::shared::theme::{MONO_FONT, active_theme, font_size_sm};
-use gpui::{AnyElement, Context, IntoElement, Window, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, IntoElement, Window, div, prelude::*, px};
 
 pub(crate) fn filtered_model_groups(models: &[ModelOption], query: &str) -> Vec<ModelGroup> {
     // 复用既有 catalog 分组，先分组再过滤以保持提供商标签和 owner 顺序稳定。
@@ -63,13 +63,13 @@ impl RootView {
                         div()
                             .font_family(MONO_FONT)
                             .text_size(px(font_size_sm()))
-                            .text_color(rgb(theme.muted))
+                            .text_color(theme.subtle)
                             .child(format!("{}/{}", model.provider, model.model)),
                     )
                     .child(
                         div()
                             .text_size(px(font_size_sm()))
-                            .text_color(rgb(theme.muted))
+                            .text_color(theme.subtle)
                             .child(format!(
                                 "{}: {} · {}: {}",
                                 label("Reasoning levels", "推理级别"),
@@ -93,13 +93,13 @@ impl RootView {
                     .flex()
                     .flex_col()
                     .gap_3()
-                    .child(div().text_color(rgb(theme.muted)).child(group.label))
+                    .child(div().text_color(theme.subtle).child(group.label))
                     .child(items),
             );
         }
         let search = self.settings_search(SettingsSearch::Models, window, cx);
         div().flex().flex_col().gap_4()
-            .child(div().text_color(rgb(theme.muted)).text_size(px(font_size_sm())).child(label(
+            .child(div().text_color(theme.subtle).text_size(px(font_size_sm())).child(label(
                 "Read-only workspace model catalog. This does not change providers, the selected session model or Subagents defaults.",
                 "工作区模型目录仅供查看，不会修改提供商、会话所选模型或子代理默认设置。",
             )))

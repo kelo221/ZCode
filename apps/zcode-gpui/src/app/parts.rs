@@ -6,7 +6,7 @@ use crate::composer::input::Composer;
 use crate::conversation::msg_actions::ComposerIntent;
 use crate::shared::theme::ui_size;
 use crate::shared::theme::{
-    AMBER, BORDER, CARD, CARD_HOVER, DANGER, I_ARROW_UP, I_STOP, MUTED, PANEL, PRIMARY, TEXT, icon,
+    ACCENT, AMBER, BORDER, CARD, CARD_HOVER, DANGER, I_ARROW_UP, I_STOP, MUTED, PANEL, TEXT,
 };
 use crate::shared::theme_colors::color as rgb;
 use gpui::{
@@ -21,7 +21,7 @@ fn banner() -> Div {
         .px_3()
         .py_1p5()
         .rounded_md()
-        .bg(rgb(0x3d2323))
+        .bg(crate::shared::theme_colors::tinted(DANGER, 0.12))
         .border_1()
         .border_color(rgb(DANGER))
 }
@@ -171,7 +171,12 @@ impl RootView {
     }
 }
 
-fn round_button(id: &'static str, glyph: char, bg: u32, fg: u32) -> Stateful<Div> {
+fn round_button(
+    id: &'static str,
+    glyph: crate::shared::theme::IconName,
+    bg: u32,
+    fg: gpui::Rgba,
+) -> Stateful<Div> {
     div()
         .id(id)
         .size(px(28.))
@@ -181,7 +186,7 @@ fn round_button(id: &'static str, glyph: char, bg: u32, fg: u32) -> Stateful<Div
         .rounded_full()
         .bg(rgb(bg))
         .cursor(CursorStyle::PointingHand)
-        .child(icon(glyph, 12., fg))
+        .child(gpui::svg().path(glyph.path()).size(px(14.)).text_color(fg))
 }
 
 impl RootView {
@@ -193,18 +198,23 @@ impl RootView {
         running: bool,
         cx: &mut Context<Self>,
     ) -> Div {
-        let send = round_button("send-btn", I_ARROW_UP, PRIMARY, 0x000000)
-            .hover(|s| s.opacity(0.85))
-            .on_click(cx.listener(|this, event: &ClickEvent, _window, cx| {
-                let trigger = if crate::composer::delivery::primary_modifier(&event.modifiers()) {
-                    crate::composer::delivery::SubmitTrigger::ModifiedPointer
-                } else {
-                    crate::composer::delivery::SubmitTrigger::Ordinary
-                };
-                this.state
-                    .update(cx, |s, cx| s.submit_composer_with_trigger(trigger, cx));
-            }));
-        let stop = round_button("stop-btn", I_STOP, CARD_HOVER, TEXT)
+        let send = round_button(
+            "send-btn",
+            I_ARROW_UP,
+            ACCENT,
+            crate::shared::theme::active_theme().inverse,
+        )
+        .hover(|s| s.opacity(0.85))
+        .on_click(cx.listener(|this, event: &ClickEvent, _window, cx| {
+            let trigger = if crate::composer::delivery::primary_modifier(&event.modifiers()) {
+                crate::composer::delivery::SubmitTrigger::ModifiedPointer
+            } else {
+                crate::composer::delivery::SubmitTrigger::Ordinary
+            };
+            this.state
+                .update(cx, |s, cx| s.submit_composer_with_trigger(trigger, cx));
+        }));
+        let stop = round_button("stop-btn", I_STOP, CARD_HOVER, rgb(TEXT))
             .hover(|s| s.bg(rgb(BORDER)))
             .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
                 this.state.update(cx, |s, cx| s.stop(cx));

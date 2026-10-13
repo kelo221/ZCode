@@ -10,7 +10,7 @@ use ely_gpui_component::{
     primitives::{IconName, Tooltip},
     theme::{AvatarSize, ControlSize},
 };
-use gpui::{AnyElement, Context, IntoElement, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, IntoElement, div, prelude::*, px};
 
 impl RootView {
     pub(super) fn profile_group(
@@ -48,15 +48,15 @@ impl RootView {
             .min_w_0()
             .rounded_lg()
             .border_1()
-            .border_color(rgb(theme.border))
-            .bg(rgb(theme.card))
+            .border_color(theme.border)
+            .bg(theme.card)
             .overflow_hidden();
         if rows.is_empty() {
             list = list.child(
                 div()
                     .px_4()
                     .py_3()
-                    .text_color(rgb(theme.muted))
+                    .text_color(theme.subtle)
                     .child(label("No custom agents", "暂无自定义智能体")),
             );
         }
@@ -81,7 +81,7 @@ impl RootView {
                 .size(AvatarSize::Sm)
                 .square();
             let avatar = if let Some(color) = agent.config.color {
-                avatar.ring_color(rgb(agent_color(color)).into())
+                avatar.ring_color(agent_color(color).into())
             } else {
                 avatar
             };
@@ -115,7 +115,7 @@ impl RootView {
             let description = div()
                 .id(format!("profile-description-{}", agent.id))
                 .min_w_0()
-                .text_color(rgb(theme.muted))
+                .text_color(theme.subtle)
                 .line_clamp(2)
                 .tooltip(Tooltip::text(agent.config.description.clone()))
                 .child(agent.config.description.clone());
@@ -216,9 +216,7 @@ impl RootView {
                     .px_4()
                     .py_3()
                     .min_w_0()
-                    .when(index != 0, |el| {
-                        el.border_t_1().border_color(rgb(theme.border))
-                    })
+                    .when(index != 0, |el| el.border_t_1().border_color(theme.border))
                     .child(div().w(px(36.)).flex_shrink_0().child(avatar))
                     .child(text)
                     .child(actions),
@@ -228,14 +226,14 @@ impl RootView {
     }
 }
 
-fn agent_color(color: AgentColor) -> u32 {
+fn agent_color(color: AgentColor) -> gpui::Rgba {
     let t = active_theme();
     match color {
-        AgentColor::Red => t.danger,
-        AgentColor::Blue => t.user_blue,
+        AgentColor::Red => t.destructive,
+        AgentColor::Blue => t.link,
         AgentColor::Green => t.success,
         AgentColor::Yellow | AgentColor::Orange => t.tool,
         AgentColor::Purple | AgentColor::Pink => t.reasoning,
-        AgentColor::Cyan => t.accent,
+        AgentColor::Cyan => t.info,
     }
 }

@@ -357,7 +357,7 @@ impl RootView {
             div()
                 .pt_4()
                 .border_t_1()
-                .border_color(gpui::rgb(crate::shared::theme::active_theme().border))
+                .border_color(crate::shared::theme::active_theme().border)
                 .child(self.profile_form_footer(blocked, cx)),
         )
         .into_any_element()

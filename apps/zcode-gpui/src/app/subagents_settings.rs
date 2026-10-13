@@ -7,8 +7,7 @@ use ely_gpui_component::forms::{Choice, Input, InputEvent, Select, TextInput};
 use ely_gpui_component::primitives::IconName;
 use ely_gpui_component::theme::ControlSize;
 use gpui::{
-    AnyElement, AppContext, Context, Entity, IntoElement, SharedString, Window, div, prelude::*,
-    px, rgb,
+    AnyElement, AppContext, Context, Entity, IntoElement, SharedString, Window, div, prelude::*, px,
 };
 
 pub(crate) struct SubagentsView {
@@ -143,8 +142,8 @@ impl RootView {
                         })),
                 ),
             )
-            .child(div().w(px(1.)).h(px(20.)).bg(rgb(theme.border)))
-            .child(div().text_color(rgb(theme.muted)).child(format!(
+            .child(div().w(px(1.)).h(px(20.)).bg(theme.border))
+            .child(div().text_color(theme.subtle).child(format!(
                 "{} {}",
                 rows.len(),
                 label("agents", "个智能体")
@@ -164,7 +163,7 @@ impl RootView {
                     .items_center()
                     .justify_between()
                     .gap_2()
-                    .child(div().text_color(rgb(theme.muted)).child(label(
+                    .child(div().text_color(theme.subtle).child(label(
                         "Local manager · application preference saves paused",
                         "本地管理 · 应用偏好保存已暂停",
                     )))
@@ -182,11 +181,11 @@ impl RootView {
             body = body.child(self.profile_review(cx));
         }
         if let Some(error) = error {
-            body = body.child(div().text_color(rgb(theme.danger)).child(error));
+            body = body.child(div().text_color(theme.destructive).child(error));
         }
         if let Some(outcome) = outcome {
             body = body.child(
-                div().text_color(rgb(theme.muted)).child(match outcome {
+                div().text_color(theme.subtle).child(match outcome {
                     Ok(()) => label(
                         "Saved; inventory refresh may still be pending",
                         "已保存；列表可能仍在刷新",
@@ -199,7 +198,7 @@ impl RootView {
         if loading {
             body = body.child(
                 div()
-                    .text_color(rgb(theme.muted))
+                    .text_color(theme.subtle)
                     .child(label("Loading agents…", "正在加载智能体…")),
             );
         }
@@ -269,7 +268,7 @@ impl RootView {
         if rows.is_empty() && !loading {
             body = body.child(
                 div()
-                    .text_color(rgb(theme.muted))
+                    .text_color(theme.subtle)
                     .child(label("No matching agents", "没有匹配的智能体")),
             );
         }

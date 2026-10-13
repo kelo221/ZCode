@@ -2,7 +2,7 @@ use crate::app::root::RootView;
 use crate::shared::{i18n::label, theme::active_theme};
 use ely_gpui_component::buttons::{Button, ButtonVariant};
 use ely_gpui_component::primitives::{Icon, IconName};
-use gpui::{AnyElement, Context, IntoElement, div, prelude::*, rgb};
+use gpui::{AnyElement, Context, IntoElement, div, prelude::*};
 
 impl RootView {
     pub(super) fn profile_activation(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -22,12 +22,12 @@ impl RootView {
                     .child(Icon::new(IconName::Bot))
                     .child(label("Manage local agents", "管理本地智能体")),
             )
-            .child(div().text_color(rgb(theme.muted)).child(label(
+            .child(div().text_color(theme.subtle).child(label(
                 "Use the existing Services Host to manage your local user and workspace profiles.",
                 "使用现有服务 Host 管理本地用户和工作区配置。",
             )));
         if self.subagents.activation_confirm {
-            body = body.child(div().flex().flex_col().gap_2().rounded_lg().border_1().border_color(rgb(theme.border)).p_4()
+            body = body.child(div().flex().flex_col().gap_2().rounded_lg().border_1().border_color(theme.border).p_4()
                 .child(label("Before enabling", "启用前须知"))
                 .child(label("The full Host adds roughly 160 MiB (Bun) to 195 MiB (Desktop runtime) while active and stops when idle. Startup and listing may migrate or normalize existing storage.", "完整 Host 活跃时约增加 160 MiB（Bun）至 195 MiB（桌面运行时）内存，空闲时停止。启动和列举可能迁移或规范化现有存储。"))
                 .child(label("Edits rewrite supported metadata; unknown YAML fields and comments may be discarded. Desktop and other configuration writers must be closed.", "编辑会重写受支持的元数据；未知 YAML 字段和注释可能丢失。请关闭桌面端及其他配置写入客户端。"))
@@ -59,7 +59,7 @@ impl RootView {
         } else if p.consented {
             // Already opted in: the Host starts on entry and unloads when idle,
             // so resuming needs no second confirmation.
-            body = body.child(div().text_color(rgb(theme.muted)).child(label(
+            body = body.child(div().text_color(theme.subtle).child(label(
                 "Local management is enabled. The Services Host stops when idle to save memory.",
                 "本地管理已启用。服务 Host 空闲时会停止以节省内存。",
             )));
@@ -119,7 +119,7 @@ impl RootView {
                 );
         }
         if let Some(e) = &p.connection_error {
-            body = body.child(div().text_color(rgb(theme.danger)).child(e.clone()));
+            body = body.child(div().text_color(theme.destructive).child(e.clone()));
         }
         #[cfg(test)]
         let controls = crate::app::test_support::track_children(
@@ -164,7 +164,7 @@ impl RootView {
             .p_4()
             .rounded_lg()
             .border_1()
-            .border_color(rgb(active_theme().warning))
+            .border_color(active_theme().warning)
             .child(message)
             .child(
                 div()
@@ -215,7 +215,7 @@ impl RootView {
             .p_4()
             .rounded_lg()
             .border_1()
-            .border_color(rgb(active_theme().border))
+            .border_color(active_theme().border)
             .flex()
             .flex_col()
             .gap_3()

@@ -6,7 +6,7 @@ use crate::shared::theme::{ThemeMode, active_theme, font_size_base};
 use ely_gpui_component::buttons::Button;
 use ely_gpui_component::forms::{Choice, Select, Slider, Switch};
 use ely_gpui_component::primitives::IconName;
-use gpui::{AnyElement, Context, FocusHandle, IntoElement, Window, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, FocusHandle, IntoElement, Window, div, prelude::*, px};
 
 gpui::actions!(settings, [OpenSettings]);
 
@@ -167,7 +167,7 @@ impl RootView {
                     .child(selector)
                     .child(
                         div()
-                            .text_color(rgb(theme.muted))
+                            .text_color(theme.subtle)
                             .child(crate::shared::i18n::label(
                                 "Other settings remain available in ZCode desktop.",
                                 "其他设置仍可在 ZCode 桌面端中使用。",
@@ -244,7 +244,7 @@ impl RootView {
                     content,
                     vec!["settings-memory-enabled".into()],
                 );
-                content.child(div().text_color(rgb(theme.muted)).child(
+                content.child(div().text_color(theme.subtle).child(
                     crate::shared::i18n::label(
                         "Allows configured CLI memory for newly materialized or resumed sessions. This does not reconfigure an active runtime; CLI memory policy still applies.",
                         "允许新建或恢复的会话使用已配置的 CLI 记忆。不会重新配置运行中的会话；仍受 CLI 记忆策略控制。",
@@ -268,8 +268,8 @@ impl RootView {
             .flex()
             .flex_col()
             .track_focus(&self.settings.focus)
-            .bg(rgb(theme.panel))
-            .text_color(rgb(theme.text))
+            .bg(theme.panel)
+            .text_color(theme.foreground)
             .text_size(px(font_size_base()))
             .child(
                 div()
@@ -303,7 +303,7 @@ impl RootView {
                                 el.child(crate::shared::i18n::label("Saving…", "正在保存…"))
                             })
                             .children(
-                                error.map(|error| div().text_color(rgb(theme.danger)).child(error)),
+                                error.map(|error| div().text_color(theme.destructive).child(error)),
                             )
                             .when(suspended && self.settings.section != SettingsSection::Subagents, |el| {
                                 el.child(crate::shared::i18n::label("Preference saves are paused until the Subagents Host exits.", "子智能体 Host 退出前，偏好保存暂停。"))

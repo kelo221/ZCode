@@ -72,7 +72,7 @@ impl RootView {
             .overflow_hidden()
             .bg(rgb(PANEL))
             .border_1()
-            .border_color(rgb(0x3f3f46))
+            .border_color(rgb(BORDER))
             .min_h_0()
             // Tab strip.
             .child(

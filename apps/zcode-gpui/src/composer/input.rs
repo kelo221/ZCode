@@ -380,7 +380,7 @@ impl Render for Composer {
                         div()
                             .w(px(1.5))
                             .h(px(18.))
-                            .bg(rgb(0x2dd4bf))
+                            .bg(rgb(crate::shared::theme::TEXT))
                             .mr(px(0.5))
                             .ml(px(0.5)),
                     )

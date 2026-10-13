@@ -78,7 +78,7 @@ impl RootView {
                                         .px_1p5()
                                         .py_0p5()
                                         .rounded_sm()
-                                        .bg(rgb(0x382c14))
+                                        .bg(crate::shared::theme_colors::tinted(WARNING, 0.16))
                                         .text_size(px(ui_size(9.5)))
                                         .text_color(rgb(WARNING))
                                         .child("Paid Plan"),
@@ -90,7 +90,7 @@ impl RootView {
                             .px_2()
                             .py_0p5()
                             .rounded_sm()
-                            .bg(rgb(0x133827))
+                            .bg(crate::shared::theme_colors::tinted(SUCCESS, 0.16))
                             .text_size(px(ui_size(10.)))
                             .text_color(rgb(SUCCESS))
                             .child("Installed")

@@ -300,7 +300,15 @@ impl RootView {
                         .child("−"),
                 )
             })
-            .child(icon(if expanded { '▾' } else { '▸' }, 9., MUTED));
+            .child(icon(
+                if expanded {
+                    crate::shared::theme::I_CHEVRON_DOWN
+                } else {
+                    crate::shared::theme::I_CHEVRON_RIGHT
+                },
+                12.,
+                MUTED,
+            ));
         if !expanded {
             return row.into_any_element();
         }

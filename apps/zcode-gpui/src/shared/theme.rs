@@ -1,7 +1,6 @@
-//! Color tokens and typography ladder. Neutrals + semantic colors follow the
-//! ely-gpui-component palette (the design system this app now renders with),
-//! so hand-rolled surfaces and ely components read as one; brand accents
-//! (teal accent, violet reasoning) keep the Zai identity (DESIGN.md).
+//! Legacy color token IDs, theme mode and the typography ladder. The constants below
+//! are only identities resolved by `theme_colors::color` to Desktop's Zai palette
+//! (`theme_palette.rs`); their numeric values are not the colors drawn.
 
 #![allow(dead_code)]
 
@@ -13,7 +12,7 @@ use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 pub const UI_FONT: &str = "Inter";
 pub const MONO_FONT: &str = "JetBrains Mono";
 
-// Default static tokens (ely warm dark fallback)
+// Legacy token identities (resolved through theme_colors::color).
 pub const BG: u32 = 0x131110;
 pub const PANEL: u32 = 0x1b1917;
 pub const CARD: u32 = 0x201f1d;
@@ -66,93 +65,7 @@ impl ThemeMode {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ThemePalette {
-    pub bg: u32,
-    pub panel: u32,
-    pub card: u32,
-    pub card_hover: u32,
-    pub border: u32,
-    pub hover: u32,
-    pub selected: u32,
-    pub text: u32,
-    pub muted: u32,
-    pub accent: u32,
-    pub user_blue: u32,
-    pub reasoning: u32,
-    pub tool: u32,
-    pub warning: u32,
-    pub danger: u32,
-    pub success: u32,
-    pub primary: u32,
-    pub code_bg: u32,
-    pub code_border: u32,
-    pub code_header: u32,
-    pub link: u32,
-    pub diff_add_bg: u32,
-    pub diff_del_bg: u32,
-    pub diff_hunk_bg: u32,
-}
-
-impl ThemePalette {
-    pub const fn zai_dark() -> Self {
-        Self {
-            bg: BG,
-            panel: PANEL,
-            card: CARD,
-            card_hover: CARD_HOVER,
-            border: BORDER,
-            hover: HOVER,
-            selected: SELECTED,
-            text: TEXT,
-            muted: MUTED,
-            accent: ACCENT,
-            user_blue: USER_BLUE,
-            reasoning: REASONING,
-            tool: TOOL,
-            warning: WARNING,
-            danger: DANGER,
-            success: SUCCESS,
-            primary: PRIMARY,
-            code_bg: CODE_BG,
-            code_border: CODE_BORDER,
-            code_header: CODE_HEADER,
-            link: LINK,
-            diff_add_bg: DIFF_ADD_BG,
-            diff_del_bg: DIFF_DEL_BG,
-            diff_hunk_bg: DIFF_HUNK_BG,
-        }
-    }
-
-    pub const fn zai_light() -> Self {
-        Self {
-            bg: 0xfcfaf7,
-            panel: 0xffffff,
-            card: 0xffffff,
-            card_hover: 0xf3f0ec,
-            border: 0xe1dfdd,
-            hover: 0xf5f2ee,
-            selected: 0xece9e4,
-            text: 0x181613,
-            muted: 0x605d5a,
-            accent: 0x0f766e,
-            user_blue: 0x2e69b2,
-            reasoning: 0x7c3aed,
-            tool: 0xa25f12,
-            warning: 0xa25f12,
-            danger: 0xba3e38,
-            success: 0x267b4c,
-            primary: 0x181613,
-            code_bg: 0xf6f4f0,
-            code_border: 0xe4e1dd,
-            code_header: 0xeeeae5,
-            link: 0x2e69b2,
-            diff_add_bg: 0xe7f9ec,
-            diff_del_bg: 0xffefec,
-            diff_hunk_bg: 0xebf4ff,
-        }
-    }
-}
+pub use crate::shared::theme_palette::ThemePalette;
 
 static ACTIVE_THEME: AtomicU8 = AtomicU8::new(2); // preference: dark, light, system
 static EFFECTIVE_LIGHT: AtomicU8 = AtomicU8::new(0);
@@ -174,6 +87,10 @@ pub fn theme_mode() -> ThemeMode {
     }
 }
 
+pub fn effective_light() -> bool {
+    EFFECTIVE_LIGHT.load(Ordering::Relaxed) == 1
+}
+
 pub fn active_theme() -> ThemePalette {
     if EFFECTIVE_LIGHT.load(Ordering::Relaxed) == 1 {
         ThemePalette::zai_light()
@@ -193,6 +110,17 @@ pub fn apply_appearance(appearance: gpui::WindowAppearance, cx: &mut gpui::App) 
         ThemeMode::System => system_light,
     };
     EFFECTIVE_LIGHT.store(u8::from(light), Ordering::Relaxed);
+    use ely_gpui_component::theme::{Mode, Theme};
+    Theme::set_palette(
+        Mode::Light,
+        Some(ThemePalette::zai_light().ely_palette(true)),
+        cx,
+    );
+    Theme::set_palette(
+        Mode::Dark,
+        Some(ThemePalette::zai_dark().ely_palette(false)),
+        cx,
+    );
     ely_gpui_component::theme::Theme::set_mode_now(
         if light {
             ely_gpui_component::theme::Mode::Light
@@ -252,26 +180,27 @@ pub fn font_size_2xs() -> f32 {
     font_size_base() - 5.0
 }
 
-/// Windows icon font (ships with Windows 10+); glyph code points below.
-const ICON_FONT: &str = "Segoe MDL2 Assets";
-pub const I_ADD: char = '\u{E710}';
-pub const I_SEARCH: char = '\u{E721}';
-pub const I_FOLDER: char = '\u{F12B}';
-pub const I_CHEVRON_DOWN: char = '\u{E70D}';
-pub const I_CHEVRON_RIGHT: char = '\u{E70E}';
-pub const I_ARROW_UP: char = '\u{E74A}';
-pub const I_STOP: char = '\u{E71A}';
-pub const I_EDIT: char = '\u{E70F}';
-pub const I_CLOSE: char = '\u{E711}';
-pub const I_SHIELD: char = '\u{EA18}';
-pub const I_BULB: char = '\u{EA80}';
+// Lucide icons bundled with Ely, the set Desktop uses (lucide-react).
+pub use ely_gpui_component::primitives::IconName;
+pub const I_ADD: IconName = IconName::Plus;
+pub const I_SEARCH: IconName = IconName::Search;
+pub const I_FOLDER: IconName = IconName::Folder;
+pub const I_CHEVRON_DOWN: IconName = IconName::ChevronDown;
+pub const I_CHEVRON_RIGHT: IconName = IconName::ChevronRight;
+pub const I_ARROW_UP: IconName = IconName::ArrowUp;
+pub const I_STOP: IconName = IconName::Square;
+pub const I_EDIT: IconName = IconName::Pencil;
+pub const I_CLOSE: IconName = IconName::X;
+pub const I_SHIELD: IconName = IconName::Shield;
+pub const I_BULB: IconName = IconName::Lightbulb;
 
-pub fn icon(glyph: char, size: f32, color: u32) -> Div {
-    div()
-        .font_family(ICON_FONT)
-        .text_size(px(size))
-        .text_color(crate::shared::theme_colors::color(color))
-        .child(glyph.to_string())
+pub fn icon(name: IconName, size: f32, color: u32) -> Div {
+    div().flex_none().child(
+        gpui::svg()
+            .path(name.path())
+            .size(px(size))
+            .text_color(crate::shared::theme_colors::color(color)),
+    )
 }
 
 /// Phase chip, shown only while a session is live or failed.

@@ -4,7 +4,7 @@
 //! Spec: PARITY.md M2 "Code highlighting (syntect) + copy button".
 
 use gpui::{
-    AnyElement, InteractiveElement, IntoElement, ParentElement, Styled, div, prelude::*, px, rgb,
+    AnyElement, InteractiveElement, IntoElement, ParentElement, Styled, div, prelude::*, px,
 };
 use std::sync::OnceLock;
 use syntect::easy::HighlightLines;
@@ -28,12 +28,22 @@ fn syntax_set() -> &'static SyntaxSet {
     SET.get_or_init(SyntaxSet::load_defaults_newlines)
 }
 
+/// Syntax colors follow the effective light/dark mode so tokens stay legible on the
+/// code block's background.
+fn theme_name() -> &'static str {
+    if crate::shared::theme::effective_light() {
+        "InspiredGitHub"
+    } else {
+        "base16-ocean.dark"
+    }
+}
+
 fn theme() -> &'static syntect::highlighting::Theme {
     static THEMES: OnceLock<ThemeSet> = OnceLock::new();
     THEMES
         .get_or_init(ThemeSet::load_defaults)
         .themes
-        .get("base16-ocean.dark")
+        .get(theme_name())
         .unwrap_or_else(|| {
             static FALLBACK: OnceLock<syntect::highlighting::Theme> = OnceLock::new();
             FALLBACK.get_or_init(syntect::highlighting::Theme::default)
@@ -58,7 +68,7 @@ fn highlight_cached(code: &str, lang: &str) -> std::rc::Rc<Vec<CodeLine>> {
             RefCell::new(HashMap::new());
     }
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (code, lang).hash(&mut hasher);
+    (code, lang, theme_name()).hash(&mut hasher);
     // Length in the key makes a 64-bit hash collision even less plausible.
     let key = (hasher.finish(), code.len());
     if let Some(hit) = CACHE.with(|c| c.borrow().get(&key).cloned()) {
@@ -162,7 +172,7 @@ fn code_line(spans: &[CodeSpan]) -> gpui::AnyElement {
                     FontStyle::Normal
                 },
             },
-            color: rgb(s.color).into(),
+            color: crate::shared::theme_colors::color(s.color).into(),
             background_color: None,
             underline: None,
             strikethrough: Option::<StrikethroughStyle>::None,

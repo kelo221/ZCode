@@ -313,7 +313,7 @@ fn preference_owner_serializes_and_applies_committed_values() {
         assert_eq!(crate::shared::i18n::label("Settings", "设置"), "设置");
         assert_eq!(
             crate::shared::theme_colors::color(crate::shared::theme::TEXT),
-            gpui::rgb(crate::shared::theme::active_theme().text)
+            crate::shared::theme::active_theme().foreground
         );
     });
     app.update(|cx| {

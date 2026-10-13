@@ -3,7 +3,7 @@ use crate::shared::i18n::label;
 use crate::shared::theme::{active_theme, font_size_sm};
 use ely_gpui_component::buttons::{Button, ButtonVariant};
 use ely_gpui_component::forms::{Input, InputEvent, TextInput};
-use gpui::{AnyElement, Context, IntoElement, Window, div, prelude::*, px, rgb};
+use gpui::{AnyElement, Context, IntoElement, Window, div, prelude::*, px};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SettingsGroup {
@@ -234,7 +234,7 @@ impl RootView {
                     .gap_2()
                     .child(
                         div()
-                            .text_color(rgb(active_theme().muted))
+                            .text_color(active_theme().subtle)
                             .text_size(px(font_size_sm()))
                             .child(group.title()),
                     )

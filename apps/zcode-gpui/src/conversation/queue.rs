@@ -200,7 +200,7 @@ pub fn render_queue_panel(
                                         .bg(rgb(ACCENT))
                                         .text_size(px(ui_size(10.)))
                                         .font_weight(gpui::FontWeight::BOLD)
-                                        .text_color(rgb(0x000000))
+                                        .text_color(crate::shared::theme::active_theme().inverse)
                                         .cursor_pointer()
                                         .child("Send now")
                                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -222,7 +222,9 @@ pub fn render_queue_panel(
                                             .rounded_sm()
                                             .bg(rgb(MUTED))
                                             .text_size(px(ui_size(10.)))
-                                            .text_color(rgb(0x000000))
+                                            .text_color(
+                                                crate::shared::theme::active_theme().inverse,
+                                            )
                                             .cursor_pointer()
                                             .child("↑")
                                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -250,7 +252,9 @@ pub fn render_queue_panel(
                                             .rounded_sm()
                                             .bg(rgb(MUTED))
                                             .text_size(px(ui_size(10.)))
-                                            .text_color(rgb(0x000000))
+                                            .text_color(
+                                                crate::shared::theme::active_theme().inverse,
+                                            )
                                             .cursor_pointer()
                                             .child("↓")
                                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -276,7 +280,7 @@ pub fn render_queue_panel(
                                         .bg(rgb(DANGER))
                                         .text_size(px(ui_size(10.)))
                                         .font_weight(gpui::FontWeight::BOLD)
-                                        .text_color(rgb(0xffffff))
+                                        .text_color(gpui::white())
                                         .cursor_pointer()
                                         .child("✕")
                                         .on_click(cx.listener(move |this, _, _, cx| {
