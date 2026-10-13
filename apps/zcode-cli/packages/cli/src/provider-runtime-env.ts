@@ -69,7 +69,7 @@ export async function prepareCliProviderRuntimeEnv(
     explicitZCodeBuiltin ??
     (await resolveBundledZCodeBuiltinProviderConfig({
       dataBaseDir,
-      entrypoint: options.entrypoint ?? process.argv[1],
+      entrypoint: options.entrypoint ?? defaultCliEntrypoint(),
       sea: options.sea ?? getSeaProviderConfigAssets(),
     }));
   const personalFilePath =
@@ -153,6 +153,18 @@ async function resolveBundledZCodeBuiltinProviderConfig(input: {
   const candidate = candidates.find((filePath) => existsSync(filePath));
   if (candidate) return candidate;
   throw new Error(`无法定位 CLI ZCode Built-in Provider Config：${candidates.join(", ")}`);
+}
+
+/**
+ * 原因：`bun build --compile` 产物的 argv[1] 是虚拟路径（`B:/~BUN/root/…`），realpath 直接 ENOENT，
+ * app-server 启动即退出。修复：此时以真实可执行文件定位随包 `provider/`；Node/SEA 下行为不变。
+ */
+function defaultCliEntrypoint(): string | undefined {
+  const bunMain = (globalThis as { Bun?: { main?: unknown } }).Bun?.main;
+  if (typeof bunMain === "string" && /^(?:B:[\\/]~BUN[\\/]|\/\$bunfs\/)/.test(bunMain)) {
+    return process.execPath;
+  }
+  return process.argv[1];
 }
 
 function getSeaProviderConfigAssets(): SeaProviderConfigAssets | undefined {

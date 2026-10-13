@@ -445,6 +445,13 @@ export function dynamicWorkflowChildSpawn(
 
 /** SEA 运行时探针（official-plugin-runtime.ts 私有同名 helper 的本地镜像，刻意不跨文件复用）。 */
 function isSeaRuntime(): boolean {
+  // 原因：`bun build --compile` 产物同样不接受 Node 旗标、入口在虚拟文件系统（Bun.main 为
+  // `B:/~BUN/root/…` 或 `/$bunfs/root/…`），缺省 argv 会让每个 workflow 子进程立即退出。
+  // 修复：与 SEA 同走隐藏子命令 re-exec；Node/Electron 下 Bun 不存在，行为不变。
+  const bunMain = (globalThis as { Bun?: { main?: unknown } }).Bun?.main;
+  if (typeof bunMain === "string" && /^(?:B:[\\/]~BUN[\\/]|\/\$bunfs\/)/.test(bunMain)) {
+    return true;
+  }
   const getBuiltinModule = process.getBuiltinModule as
     | ((id: "node:sea") => { isSea(): boolean })
     | undefined;

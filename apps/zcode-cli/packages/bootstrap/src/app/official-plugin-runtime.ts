@@ -102,6 +102,12 @@ export function officialPluginHostPrefixArgs(): string[] | undefined {
 }
 
 function isSeaRuntime(): boolean {
+  // 原因：`bun build --compile` 产物的 argv[1] 是虚拟路径（`B:/~BUN/root/…`），按普通入口
+  // 拼 plugin host 参数会让子进程找不到入口。修复：与 SEA 同走隐藏子命令；Node 下无 Bun，不变。
+  const bunMain = (globalThis as { Bun?: { main?: unknown } }).Bun?.main;
+  if (typeof bunMain === "string" && /^(?:B:[\\/]~BUN[\\/]|\/\$bunfs\/)/.test(bunMain)) {
+    return true;
+  }
   const getBuiltinModule = process.getBuiltinModule as ((id: "node:sea") => SeaModule) | undefined;
   try {
     return getBuiltinModule?.("node:sea").isSea() === true;

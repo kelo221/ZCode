@@ -64,15 +64,14 @@ const env: NodeJS.ProcessEnv = {
   ZCODE_BUILTIN_PROVIDER_CONFIG_FILE: join(root, "config/provider/zcode-builtin.json"),
   ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: providerFile,
 };
+// ZCODE_GPUI_SMOKE_BACKEND points at a compiled backend (scripts/build_backend.ts) instead of source.
+const compiled = process.env.ZCODE_GPUI_SMOKE_BACKEND;
+const serverArgs = ["app-server", "--stdio", "--surface", "desktop"];
 const child = spawn(
-  process.execPath,
-  [
-    join(root, "apps/zcode-cli/packages/cli/src/main.ts"),
-    "app-server",
-    "--stdio",
-    "--surface",
-    "desktop",
-  ],
+  compiled ?? process.execPath,
+  compiled
+    ? serverArgs
+    : [join(root, "apps/zcode-cli/packages/cli/src/main.ts"), ...serverArgs],
   { cwd: workspace, env, stdio: ["pipe", "pipe", "pipe"] },
 );
 type Message = {

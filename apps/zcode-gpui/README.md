@@ -77,8 +77,9 @@ Slices extend `RootView` and `AppState`. Rust source/test files are capped at 40
 ## Backend resolution
 
 1. `ZCODE_GPUI_AGENT_PROGRAM` with optional `ZCODE_GPUI_AGENT_ARGS`. A JSON array of strings is the canonical args format; legacy whitespace splitting is retained. Defaults include `app-server --stdio --surface desktop`.
-2. Bun plus this branch's CLI source, offered only when its workspace dependencies are installed and built. Bun is found through `BUN_INSTALL`, `PATH`, then `~/.bun/bin`.
-3. Installed ZCode Desktop runtime with `ELECTRON_RUN_AS_NODE=1`.
+2. The compiled backend beside the GPUI executable: `zcode-backend[.exe]` plus `provider/zcode-builtin.json` (and optionally `node_modules/ripgrep`), produced by `scripts/build_backend.ts`. Skipped unless the provider release is present.
+3. Bun plus this branch's CLI source, offered only when its workspace dependencies are installed and built. Bun is found through `BUN_INSTALL`, `PATH`, then `~/.bun/bin`.
+4. Installed ZCode Desktop runtime with `ELECTRON_RUN_AS_NODE=1`.
 
 The Services Host used by Settings › Subagents resolves separately:
 
@@ -90,7 +91,7 @@ Desktop-exported `GLM_BINARY_PATH` and `ZCODE_AGENT_SERVER_COMMAND` are delibera
 
 ### Bun source setup
 
-The branch's root `package.json` currently declares `bun@1.4.2` (upstream v3.15.1 still declares pnpm). `vitest` is pinned through `overrides` so upstream's vitest patch applies under Bun. Source mode uses the runtime portability change that probes `node:sea` instead of statically importing it.
+The branch's root `package.json` currently declares `bun@1.4.3` (upstream v3.15.1 still declares pnpm). `vitest` is pinned through `overrides` so upstream's vitest patch applies under Bun. Source mode uses the runtime portability change that probes `node:sea` instead of statically importing it.
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
@@ -100,7 +101,23 @@ for p in contracts dynamic-workflow adapters shared-types core dynamic-workflow-
 done
 ```
 
-`contracts` reports TS2589 under Bun's hoisted layout (its `zod@3` vs the hoisted `zod-to-json-schema` peer on root `zod@4`); `tsc` still emits `dist` and runtime is unaffected. This predates v3.15.1. Installer-only bundled plugins may be absent in source mode. The CLI single-file build script still relies on `tsx`; source mode does not require that bundle. No installer/sidecar distribution is supplied by this Settings slice.
+`contracts` reports TS2589 under Bun's hoisted layout (its `zod@3` vs the hoisted `zod-to-json-schema` peer on root `zod@4`); `tsc` still emits `dist` and runtime is unaffected. This predates v3.15.1. Installer-only bundled plugins may be absent in source mode. The upstream CLI single-file build script still relies on `tsx`; GPUI does not use it.
+
+### Compiled backend (prototype)
+
+```sh
+bun apps/zcode-gpui/scripts/build_backend.ts            # -> apps/zcode-gpui/target/backend/
+bun run package:gpui -- --with-backend                  # stages it into dist/zcode-gpui/
+ZCODE_GPUI_SMOKE_BACKEND=<path>/zcode-backend.exe bun apps/zcode-gpui/scripts/backend_smoke.ts
+```
+
+`bun build --compile` turns the unchanged CLI entry into one executable (about 151 MiB, built in about 4 s). Three Bun-runtime-path backend edits make it work: the workflow and plugin-host self re-exec use hidden subcommands, as under Node SEA, because the entry is a virtual `B:/~BUN/root/…` path; the provider release is located beside `process.execPath`; and the ripgrep worker imports the staged `node_modules/ripgrep` by file URL, because compiled workers cannot resolve bare package names. Without that staged package, text search silently falls back to the JavaScript engine. Measured with GPUI on an isolated profile at idle: 176 MiB working set and 277 MiB private, versus 251 MiB and 872 MiB for bun running the source.
+
+Known gaps: official plugins are not staged. The compiled binary finds them only through a repository checkout in its working directory chain, and its plugin-root lookup still uses the virtual entry directory. TUI, browser automation (playwright-core) and koffi stay external, as in the upstream CLI build. There is no signing or installer.
+
+### Fast advisory type check
+
+`bun run typecheck:fast` runs `bun check -b` (Bun 1.4.3, TypeScript 7 semantics) over the root `typecheck` projects in about 9–16 s. It is advisory; `bun run typecheck` (tsc) remains the gate. TS7 reports two errors that TypeScript 6 accepts (`useGroupedTaskView.ts:1061`, `useCodingPlanProducts.ts:287`); the script lists them as known and fails only on other errors.
 
 ## Validation
 

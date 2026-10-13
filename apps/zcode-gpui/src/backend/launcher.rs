@@ -9,11 +9,13 @@
 //! the next candidate if a process dies before storage startup completes):
 //!   1. `ZCODE_GPUI_AGENT_PROGRAM` + optional `ZCODE_GPUI_AGENT_ARGS` env
 //!      override (debug/testing escape hatch).
-//!   2. bun + this branch's sources (apps/zcode-cli/packages/cli/src/main.ts),
+//!   2. The compiled backend beside the GPUI executable (`zcode-backend`,
+//!      see compiled_backend.rs): the packaged layout, version-matched.
+//!   3. bun + this branch's sources (apps/zcode-cli/packages/cli/src/main.ts),
 //!      the preferred runtime on this branch. Only offered when the workspace
 //!      is installed (`bun install`) and the CLI packages are built, because
 //!      the CLI packages export `dist/`; otherwise it would die at startup.
-//!   3. The installed ZCode desktop app's bundled runtime
+//!   4. The installed ZCode desktop app's bundled runtime
 //!      (`zcode.cjs` under ELECTRON_RUN_AS_NODE=1), the same launch contract
 //!      packages/services/src/zcode-agent/zcodeAgentProcessManager.ts uses for
 //!      packaged builds. Fallback; it updates with the desktop app.
@@ -50,12 +52,9 @@ pub fn resolve_candidates(workspace: &Path) -> Vec<BackendLaunch> {
         });
     }
 
-    if let Some(launch) = bun_source_launch(workspace) {
-        out.push(launch);
-    }
-    if let Some(launch) = installed_app_launch() {
-        out.push(launch);
-    }
+    out.extend(crate::backend::compiled_backend::sibling_launch());
+    out.extend(bun_source_launch(workspace));
+    out.extend(installed_app_launch());
 
     out
 }
@@ -128,21 +127,8 @@ fn bun_source_launch(workspace: &Path) -> Option<BackendLaunch> {
         .join("src")
         .join("main.ts");
     let mut envs = common_backend_envs();
-    // Reuse the desktop install's ripgrep when present; the provider config
-    // is resolved by the CLI itself so it matches this branch's version.
-    if let Some((_, cjs)) = find_installed_bundle()
-        && std::env::var("ZCODE_RG_BINARY").is_err()
-    {
-        let rg_name = if cfg!(windows) { "rg.exe" } else { "rg" };
-        let rg = cjs
-            .parent()
-            .and_then(Path::parent)
-            .map(|res| res.join("tools").join("ripgrep").join(rg_name))
-            .filter(|p| p.exists());
-        if let Some(rg) = rg {
-            envs.push(("ZCODE_RG_BINARY".into(), rg.to_string_lossy().into_owned()));
-        }
-    }
+    // The provider config is resolved by the CLI itself so it matches this branch's version.
+    crate::backend::compiled_backend::push_installed_rg(&mut envs);
     Some(BackendLaunch {
         program: bun.to_string_lossy().into_owned(),
         args: vec![

@@ -6,6 +6,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
 import type { RgArg, RipgrepBufferedResult } from "ripgrep";
 import {
@@ -58,6 +59,7 @@ type RipgrepWorker = Pick<Worker, "once" | "terminate">;
 interface RipgrepWorkerData {
   args: string[];
   preopens: Record<string, string>;
+  moduleUrl?: string;
 }
 
 interface SerializedWorkerError {
@@ -93,7 +95,7 @@ function serializeError(error) {
 
 (async () => {
   try {
-    const { ripgrep } = await import("ripgrep");
+    const { ripgrep } = await import(workerData.moduleUrl ?? "ripgrep");
     const result = await ripgrep(workerData.args, {
       buffer: true,
       env: {},
@@ -1056,9 +1058,11 @@ function runBundledRipgrepWorker(
   // 不能在 agent 主线程里直接运行 WASI ripgrep。大目录搜索会占住 Node
   // event loop，导致 session/stop 虽然绕过协议队列，却没有机会被 agent 处理。
   // 放到 Worker 后，用户 stop 和超时都能从主线程 terminate 这个搜索执行单元。
+  const moduleUrl = compiledBunRipgrepModuleUrl();
   const worker = createRipgrepWorker({
     args: args.map(String),
     preopens,
+    ...(moduleUrl ? { moduleUrl } : {}),
   });
 
   return new Promise<RipgrepBufferedResult>((resolve, reject) => {
@@ -1121,6 +1125,19 @@ function runBundledRipgrepWorker(
       settle(() => reject(new Error(`ripgrep worker exited before returning a result: ${code}`)));
     });
   });
+}
+
+// 原因：`bun build --compile` 产物里 eval Worker 以 blob: 为解析基准，裸说明符 "ripgrep"
+// 无论 node_modules 放在哪里都解析失败，Grep/Glob 会整体报错。
+// 修复：仅在编译产物（Bun.main 位于 `B:/~BUN/root/…` 或 `/$bunfs/root/…`）中改用可执行文件
+// 旁随包放置的 node_modules/ripgrep 绝对 file URL；Node/Electron/源码运行仍走裸说明符。
+function compiledBunRipgrepModuleUrl(): string | undefined {
+  const bunMain = (globalThis as { Bun?: { main?: unknown } }).Bun?.main;
+  if (typeof bunMain !== "string" || !/^(?:B:[\\/]~BUN[\\/]|\/\$bunfs\/)/.test(bunMain)) {
+    return undefined;
+  }
+  const entry = join(dirname(process.execPath), "node_modules", "ripgrep", "lib", "index.mjs");
+  return pathToFileURL(entry).href;
 }
 
 function createRipgrepWorker(workerData: RipgrepWorkerData): RipgrepWorker {

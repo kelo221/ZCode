@@ -13,6 +13,29 @@ was performed by this slice.
 Contracts: [Settings](SETTINGS.md), [Subagents](SUBAGENTS_SETTINGS.md),
 [Services transport](SERVICES_RPC.md), [Parity boundaries](PARITY.md).
 
+## Bun 1.4.3: compiled backend prototype and fast type check (2026-10-13)
+
+Not a Settings change; recorded because it changes which backend process GPUI may spawn.
+
+- Native suite: **532 passed, zero failed, 11 ignored** (two new compiled-backend
+  resolution tests). Strict Clippy and formatting passed. Root tsc typecheck passed;
+  lint 63 warnings, zero errors; `architecture:check --changed` passed.
+- CLI protocol smoke passed both from source and against the compiled
+  `zcode-backend.exe` (workflows, plugins, attachments included).
+- Compiled ripgrep: a POSIX-class probe (`^[[:digit:]]$`) matched through the compiled
+  binary with `node_modules/ripgrep` staged, and returned zero matches without it (silent
+  JavaScript fallback). This confirms the WASM engine now runs in the compiled worker.
+- Native executable, isolated: with the compiled backend beside `zcode-gpui.exe`, GPUI spawned
+  `zcode-backend.exe app-server --stdio --surface desktop`. The backend log showed startup
+  completed and `session/create` completed. After a forced GPUI kill, no backend survived.
+  Idle memory: compiled 176 MiB working set / 277 MiB private, versus source mode (bun.exe)
+  251 / 872 MiB. Two official plugins (node-repl-host, browser-use) logged an incomplete
+  seed because their repository dists are unbuilt; this also happens in source mode.
+  Nothing was rendered or visually inspected in this pass.
+- `bun test` on the adapters fs suite: 29 pass, 3 fail, both with and without the ripgrep
+  change (Windows path/shell-specific). Vitest under Bun still cannot load the suite
+  (pre-existing `zod` resolution issue).
+
 ## v3.15.1 sync and Bun Services Host (2026-10-13)
 
 Branch `feat/gpui-v3.15.1` (rebased onto upstream v3.15.1). The backend freeze is replaced

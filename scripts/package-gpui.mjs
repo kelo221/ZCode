@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -43,6 +43,20 @@ async function main() {
   const destBinPath = join(defaultOutDir, exeName);
   await cp(targetBinPath, destBinPath);
   console.log(`Copied binary to: ${destBinPath}`);
+
+  // Optional: the compiled CLI backend (about 150 MiB) beside the binary, which GPUI
+  // prefers over a repository checkout or the installed Desktop runtime. Needs bun.
+  if (process.argv.includes("--with-backend")) {
+    const backendRes = spawnSync(
+      "bun",
+      [resolve(root, "apps", "zcode-gpui", "scripts", "build_backend.ts"), "--outdir", defaultOutDir],
+      { stdio: "inherit", cwd: root },
+    );
+    if (backendRes.status !== 0) {
+      console.error("Backend build failed.");
+      process.exit(backendRes.status || 1);
+    }
+  }
 
   // Copy icon if available
   const iconSrc = resolve(root, "packages", "desktop", "build", "icon.ico");

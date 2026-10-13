@@ -11,6 +11,7 @@ mod attachment_upload_tests;
 mod attachment_upload_validation_tests;
 pub(crate) mod backlog;
 pub(crate) mod commands;
+pub(crate) mod compiled_backend;
 pub(crate) mod conn;
 pub(crate) mod events;
 pub(crate) mod flow_cmds;
