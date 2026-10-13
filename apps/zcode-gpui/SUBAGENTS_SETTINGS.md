@@ -114,8 +114,10 @@ Markdown; avoiding mutation RPCs does not make hydration read-only. Constructing
 Host does not itself spawn a workspace CLI app-server.
 
 Approved local activation accepts disclosed existing-Host behavior; execution tests remain
-isolated and never automatically start real management. A development bundle and installed
-Desktop Node-compatible runtime prove compatibility, not supported packaged distribution.
+isolated and never automatically start real management. Since 2026-10-13 the Host normally
+runs under Bun from source (`scripts/services_host.ts`); all real-Host tests pass that way
+with the prebuilt bundle absent. The bundle plus installed Desktop runtime remains a
+fallback. Neither is a supported packaged distribution.
 The earlier rollback checks are historical integrity evidence, not current parity coverage.
 
 ## Disposable executable-restart harness
@@ -164,7 +166,9 @@ uncertain-write reconciliation and non-Windows lifecycle. These remain gaps, not
 
 ## Opt-in scope and remaining release limitations
 
-Local management can use existing full-Host behavior after explicit activation; it is not
+Activation consent is persisted in a GPUI-owned file after the first successful activation,
+so later visits start the Host on entry and idle unload offers one-click Resume or
+revocation (SERVICES_RPC.md). Local management can use existing full-Host behavior after explicit activation; it is not
 migration-free, lossless arbitrary YAML editing or concurrent-safe production parity.
 Activation fails for detected Desktop/conflicting writers or missing runtime. Native
 preference admission/drain and observable process exit prevent in-process competing writers.
@@ -174,5 +178,5 @@ bookkeeping, not a CLI protocol or business-state change. Only currently owned I
 members are excluded, never every ZCode executable by name. Corrupt/partial effects remain
 truthful, uncertain and unreplayed; unsupported metadata warning accompanies existing edit.
 Standalone packaging, non-Windows acceptance and low-memory budget remain separate work.
-No backend changes, automatic real-data migration before consent or native file-writing
-fallback is authorized. Completed tests must be reported separately from these limitations.
+Only Bun runtime-path backend edits (PARITY.md, 2026-10-13) are authorized; no new APIs,
+automatic real-data migration before consent or native file-writing fallback. Completed tests must be reported separately from these limitations.

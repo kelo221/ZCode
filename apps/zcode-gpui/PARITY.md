@@ -5,6 +5,44 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## v3.15.1 sync and Bun runtime rule (2026-10-13)
+
+The branch is rebased onto upstream v3.15.1 (`feat/gpui-v3.15.1`). **The owner replaced
+the blanket backend freeze with a Bun runtime rule:**
+
+- **Allowed:** changes that let the existing CLI app-server and Services Host load, run and
+  build under Bun: runtime shims (sqlite, `node:sea`, worker threads, PTY degradation),
+  Bun build scripts replacing `tsx`/Node-targeted esbuild, and source-mode entry points.
+  Each must feature-detect and leave Node/Electron behavior unchanged.
+- **Still forbidden:** protocol/RPC surface changes, new service APIs, service business
+  logic and Electron desktop changes. A missing owner port is still a blocker, not a
+  reason to invent one.
+- Prefer GPUI-owned entry scripts over editing upstream files when either works; upstream
+  ships one squashed snapshot per release, so every backend edit is a future rebase conflict.
+
+Current results under this rule:
+
+- The full Services Host runs under Bun from source through `scripts/services_host.ts`,
+  which supplies the build-time version and production Built-in Provider release before
+  loading the unchanged `packages/server/src/entry-stdio.ts`. No backend file changed.
+  `services_launch.rs` prefers it, keeping env overrides and the installed-Desktop bundle as
+  fallbacks. All ten ignored real-Host tests pass with the prebuilt bundle removed; measured
+  working set is about 156 MiB (Desktop runtime: 190–194 MiB).
+- Subagents opt-in is persisted in a GPUI-owned `gpui_profile_consent.json`. Entering
+  Settings › Subagents starts the Host; leaving or 60 s idle stops it; Resume is one click.
+- The native executable (isolated, populated) rendered the inventory and the edit form
+  (tools, model, color, AGENTS.md) with both backends running as `bun.exe`. Visual
+  parity with the Desktop dialog is not accepted.
+
+New upstream v3.15.1 surface **not yet in GPUI**: plugin UI and its desktop plugin sandbox
+(`packages/ui/src/plugin-ui`, `packages/desktop/src/main/pluginSandbox`), inline Gen UI
+(`packages/ui/src/gen-ui`), workflow-timeline and ai-elements components, highspeed
+model badges, cloud-content and manual-claim-plan dialogs. Bot channel replies and topic
+resources (Feishu/Lark relay) are excluded and fail fast (B9). Host-resolved subagent
+runtime snapshots (B10) are not supplied; GPUI sessions use the CLI's own Markdown
+profile loading, so whether Settings model overrides reach GPUI-launched sessions is
+unverified.
+
 ## Approved real-management extension (2026-10-06)
 
 The native-only slice implements opt-in local Subagents management with the unchanged
@@ -12,8 +50,8 @@ full Services Host and rebuilds the rejected inventory using the Desktop referen
 native visual acceptance remains unverified; see SETTINGS_ACCEPTANCE.md.
 SERVICES_RPC.md defines preference suspension/drain and observed Host exit before writes
 resume. SUBAGENTS_SETTINGS.md defines activation, recovery and compact grouped/inline UI.
-Earlier isolated evidence is not acceptance of this extension. Backend stays frozen; no
-real configuration is used during automated/native acceptance. Existing migrations/metadata
+Earlier isolated evidence is not acceptance of this extension. Backend stayed frozen at the
+time (superseded 2026-10-13 by the Bun runtime rule above); no real configuration is used during automated/native acceptance. Existing migrations/metadata
 rewrite and unsupported cross-process coexistence are disclosed, not claimed solved.
 
 ## 1. Goal, scope, guardrails
@@ -32,9 +70,9 @@ Electron app for coding work, at a fraction of the memory, without forking the b
 
 1. **Zero backend forks.** Only wire surfaces that exist in
    `packages/shared/src/zcode-protocol*` (V4 topics/commands + legacy method registry).
-   Branch exception (feat/gpui-frontend, personal branch): one runtime-portability
-   change in `apps/zcode-cli/packages/core/src/environment.ts` (`node:sea` probed through
-   `process.getBuiltinModule`) so the CLI runs under bun. It touches no wire protocol.
+   Runtime-portability edits for Bun are allowed under the 2026-10-13 Bun runtime rule
+   (e.g. `node:sea` probed through `process.getBuiltinModule` in
+   `apps/zcode-cli/packages/core/src/environment.ts`). They touch no wire protocol.
 2. **Ownership stays put.** Agent lifecycle, CommandInbox admission, task leases and
    the remote registry belong to the backend/host; the frontend mirrors state, keeps
    drafts and renders optimistic UI.
@@ -87,6 +125,9 @@ workspace surfaces rather than Settings sections.
 
 ## 2a. Remaining parity boundary (2026-10-06)
 
+_Superseded in part on 2026-10-13: Bun runtime-path edits are now allowed (see top); the
+ban on new APIs, service logic changes and parallel writers below still holds._
+
 The owner clarified that the existing TypeScript backend must remain intact. The proposed
 configuration-service worker and canonical service/repository changes were withdrawn;
 this slice may change native frontend code, tests and specs only. Existing CLI/runtime,
@@ -134,6 +175,8 @@ only unknown methods receive `-32601`. The current boundaries are:
 | B5  | `interaction/browserList`/`browserExecute` (`:2402`)                                                                                                                                                                    | Browser tools fail. Stays out of scope (no embedded browser); must fail fast with a clear error.                                                                                                                                                                                                  |
 | B6  | Launch arg `--surface desktop` (`zcodeAgentProcessManager.ts:496`) adds the desktop context section to the system prompt (`core/src/context/builder.ts:131`)                                                            | Fixed: launcher candidates pass `--surface desktop`. Prompt identity across two real clients has not been separately recorded.                                                                                                                                                                    |
 | B7  | Host env: `ZCODE_RUNTIME_ENV`, workspace identity env (`buildAgentWorkspaceIdentityEnv`), proxy (`resolveSpawnEnv`), `ZCODE_DATA_BASE_DIR`, `GLM_BINARY_PATH` (`desktopRuntimeEnv.ts:466`)                              | Resolved bootstrap/data roots and an explicit cleared-environment allowlist are implemented; identity/proxy/CA boundaries remain covered by launcher/path tests.                                                                                                                                  |
+| B9  | v3.15.1 `bot/channel/reply`, `topic/resource/{read,cancel}`: Feishu/Lark bot relay owned by the desktop host | Excluded scope; GPUI answers `-32603` with a desktop-only message (not `-32601`). |
+| B10 | v3.15.1 `subagents/readRuntimeConfig`: sent only when runtime preferences set `subagentRuntimeConfigEnabled` | GPUI never enables it, and answers `-32603` like Desktop without a reader; the CLI keeps its own Markdown profile loading. |
 | B8  | `controller/workspaces` + `controller/tasks-index` topics are **host-served** (`packages/desktop/src/host/windowHostControllerService.ts`); the CLI has no dispatch case                                                | Full task index, pin/archive membership and snippets require the existing host boundary. GPUI's loaded-session filtering is not a substitute.                                                                                                                                                     |
 
 ## 4. Current implementation slice (2026-10-06)

@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 #[test]
-#[ignore = "requires unchanged Services bundle and installed compatible runtime"]
+#[ignore = "real Services Host: bun + workspace install, or a built bundle and compatible runtime"]
 fn real_unchanged_host_profiles_roundtrip_and_restart() {
     let mut host = ScratchHost::new();
     assert!(
@@ -132,7 +132,7 @@ fn real_unchanged_host_profiles_roundtrip_and_restart() {
 }
 
 #[test]
-#[ignore = "requires unchanged Services bundle and installed compatible runtime"]
+#[ignore = "real Services Host: bun + workspace install, or a built bundle and compatible runtime"]
 fn real_unchanged_host_lost_reply_is_reviewed_without_replay() {
     let mut host = ScratchHost::new();
     let config = json!({"name":"lost-reply-agent","description":"Synthetic outcome","systemPrompt":"Synthetic prompt"});
@@ -172,7 +172,7 @@ fn real_unchanged_host_lost_reply_is_reviewed_without_replay() {
 }
 
 #[test]
-#[ignore = "requires unchanged Services bundle and installed compatible runtime"]
+#[ignore = "real Services Host: bun + workspace install, or a built bundle and compatible runtime"]
 fn real_unchanged_host_builtin_full_override_set_clear_and_restart() {
     let mut host = ScratchHost::new();
     let selection = host.selection();
@@ -233,7 +233,7 @@ fn assert_builtin_selections(
 }
 
 #[test]
-#[ignore = "requires unchanged Services bundle and installed compatible runtime"]
+#[ignore = "real Services Host: bun + workspace install, or a built bundle and compatible runtime"]
 fn real_unchanged_host_same_name_user_and_two_workspace_inventories() {
     let mut host = ScratchHost::new();
     let project_a = host.isolated.workspace().join("project-a");

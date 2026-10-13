@@ -13,6 +13,28 @@ was performed by this slice.
 Contracts: [Settings](SETTINGS.md), [Subagents](SUBAGENTS_SETTINGS.md),
 [Services transport](SERVICES_RPC.md), [Parity boundaries](PARITY.md).
 
+## v3.15.1 sync and Bun Services Host (2026-10-13)
+
+Branch `feat/gpui-v3.15.1` (rebased onto upstream v3.15.1). The backend freeze is replaced
+by PARITY.md's Bun runtime rule; no backend file changed in this slice.
+
+- Native suite: **530 unit tests passed, zero failed, 11 ignored**; reverse-RPC inventory
+  (9), PTY (1) and source-limit (1) integration tests passed. Strict all-target Clippy and
+  Cargo formatting passed. `process_tree_tests::hello_initialize_failures_…` is
+  intermittently over its 2 s bound on both this branch and the pre-change baseline,
+  under Bun and Desktop runtimes alike; it is a pre-existing timing flake, not fixed here.
+- All ten ignored real-Host tests passed under Bun from source, including a run with
+  `packages/server/dist/remote/zcode-server.cjs` moved aside (so only Bun could serve).
+- Native executable: the isolated `--populated` harness rendered the Subagents inventory
+  (custom, plugin and built-in groups, toggles, model selectors) and a click opened the
+  edit form with tools, model, color and AGENTS.md fields. Process inspection showed the
+  CLI app-server and Services Host both running as `bun.exe`. After close, the harness
+  reported no survivors and no `bun.exe`/`zcode-gpui.exe` remained. Measured working
+  sets: GPUI 68 MiB, CLI 273 MiB, Services Host 153 MiB. Rendered and interaction-passed
+  only; visual parity with the Desktop dialog is **not** accepted.
+- CLI protocol smoke passed against v3.15.1. Bun root equivalents: typecheck passed;
+  lint 63 warnings, zero errors; architecture and freshness passed.
+
 ## Selected-language and Settings-shell correction (2026-10-06)
 
 Settings now replaces the workspace sidebar rather than appearing next to Projects/Tasks.

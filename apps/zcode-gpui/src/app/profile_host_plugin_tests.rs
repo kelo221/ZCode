@@ -8,7 +8,7 @@ const AGENT_ID: &str = "plugin:profile-fixture@native-tests:review";
 const PROFILE_NAME: &str = "profile-fixture:Review";
 
 #[test]
-#[ignore = "requires unchanged Services bundle and installed compatible runtime"]
+#[ignore = "real Services Host: bun + workspace install, or a built bundle and compatible runtime"]
 fn real_unchanged_host_plugin_override_stable_version_identity_and_clear() {
     let mut host = ScratchHost::new();
     let selection = host.selection();

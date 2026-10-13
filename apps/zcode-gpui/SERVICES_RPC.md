@@ -1,17 +1,21 @@
 # Native Services RPC contract
 
-Updated 2026-10-06 before the approved real-management implementation. Backend, CLI,
-protocols, repositories and assembly remain frozen. The existing full stdio Services
-Host is reused; no worker or native configuration writer is added. Earlier isolated
-results are historical evidence, not acceptance of this extension.
+Updated 2026-10-13. Protocols, repositories and service logic remain unchanged; Bun
+runtime-path edits are allowed under PARITY.md's Bun runtime rule. The existing full stdio
+Services Host is reused, normally under Bun from source via `scripts/services_host.ts`
+(see README for resolution order); no worker or native configuration writer is added.
 
 ## Modes and owners
 
 Disposable mode retains a fresh owned root established before discovery/launch. Local
-management is an explicit process-local opt-in in ordinary Settings. Declining launches
-nothing. Consent explains full-Host memory, conditional startup/list migrations, unknown
-metadata loss on edit, and unsupported simultaneous Desktop/configuration writers.
-Runtime/bundle and Desktop checks precede any real Host start. Tests never activate real roots.
+management is an explicit opt-in in ordinary Settings, persisted after the first successful
+activation in GPUI-owned `~/.zcode/v2/gpui_profile_consent.json` (never the shared
+preference file). With consent, entering Settings › Subagents runs the same activation
+sequence below; leaving the section or 60 s idle closes it, and the page offers one-click
+Resume or revocation. Declining launches nothing. Consent explains full-Host memory,
+conditional startup/list migrations, unknown metadata loss on edit, and unsupported
+simultaneous Desktop/configuration writers. Runtime and Desktop checks precede any real
+Host start. Tests never activate real roots and have no consent path.
 
 RootView owns scope/search/forms. Shared AppState owns capability, connection generation,
 scoped projections, one mutation lane, receipts, closing and reconciliation. The canonical

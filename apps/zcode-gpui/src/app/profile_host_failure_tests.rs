@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 #[test]
-#[ignore = "requires unchanged Services bundle and installed compatible runtime"]
+#[ignore = "real Services Host: bun + workspace install, or a built bundle and compatible runtime"]
 fn real_unchanged_host_native_and_unmodeled_settings_startup_list_characterization() {
     let mut host = ScratchHost::new();
     let defaults = settings_get(&host);
@@ -61,7 +61,7 @@ fn real_unchanged_host_native_and_unmodeled_settings_startup_list_characterizati
 }
 
 #[test]
-#[ignore = "requires unchanged Services bundle and installed compatible runtime"]
+#[ignore = "real Services Host: bun + workspace install, or a built bundle and compatible runtime"]
 fn real_unchanged_host_corrupt_settings_quarantine_characterization() {
     let mut host = ScratchHost::new();
     host.stop();
@@ -98,7 +98,7 @@ fn real_unchanged_host_corrupt_settings_quarantine_characterization() {
 }
 
 #[test]
-#[ignore = "requires unchanged Services bundle and installed compatible runtime"]
+#[ignore = "real Services Host: bun + workspace install, or a built bundle and compatible runtime"]
 fn real_unchanged_host_corrupt_agent_state_lists_defaults_without_repair() {
     let mut host = ScratchHost::new();
     let profile = host.create(
@@ -135,7 +135,7 @@ fn real_unchanged_host_corrupt_agent_state_lists_defaults_without_repair() {
 
 #[cfg(windows)]
 #[test]
-#[ignore = "requires unchanged Services bundle and installed compatible runtime"]
+#[ignore = "real Services Host: bun + workspace install, or a built bundle and compatible runtime"]
 fn real_unchanged_host_held_state_refuses_replace_without_mutation_replay() {
     let mut host = ScratchHost::new();
     let profile = host.create(
@@ -179,7 +179,7 @@ fn real_unchanged_host_held_state_refuses_replace_without_mutation_replay() {
 
 #[cfg(windows)]
 #[test]
-#[ignore = "requires unchanged Services bundle and installed compatible runtime"]
+#[ignore = "real Services Host: bun + workspace install, or a built bundle and compatible runtime"]
 fn real_unchanged_host_partial_rename_retains_both_profiles_without_replay() {
     let mut host = ScratchHost::new();
     let profile = host.create(

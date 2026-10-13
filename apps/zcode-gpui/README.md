@@ -80,11 +80,17 @@ Slices extend `RootView` and `AppState`. Rust source/test files are capped at 40
 2. Bun plus this branch's CLI source, offered only when its workspace dependencies are installed and built. Bun is found through `BUN_INSTALL`, `PATH`, then `~/.bun/bin`.
 3. Installed ZCode Desktop runtime with `ELECTRON_RUN_AS_NODE=1`.
 
+The Services Host used by Settings › Subagents resolves separately:
+
+1. `ZCODE_GPUI_SERVICES_RUNTIME` / `ZCODE_GPUI_SERVICES_BUNDLE`: the built `packages/server/dist/remote/zcode-server.cjs` under an Electron-compatible runtime.
+2. Bun plus `scripts/services_host.ts`, which loads the unchanged `packages/server/src/entry-stdio.ts` from source after supplying the build-time version and the production Built-in Provider release (the installed Desktop's copy when present). Needs only `bun install`.
+3. The built bundle under the installed ZCode Desktop runtime.
+
 Desktop-exported `GLM_BINARY_PATH` and `ZCODE_AGENT_SERVER_COMMAND` are deliberately not launcher overrides. Children use `env_clear()` and an explicit allowlist, including resolved roots, proxies, supported provider/ripgrep overrides, and custom CA variables.
 
 ### Bun source setup
 
-The branch's root `package.json` currently declares `bun@1.4.2`. Source mode uses the existing runtime portability change that probes `node:sea` instead of statically importing it.
+The branch's root `package.json` currently declares `bun@1.4.2` (upstream v3.15.1 still declares pnpm). `vitest` is pinned through `overrides` so upstream's vitest patch applies under Bun. Source mode uses the runtime portability change that probes `node:sea` instead of statically importing it.
 
 ```sh
 bun install --frozen-lockfile --ignore-scripts
@@ -94,7 +100,7 @@ for p in contracts dynamic-workflow adapters shared-types core dynamic-workflow-
 done
 ```
 
-Installer-only bundled plugins may be absent in source mode. The CLI single-file build script still relies on `tsx`; source mode does not require that bundle. No installer/sidecar distribution is supplied by this Settings slice.
+`contracts` reports TS2589 under Bun's hoisted layout (its `zod@3` vs the hoisted `zod-to-json-schema` peer on root `zod@4`); `tsc` still emits `dist` and runtime is unaffected. This predates v3.15.1. Installer-only bundled plugins may be absent in source mode. The CLI single-file build script still relies on `tsx`; source mode does not require that bundle. No installer/sidecar distribution is supplied by this Settings slice.
 
 ## Validation
 
