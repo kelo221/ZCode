@@ -12,6 +12,7 @@ import time
 from PIL import ImageGrab
 import psutil
 from native_settings_fixtures import capability, populate, unlinked
+from native_chat_fixture import chat_cycle, stop_mock
 from native_settings_window import activate
 
 if sys.platform != "win32":
@@ -135,7 +136,8 @@ def capture(hwnd, path, evidence, state):
     class RECT(ctypes.Structure):
         _fields_ = [(key, ctypes.c_long) for key in ("left", "top", "right", "bottom")]
     rect = RECT()
-    if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+    # 原因：GetWindowRect 含不可见的缩放边框，截图边缘会混入窗口后方内容；改用 DWM 可见边界。
+    if ctypes.windll.dwmapi.DwmGetWindowAttribute(ctypes.c_void_p(hwnd), 9, ctypes.byref(rect), ctypes.sizeof(rect)) and not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
         raise RuntimeError("Owned window geometry unavailable")
     image = ImageGrab.grab(bbox=(rect.left, rect.top, rect.right, rect.bottom))
     require_interactive(evidence, state)
@@ -187,6 +189,7 @@ def stopped(state):
 
 
 def close(evidence, state, force=False):
+    stop_mock(state)
     remember(state)
     if live(state["process"]):
         hwnd = hwnd_for(state["process"]["pid"])
@@ -239,7 +242,8 @@ def launch(evidence, previous, args):
         env["ZCODE_GPUI_SERVICES_RUNTIME"] = str(runtime)
     stdout_path = evidence / f"stdout-{generation}.log"
     with stdout_path.open("wb") as stdout, (evidence / f"stderr-{generation}.log").open("wb") as stderr:
-        child = subprocess.Popen([str(EXECUTABLE), "--isolated-settings", "--settings-section", args.section],
+        section = [] if args.section == "main" else ["--settings-section", args.section]
+        child = subprocess.Popen([str(EXECUTABLE), "--isolated-settings", *section],
                                  cwd=REPO, env=env, stdout=stdout, stderr=stderr)
     process = identity(psutil.Process(child.pid))
     state = {"version": 2, "generation": generation, "evidence": str(evidence), "process": process,
@@ -294,7 +298,8 @@ def main():
     parser.add_argument("values", nargs="*")
     parser.add_argument("--theme", choices=("zai-dark", "zai-light"))
     parser.add_argument("--locale", choices=("preference", "en-US", "zh-CN"), help="default reads saved scratch preference; other values are non-persisting overrides")
-    parser.add_argument("--section", default="subagents")
+    parser.add_argument("--section", default="subagents", help="a Settings section, or main for the workspace window")
+    parser.add_argument("--chat", action="store_true", help="main window: seed a loopback mock chat and send one scripted prompt")
     parser.add_argument("--desktop-runtime", action="store_true", help="run the Services Host under the installed Desktop runtime instead of bun")
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=900)
@@ -313,6 +318,8 @@ def main():
             state["fixtures"] = populate(Path(state["root"]), args.long_populated)
             save(evidence, state)
             state = launch(evidence, state, args)
+        if args.chat:
+            state = chat_cycle(evidence, state, args, {"close": close, "launch": launch, "focus": focus, "save": save, "user32": user32})
     else:
         if not args.values:
             parser.error("mode requires harness evidence path")
