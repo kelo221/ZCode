@@ -41,6 +41,8 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     # CoCreateInstance for the native folder picker (IFileDialog).
     "Win32_System_Com",
+    # GetLocalTime for the draft greeting's time of day.
+    "Win32_System_SystemInformation",
 ] }
 
 [dev-dependencies]

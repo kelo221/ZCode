@@ -8,7 +8,7 @@ use crate::app::layout::{
 use crate::app::root::RootView;
 use crate::composer::input::Composer;
 use crate::conversation::turn_meta::PlanState;
-use crate::shared::theme::{BORDER, MUTED, PANEL, ui_size};
+use crate::shared::theme::{BORDER, PANEL};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{AnyElement, Context, Entity, SharedString, Window, div, prelude::*, px};
 
@@ -72,6 +72,43 @@ impl RootView {
                 .border_1()
                 .border_color(rgb(BORDER))
         };
+        let composer_region = div()
+            .w(px(column))
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .gap_1p5()
+            .pt_1()
+            .pb(px(padding / 2.))
+            .when(!is_read_only, |el| {
+                el.children(self.queue_panel(queue.as_ref(), cx))
+                    .children(self.intent_banner(&intent, cx))
+                    .child(self.composer_card(composer, running, cx))
+            })
+            .when(is_read_only, |el| {
+                el.child(self.subagent_read_only_banner(cx))
+            });
+        // Desktop draft: greeting and composer centred together; otherwise the
+        // composer docks under the transcript.
+        let (body, bottom) = if rows_empty {
+            let draft = div()
+                .w_full()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .child(crate::app::draft_greeting::draft_greeting(column))
+                .child(composer_region);
+            (draft.into_any_element(), None)
+        } else {
+            let bottom = div()
+                .w_full()
+                .flex()
+                .justify_center()
+                .child(composer_region);
+            (self.transcript_list(cx), Some(bottom))
+        };
         let centre = panel(div().flex_1().min_w_0().flex().flex_col())
             .child(self.main_header(title, context_tag, plan.as_ref(), &phase, cx))
             .child(
@@ -100,48 +137,13 @@ impl RootView {
                                 self.interaction_cards(&pending_interactions, cx)
                             }),
                     )
-                    .child(if rows_empty {
-                        div()
-                            .w_full()
-                            .flex_1()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_color(rgb(MUTED))
-                            .text_size(px(ui_size(13.)))
-                            .child(crate::shared::i18n::label(
-                                "Start a new conversation",
-                                "开始新对话",
-                            ))
-                            .into_any_element()
-                    } else {
-                        self.transcript_list(cx)
-                    })
+                    .child(body)
                     // Narrow windows keep the side pane as an overlay.
                     .when(self.dock_open && !docked, |el| {
                         el.child(self.dock_pane(false, window, cx))
                     }),
             )
-            .child(
-                div().w_full().flex().justify_center().child(
-                    div()
-                        .w(px(column))
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap_1p5()
-                        .pt_1()
-                        .pb(px(padding / 2.))
-                        .when(!is_read_only, |el| {
-                            el.children(self.queue_panel(queue.as_ref(), cx))
-                                .children(self.intent_banner(&intent, cx))
-                                .child(self.composer_card(composer, running, cx))
-                        })
-                        .when(is_read_only, |el| {
-                            el.child(self.subagent_read_only_banner(cx))
-                        }),
-                ),
-            )
+            .children(bottom)
             .when(self.term_open, |el| el.child(self.term_drawer(window, cx)));
         div()
             .flex_1()

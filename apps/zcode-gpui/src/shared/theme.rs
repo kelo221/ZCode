@@ -43,6 +43,7 @@ pub const SURFACE: u32 = 0x252525;
 pub const INPUT: u32 = 0x2b2b2b;
 pub const TAG: u32 = 0x363636;
 pub const SUBTLEST: u32 = 0x5a5a5a;
+pub const BORDER_HOVER: u32 = 0x3a3a3a;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThemeMode {

@@ -34,6 +34,7 @@ pub(crate) fn color(token: u32) -> gpui::Rgba {
         INPUT => p.input,
         TAG => p.tag,
         SUBTLEST => p.subtlest,
+        BORDER_HOVER => p.border_hover,
         _ => gpui::rgb(token),
     }
 }

@@ -29,6 +29,8 @@ pub struct Composer {
     pub(crate) focus: FocusHandle,
     pub(crate) single_line: bool,
     pub(crate) placeholder: &'static str,
+    /// Empty conversation: Desktop's new-task placeholder instead of follow-up.
+    pub(crate) new_task: bool,
     pub(crate) attachments: Vec<AttachmentRef>,
     pub(crate) temp_owned: Vec<PathBuf>,
     pub(crate) chips: ChipTable,
@@ -44,6 +46,7 @@ impl Composer {
             focus: cx.focus_handle(),
             single_line: false,
             placeholder: "Ask for follow-up changes",
+            new_task: false,
             attachments: Vec::new(),
             temp_owned: Vec::new(),
             chips: ChipTable::default(),
@@ -359,11 +362,10 @@ impl Render for Composer {
                         div().text_color(rgb(crate::shared::theme::MUTED)).child(
                             if self.single_line {
                                 self.placeholder
+                            } else if self.new_task {
+                                crate::shared::i18n::t("chat.placeholder.newTask")
                             } else {
-                                crate::shared::i18n::label(
-                                    "Ask for follow-up changes",
-                                    "请求后续修改",
-                                )
+                                crate::shared::i18n::t("chat.placeholder.followUpAsk")
                             },
                         )
                     })),

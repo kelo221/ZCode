@@ -5,8 +5,16 @@ use gpui::{AssetSource, SharedString};
 use std::borrow::Cow;
 
 pub(crate) const BRAIN_ICON: &str = "zcode/brain.svg";
+/// Outline logo behind the draft greeting (Desktop `ZCodeEmptyStateLogo`).
+pub(crate) const EMPTY_LOGO: &str = "zcode/empty-logo.svg";
 
-const LOCAL: &[(&str, &[u8])] = &[(BRAIN_ICON, include_bytes!("../../assets/icons/brain.svg"))];
+const LOCAL: &[(&str, &[u8])] = &[
+    (BRAIN_ICON, include_bytes!("../../assets/icons/brain.svg")),
+    (
+        EMPTY_LOGO,
+        include_bytes!("../../assets/icons/empty-logo.svg"),
+    ),
+];
 
 pub struct AppAssets;
 

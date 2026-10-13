@@ -16,6 +16,7 @@ mod connection_tests;
 #[cfg(test)]
 mod delivery_controls_tests;
 pub(crate) mod dock;
+pub(crate) mod draft_greeting;
 #[cfg(test)]
 mod files_image_controls_tests;
 pub(crate) mod header;

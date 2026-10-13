@@ -6,7 +6,8 @@ use crate::composer::input::Composer;
 use crate::conversation::msg_actions::ComposerIntent;
 use crate::shared::theme::ui_size;
 use crate::shared::theme::{
-    ACCENT, AMBER, BORDER, CARD, CARD_HOVER, DANGER, I_ARROW_UP, I_STOP, MUTED, PANEL, TEXT,
+    ACCENT, AMBER, BORDER, BORDER_HOVER, CARD, CARD_HOVER, DANGER, I_ARROW_UP, I_STOP, INPUT,
+    MUTED, PANEL, TEXT,
 };
 use crate::shared::theme_colors::color as rgb;
 use gpui::{
@@ -183,10 +184,10 @@ fn round_button(
         .flex()
         .items_center()
         .justify_center()
-        .rounded_full()
+        .rounded_lg()
         .bg(rgb(bg))
         .cursor(CursorStyle::PointingHand)
-        .child(gpui::svg().path(glyph.path()).size(px(14.)).text_color(fg))
+        .child(gpui::svg().path(glyph.path()).size(px(16.)).text_color(fg))
 }
 
 impl RootView {
@@ -237,6 +238,14 @@ impl RootView {
         let attach_btn = Self::render_attach_button(cx);
         let view = cx.weak_entity();
         let held_confirmation = self.held_queue_confirmation(cx);
+        let new_task = self
+            .state
+            .read(cx)
+            .active_conversation()
+            .is_none_or(|c| c.rows.is_empty());
+        if composer.read(cx).new_task != new_task {
+            composer.update(cx, |c, _| c.new_task = new_task);
+        }
 
         div()
             .w_full()
@@ -254,14 +263,13 @@ impl RootView {
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .gap_2()
-                    .px_3()
-                    .pt_3()
-                    .pb_2()
-                    .rounded_xl()
-                    .bg(rgb(CARD))
+                    .gap_3()
+                    .p_3()
+                    .rounded_2xl()
+                    .bg(rgb(INPUT))
                     .border_1()
                     .border_color(rgb(BORDER))
+                    .hover(|s| s.border_color(rgb(BORDER_HOVER)))
                     .on_drop(
                         cx.listener(|this, paths: &gpui::ExternalPaths, _window, cx| {
                             this.attach_files(paths.paths().to_vec(), cx);

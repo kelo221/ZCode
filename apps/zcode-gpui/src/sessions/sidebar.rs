@@ -246,6 +246,9 @@ impl crate::app::root::RootView {
                     rows.push(self.load_more_row(key, step, hidden, cx));
                 }
                 // Desktop group content: indented under the header with a guide line.
+                if rows.is_empty() {
+                    continue;
+                }
                 projects_list.push(
                     div()
                         .ml(px(24.))
