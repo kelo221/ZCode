@@ -2,6 +2,7 @@
 //! diff renderers. Nothing here depends on a feature slice.
 
 pub(crate) mod acceptance;
+pub(crate) mod app_assets;
 pub(crate) mod data_paths;
 pub(crate) mod desktop_lock;
 pub(crate) mod diff_view;

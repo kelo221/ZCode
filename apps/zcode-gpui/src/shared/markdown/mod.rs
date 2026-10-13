@@ -91,9 +91,9 @@ fn blocks(
             }
             Event::Start(Tag::Heading { level, .. }) => {
                 let size = match level {
-                    pulldown_cmark::HeadingLevel::H1 => 20.,
-                    pulldown_cmark::HeadingLevel::H2 => 17.,
-                    pulldown_cmark::HeadingLevel::H3 => 15.,
+                    pulldown_cmark::HeadingLevel::H1 => 18.,
+                    pulldown_cmark::HeadingLevel::H2 => 16.,
+                    pulldown_cmark::HeadingLevel::H3 => 14.,
                     _ => 14.,
                 };
                 let end = TagEnd::Heading(*level);

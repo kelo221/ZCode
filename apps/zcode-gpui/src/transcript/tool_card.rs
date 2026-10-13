@@ -6,12 +6,30 @@ use crate::shared::theme_colors::color as rgb;
 
 use crate::conversation::model::format_preview;
 use crate::shared::theme::{
-    ACCENT, BORDER, CARD, CARD_HOVER, MONO_FONT, MUTED, PANEL, SELECTED, TEXT, TOOL, UI_FONT,
+    BG, BORDER, DANGER, I_CHEVRON_DOWN, I_CHEVRON_RIGHT, MONO_FONT, MUTED, SUBTLEST, TAG, TEXT,
+    UI_FONT, icon,
 };
+use crate::shared::theme_colors::tinted;
+use ely_gpui_component::primitives::IconName;
 use gpui::{
     AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px,
 };
 use serde_json::Value;
+
+const TOOL_GROUP: &str = "tool-summary";
+
+/// Desktop renderer icon per tool kind (`ToolCallBlocks/renderers/*`).
+fn tool_icon(label: &str) -> IconName {
+    match label {
+        "Read" | "Grep" | "Glob" | "LS" => IconName::Search,
+        "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => IconName::Pencil,
+        "Bash" => IconName::Terminal,
+        "WebFetch" | "WebSearch" => IconName::Globe,
+        "Task" | "Agent" | "CreateWorkflow" => IconName::Bot,
+        "TodoWrite" | "TodoRead" => IconName::ListTodo,
+        _ => IconName::Wrench,
+    }
+}
 
 impl crate::app::root::RootView {
     pub(crate) fn render_tool_row(
@@ -26,117 +44,114 @@ impl crate::app::root::RootView {
         let expanded = self.expanded_tools.contains(&r_id);
         let is_running = status == "running" || status == "inputStreaming";
         let is_error = status == "error";
-
-        let status_color = if is_error {
-            crate::shared::theme::DANGER
-        } else if is_running {
-            ACCENT
-        } else {
-            MUTED
-        };
         let input: Option<Value> = serde_json::from_str(input_text).ok();
 
         div()
             .w_full()
             .flex()
             .flex_col()
-            .bg(rgb(CARD))
-            .border_1()
-            .border_color(rgb(BORDER))
-            .rounded_lg()
-            .my_1p5()
             .child(
                 div()
                     .id(ElementId::NamedInteger("toggle-tool".into(), r_id))
+                    .group(TOOL_GROUP)
+                    .max_w_full()
                     .flex()
                     .items_center()
                     .gap_2()
-                    .px_3()
-                    .py_2()
+                    .text_size(px(ui_size(14.)))
                     .cursor_pointer()
-                    .hover(|h| h.bg(rgb(CARD_HOVER)))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        if this.expanded_tools.contains(&r_id) {
-                            this.expanded_tools.remove(&r_id);
-                        } else {
+                        if !this.expanded_tools.remove(&r_id) {
                             this.expanded_tools.insert(r_id);
                         }
                         cx.notify();
                     }))
+                    .child(icon(tool_icon(label), 16., MUTED))
                     .child(
                         div()
-                            .text_size(px(ui_size(9.)))
-                            .text_color(rgb(MUTED))
-                            .child(if expanded { "▼" } else { "▶" }),
-                    )
-                    .child(
-                        div()
-                            .font_family(MONO_FONT)
-                            .text_size(px(ui_size(12.)))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(rgb(TOOL))
+                            .flex_none()
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(rgb(if is_running { MUTED } else { SUBTLEST }))
                             .child(label.to_string()),
                     )
                     .child(summary_label(label, input.as_ref()))
-                    // Pushes the status chip to the trailing edge.
-                    .child(div().flex_1())
-                    .child(
-                        div()
-                            .text_size(px(ui_size(10.)))
-                            .px_1p5()
-                            .py_0p5()
-                            .rounded_sm()
-                            .bg(rgb(PANEL))
-                            .text_color(rgb(status_color))
-                            .child(status.to_string()),
-                    )
+                    .when(is_error, |el| {
+                        el.child(
+                            div()
+                                .flex_none()
+                                .text_color(rgb(DANGER))
+                                .child(crate::shared::i18n::label("Failed", "失败")),
+                        )
+                    })
                     .when(label == "CreateWorkflow" || label == "Agent", |chip| {
                         chip.child(
                             div()
                                 .id(ElementId::NamedInteger("subagent-badge".into(), r_id))
+                                .flex_none()
                                 .px_1p5()
                                 .py_0p5()
-                                .rounded_sm()
-                                .bg(rgb(CARD_HOVER))
-                                .text_size(px(ui_size(9.5)))
-                                .text_color(rgb(ACCENT))
+                                .rounded_full()
+                                .bg(tinted(TAG, 0.5))
+                                .text_size(px(ui_size(12.)))
+                                .text_color(rgb(MUTED))
                                 .cursor_pointer()
-                                .hover(|h| h.bg(rgb(SELECTED)))
+                                .hover(|h| h.text_color(rgb(TEXT)))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     cx.stop_propagation();
                                     this.dock_open = true;
                                     this.dock_tab = crate::app::dock::DockTab::Workflows;
                                     cx.notify();
                                 }))
-                                .child("⚡ Subagents"),
+                                .child("Subagents"),
                         )
-                    }),
+                    })
+                    .child(
+                        div()
+                            .flex_none()
+                            .when(!expanded, |el| {
+                                el.opacity(0.).group_hover(TOOL_GROUP, |s| s.opacity(1.))
+                            })
+                            .child(icon(
+                                if expanded {
+                                    I_CHEVRON_DOWN
+                                } else {
+                                    I_CHEVRON_RIGHT
+                                },
+                                16.,
+                                SUBTLEST,
+                            )),
+                    ),
             )
             .when(expanded, |el| {
                 el.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .px_3()
-                        .pb_2p5()
-                        .pt_1()
-                        .border_t_1()
-                        .border_color(rgb(BORDER))
-                        .child(input_view(label, input.as_ref(), input_text))
-                        .when(!output_text.is_empty(), |out| {
-                            out.child(if crate::shared::diff_view::looks_like_diff(output_text) {
-                                crate::shared::diff_view::render_diff(output_text)
-                            } else {
-                                div()
-                                    .font_family(MONO_FONT)
-                                    .text_size(px(ui_size(11.)))
-                                    .text_color(rgb(MUTED))
-                                    .child(output_text.to_string())
-                                    .into_any_element()
-                            })
-                        }),
+                    div().pt_2().child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .p_3()
+                            .rounded_lg()
+                            .border_1()
+                            .border_color(rgb(BORDER))
+                            .bg(rgb(BG))
+                            .child(input_view(label, input.as_ref(), input_text))
+                            .when(!output_text.is_empty(), |out| {
+                                out.child(
+                                    if crate::shared::diff_view::looks_like_diff(output_text) {
+                                        crate::shared::diff_view::render_diff(output_text)
+                                    } else {
+                                        div()
+                                            .font_family(MONO_FONT)
+                                            .text_size(px(ui_size(12.)))
+                                            .text_color(rgb(MUTED))
+                                            // gpui 不绘制制表符，`cat -n` 风格的行号会与正文粘连；展开为空格。
+                                            .child(output_text.replace('\t', "    "))
+                                            .into_any_element()
+                                    },
+                                )
+                            }),
+                    ),
                 )
             })
             .into_any_element()
@@ -152,10 +167,9 @@ fn summary_label(label: &str, input: Option<&Value>) -> AnyElement {
     };
     div()
         .font_family(UI_FONT)
-        .text_size(px(ui_size(12.)))
         .text_color(rgb(MUTED))
         .min_w_0()
-        .overflow_hidden()
+        .truncate()
         .child(format_preview(&text, 80))
         .into_any_element()
 }

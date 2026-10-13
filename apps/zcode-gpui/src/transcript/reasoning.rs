@@ -1,9 +1,27 @@
+//! Reasoning row (Desktop `ai-elements/reasoning.tsx`): a Brain icon with
+//! "Thought · N seconds"; the chevron shows on hover and stays while open. The
+//! expanded text is plain, capped in height, and indented behind a guide line.
+
 use crate::app::root::RootView;
-use crate::shared::theme::{BORDER, REASONING, ui_size};
+use crate::shared::app_assets::BRAIN_ICON;
+use crate::shared::i18n::{t, t_fmt};
+use crate::shared::theme::{BORDER, I_CHEVRON_DOWN, I_CHEVRON_RIGHT, SUBTLEST, icon, ui_size};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px,
 };
+
+const REASONING_GROUP: &str = "reasoning-trigger";
+
+fn duration_label(duration_ms: Option<u64>) -> String {
+    match duration_ms {
+        Some(ms) if ms >= 1000 => t_fmt(
+            "chat.reasoning.durationSeconds",
+            &[("seconds", &ms.div_ceil(1000).to_string())],
+        ),
+        _ => t("chat.reasoning.durationFewSeconds").to_string(),
+    }
+}
 
 impl RootView {
     pub(crate) fn render_reasoning(
@@ -14,26 +32,51 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let expanded = self.expanded_reasonings.contains(&row_id);
-        let duration = duration_ms
-            .map(|ms| format!(" ({})", crate::conversation::turn_meta::format_duration(ms)))
-            .unwrap_or_default();
+        let muted = rgb(SUBTLEST);
         div()
             .w_full()
             .flex()
             .flex_col()
-            .gap_1()
-            .my_1()
             .child(
                 div()
                     .id(ElementId::NamedInteger("toggle-thought".into(), row_id))
+                    .group(REASONING_GROUP)
                     .flex()
                     .items_center()
-                    .gap_1()
+                    .gap_2()
                     .cursor_pointer()
-                    .text_size(px(ui_size(11.5)))
-                    .text_color(rgb(REASONING))
-                    .child(if expanded { "▼" } else { "▶" })
-                    .child(format!("💭 Thought{duration}"))
+                    .text_size(px(ui_size(14.)))
+                    .text_color(muted)
+                    .child(
+                        gpui::svg()
+                            .path(BRAIN_ICON)
+                            .size(px(16.))
+                            .flex_none()
+                            .text_color(muted),
+                    )
+                    .child(
+                        div()
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .child(t("chat.reasoning.thought").to_string()),
+                    )
+                    .child("·")
+                    .child(duration_label(duration_ms))
+                    .child(
+                        div()
+                            .when(!expanded, |el| {
+                                el.opacity(0.)
+                                    .group_hover(REASONING_GROUP, |s| s.opacity(1.))
+                            })
+                            .child(icon(
+                                if expanded {
+                                    I_CHEVRON_DOWN
+                                } else {
+                                    I_CHEVRON_RIGHT
+                                },
+                                16.,
+                                SUBTLEST,
+                            )),
+                    )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         if !this.expanded_reasonings.remove(&row_id) {
@@ -44,16 +87,33 @@ impl RootView {
             )
             .when(expanded, |el| {
                 el.child(
-                    div()
-                        .pl_3()
-                        .border_l_1()
-                        .border_color(rgb(BORDER))
-                        .text_size(px(ui_size(12.)))
-                        .text_color(rgb(REASONING))
-                        .opacity(0.85)
-                        .child(text.to_owned()),
+                    div().pt_3().child(
+                        div()
+                            .id(ElementId::NamedInteger("thought-body".into(), row_id))
+                            .max_h(px(240.))
+                            .overflow_y_scroll()
+                            .ml_2()
+                            .pl(px(14.))
+                            .border_l_1()
+                            .border_color(rgb(BORDER))
+                            .text_size(px(ui_size(14.)))
+                            .text_color(muted)
+                            .child(text.to_owned()),
+                    ),
                 )
             })
             .into_any_element()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::duration_label;
+
+    #[test]
+    fn duration_rounds_up_to_whole_seconds() {
+        assert_eq!(duration_label(None), "a few seconds");
+        assert_eq!(duration_label(Some(400)), "a few seconds");
+        assert_eq!(duration_label(Some(3200)), "4 seconds");
     }
 }

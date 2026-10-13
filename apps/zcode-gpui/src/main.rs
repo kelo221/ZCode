@@ -138,10 +138,11 @@ fn main() {
     };
 
     // gpui_platform::application() replaces the removed gpui::Application::new
-    // (zed #restructure); ely's Assets serves its embedded fonts + icons, and
+    // (zed #restructure); AppAssets serves ely's embedded fonts + icons (plus
+    // app-local icons), and
     // init() registers fonts, the theme and Tab focus bindings. Call it first.
     gpui_platform::application()
-        .with_assets(ely_gpui_component::Assets)
+        .with_assets(shared::app_assets::AppAssets)
         .run(move |cx: &mut App| {
             ely_gpui_component::init(cx);
             shared::preferences::Preferences::install(settings.clone(), cx);

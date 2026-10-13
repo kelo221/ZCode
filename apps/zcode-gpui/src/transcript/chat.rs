@@ -3,12 +3,11 @@
 
 use crate::conversation::model::Row;
 use crate::shared::theme::ui_size;
-use crate::shared::theme::{ACCENT, CARD, MUTED, TEXT, USER_BLUE};
+use crate::shared::theme::{BORDER, SURFACE, TEXT};
 use crate::shared::theme_colors::color as rgb;
-use gpui::{
-    AnyElement, ClipboardItem, Context, ElementId, IntoElement, ParentElement, Styled, div,
-    prelude::*, px,
-};
+use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div, prelude::*, px};
+
+const USER_GROUP: &str = "user-message";
 
 impl crate::app::root::RootView {
     /// `row_actions` is false until the snapshot's log epoch is known; row
@@ -41,82 +40,45 @@ impl crate::app::root::RootView {
                 entity_id,
                 text,
                 can_edit,
-            } => {
-                let edit_entity = entity_id.clone();
-                let user_text = text.clone();
-                let copy_text = text.clone();
-                let edit_text = text.clone();
-                let r_id = *row_id;
-                let c_edit = *can_edit && row_actions;
-
-                Some(
-                    div()
-                        .w_full()
-                        .flex()
-                        .flex_col()
-                        .items_end()
-                        .gap_1()
-                        .child(
-                            div()
-                                .max_w(px(640.))
-                                .bg(rgb(CARD))
-                                .rounded_lg()
-                                .px_3()
-                                .py_2()
-                                .text_size(px(ui_size(13.5)))
-                                .text_color(rgb(USER_BLUE))
-                                .child(user_text),
+            } => Some(
+                // Desktop ConversationUserInputBubble: right-aligned surface card
+                // with a squared top-right corner; actions appear on hover.
+                div()
+                    .group(USER_GROUP)
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .items_end()
+                    .gap_1()
+                    .child(
+                        div()
+                            .max_w(px(576.))
+                            .bg(rgb(SURFACE))
+                            .border_1()
+                            .border_color(rgb(BORDER))
+                            .rounded_tl(px(12.))
+                            .rounded_bl(px(12.))
+                            .rounded_br(px(12.))
+                            .rounded_tr(px(2.))
+                            .px_4()
+                            .py_3()
+                            .text_size(px(ui_size(14.)))
+                            .text_color(rgb(TEXT))
+                            .child(text.clone()),
+                    )
+                    .child(
+                        self.user_message_actions(
+                            *row_id,
+                            entity_id.clone(),
+                            text.clone(),
+                            *can_edit && row_actions,
+                            cx,
                         )
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .opacity(0.8)
-                                .child(
-                                    div()
-                                        .id(ElementId::NamedInteger("copy-user".into(), r_id))
-                                        .px_1p5()
-                                        .py_0p5()
-                                        .rounded_sm()
-                                        .text_size(px(ui_size(10.)))
-                                        .text_color(rgb(MUTED))
-                                        .hover(|s| s.text_color(rgb(TEXT)))
-                                        .cursor_pointer()
-                                        .child("Copy")
-                                        .on_click(cx.listener(move |_this, _, _, cx| {
-                                            cx.stop_propagation();
-                                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                                copy_text.clone(),
-                                            ));
-                                        })),
-                                )
-                                .when(c_edit, |el| {
-                                    el.child(
-                                        div()
-                                            .id(ElementId::NamedInteger("edit-user".into(), r_id))
-                                            .px_1p5()
-                                            .py_0p5()
-                                            .rounded_sm()
-                                            .text_size(px(ui_size(10.)))
-                                            .text_color(rgb(MUTED))
-                                            .hover(|s| s.text_color(rgb(TEXT)))
-                                            .cursor_pointer()
-                                            .child("Edit")
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                cx.stop_propagation();
-                                                let (t, e) =
-                                                    (edit_text.clone(), edit_entity.clone());
-                                                this.state.update(cx, |s, cx| {
-                                                    s.begin_edit(r_id, &e, &t, cx);
-                                                });
-                                            })),
-                                    )
-                                }),
-                        )
-                        .into_any_element(),
-                )
-            }
+                        .opacity(0.)
+                        .group_hover(USER_GROUP, |s| s.opacity(1.)),
+                    )
+                    .into_any_element(),
+            ),
             Row::AssistantText {
                 row_id,
                 entity_id,
@@ -125,11 +87,7 @@ impl crate::app::root::RootView {
                 can_retry,
             } => {
                 let streaming = state == "streaming";
-                let copy_text = text.clone();
-                let r_id = *row_id;
-                let ent_id = entity_id.clone();
-                let c_retry = *can_retry && !streaming && row_actions;
-
+                let can_retry = *can_retry && !streaming && row_actions;
                 Some(
                     div()
                         .w_full()
@@ -137,148 +95,19 @@ impl crate::app::root::RootView {
                         .flex_col()
                         .items_start()
                         .gap_1()
+                        .text_size(px(ui_size(14.)))
+                        .text_color(rgb(TEXT))
                         .child(crate::shared::markdown::render_markdown(
                             text, *row_id, streaming,
                         ))
                         .when(!streaming && !text.is_empty(), |el| {
-                            el.child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .opacity(0.8)
-                                    .child(
-                                        div()
-                                            .id(ElementId::NamedInteger("copy-asst".into(), r_id))
-                                            .px_1p5()
-                                            .py_0p5()
-                                            .rounded_sm()
-                                            .text_size(px(ui_size(10.)))
-                                            .text_color(rgb(MUTED))
-                                            .hover(|s| s.text_color(rgb(TEXT)))
-                                            .cursor_pointer()
-                                            .child("Copy")
-                                            .on_click(cx.listener(move |_this, _, _, cx| {
-                                                cx.stop_propagation();
-                                                cx.write_to_clipboard(ClipboardItem::new_string(
-                                                    copy_text.clone(),
-                                                ));
-                                            })),
-                                    )
-                                    .when(c_retry, |actions| {
-                                        let target_ent = ent_id.clone();
-                                        let ent_fork = ent_id.clone();
-                                        let ent_like = ent_id.clone();
-                                        let ent_dislike = ent_id.clone();
-                                        actions
-                                            .child(
-                                                div()
-                                                    .id(ElementId::NamedInteger(
-                                                        "retry-turn".into(),
-                                                        r_id,
-                                                    ))
-                                                    .px_1p5()
-                                                    .py_0p5()
-                                                    .rounded_sm()
-                                                    .text_size(px(ui_size(10.)))
-                                                    .text_color(rgb(MUTED))
-                                                    .hover(|s| s.text_color(rgb(ACCENT)))
-                                                    .cursor_pointer()
-                                                    .child("Retry")
-                                                    .on_click(cx.listener(
-                                                        move |this, _, _, cx| {
-                                                            cx.stop_propagation();
-                                                            let e_id = target_ent.clone();
-                                                            this.state.update(cx, |app, cx| {
-                                                                app.retry_turn(r_id, &e_id, cx);
-                                                            });
-                                                        },
-                                                    )),
-                                            )
-                                            .child(
-                                                div()
-                                                    .id(ElementId::NamedInteger(
-                                                        "fork-turn".into(),
-                                                        r_id,
-                                                    ))
-                                                    .px_1p5()
-                                                    .py_0p5()
-                                                    .rounded_sm()
-                                                    .text_size(px(ui_size(10.)))
-                                                    .text_color(rgb(MUTED))
-                                                    .hover(|s| s.text_color(rgb(ACCENT)))
-                                                    .cursor_pointer()
-                                                    .child("Fork")
-                                                    .on_click(cx.listener(
-                                                        move |this, _, _, cx| {
-                                                            cx.stop_propagation();
-                                                            let e_id = ent_fork.clone();
-                                                            this.state.update(cx, |app, cx| {
-                                                                app.fork_assistant(r_id, &e_id, cx);
-                                                            });
-                                                        },
-                                                    )),
-                                            )
-                                            .child(
-                                                div()
-                                                    .id(ElementId::NamedInteger(
-                                                        "like-turn".into(),
-                                                        r_id,
-                                                    ))
-                                                    .px_1p5()
-                                                    .py_0p5()
-                                                    .rounded_sm()
-                                                    .text_size(px(ui_size(10.)))
-                                                    .text_color(rgb(MUTED))
-                                                    .hover(|s| s.text_color(rgb(ACCENT)))
-                                                    .cursor_pointer()
-                                                    .child("👍")
-                                                    .on_click(cx.listener(
-                                                        move |this, _, _, cx| {
-                                                            cx.stop_propagation();
-                                                            let e_id = ent_like.clone();
-                                                            this.state.update(cx, |app, cx| {
-                                                                app.set_assistant_feedback(
-                                                                    r_id,
-                                                                    &e_id,
-                                                                    Some("like"),
-                                                                    cx,
-                                                                );
-                                                            });
-                                                        },
-                                                    )),
-                                            )
-                                            .child(
-                                                div()
-                                                    .id(ElementId::NamedInteger(
-                                                        "dislike-turn".into(),
-                                                        r_id,
-                                                    ))
-                                                    .px_1p5()
-                                                    .py_0p5()
-                                                    .rounded_sm()
-                                                    .text_size(px(ui_size(10.)))
-                                                    .text_color(rgb(MUTED))
-                                                    .hover(|s| s.text_color(rgb(ACCENT)))
-                                                    .cursor_pointer()
-                                                    .child("👎")
-                                                    .on_click(cx.listener(
-                                                        move |this, _, _, cx| {
-                                                            cx.stop_propagation();
-                                                            let e_id = ent_dislike.clone();
-                                                            this.state.update(cx, |app, cx| {
-                                                                app.set_assistant_feedback(
-                                                                    r_id,
-                                                                    &e_id,
-                                                                    Some("dislike"),
-                                                                    cx,
-                                                                );
-                                                            });
-                                                        },
-                                                    )),
-                                            )
-                                    }),
-                            )
+                            el.child(self.assistant_message_actions(
+                                *row_id,
+                                entity_id.clone(),
+                                text.clone(),
+                                can_retry,
+                                cx,
+                            ))
                         })
                         .into_any_element(),
                 )

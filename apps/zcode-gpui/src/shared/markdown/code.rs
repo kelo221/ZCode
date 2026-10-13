@@ -3,9 +3,10 @@
 //!
 //! Spec: PARITY.md M2 "Code highlighting (syntect) + copy button".
 
-use gpui::{
-    AnyElement, InteractiveElement, IntoElement, ParentElement, Styled, div, prelude::*, px,
-};
+use ely_gpui_component::buttons::{ButtonVariant, IconButton};
+use ely_gpui_component::primitives::IconName;
+use ely_gpui_component::theme::ControlSize;
+use gpui::{AnyElement, IntoElement, ParentElement, Styled, div, px};
 use std::sync::OnceLock;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{FontStyle, ThemeSet};
@@ -190,52 +191,35 @@ pub fn code_block(id: u64, code: &str, lang: &str) -> AnyElement {
     let lines = highlight_cached(code, label);
     let copy_text = code.to_string();
 
+    let color = crate::shared::theme_colors::color;
+    use crate::shared::theme::{BORDER, CODE_BG, MUTED, TEXT, ui_size};
     div()
         .my_1p5()
         .w_full()
         .overflow_hidden()
-        .rounded_md()
+        .rounded_xl()
         .border_1()
-        .border_color(crate::shared::theme_colors::color(
-            crate::shared::theme::CODE_BORDER,
-        ))
-        .bg(crate::shared::theme_colors::color(
-            crate::shared::theme::CODE_BG,
-        ))
+        .border_color(color(BORDER))
+        .bg(color(CODE_BG))
         .child(
             div()
                 .flex()
                 .items_center()
                 .justify_between()
-                .px_2()
-                .py_1()
-                .bg(crate::shared::theme_colors::color(
-                    crate::shared::theme::CODE_HEADER,
-                ))
+                .px_3()
+                .py_2()
                 .child(
                     div()
                         .font_family(CODE_FONT)
-                        .text_size(px(crate::shared::theme::ui_size(10.)))
-                        .text_color(crate::shared::theme_colors::color(
-                            crate::shared::theme::MUTED,
-                        ))
+                        .text_size(px(ui_size(12.)))
+                        .text_color(color(MUTED))
                         .child(label.to_string()),
                 )
                 .child(
-                    div()
-                        .id(("code-copy", id))
-                        .px_1p5()
-                        .text_size(px(crate::shared::theme::ui_size(10.)))
-                        .text_color(crate::shared::theme_colors::color(
-                            crate::shared::theme::MUTED,
-                        ))
-                        .hover(|s| {
-                            s.text_color(crate::shared::theme_colors::color(
-                                crate::shared::theme::TEXT,
-                            ))
-                        })
-                        .cursor_pointer()
-                        .child("Copy")
+                    IconButton::new(("code-copy", id), IconName::Copy)
+                        .size(ControlSize::Sm)
+                        .variant(ButtonVariant::Ghost)
+                        .tooltip("Copy")
                         .on_click(move |_, _, cx: &mut gpui::App| {
                             cx.write_to_clipboard(gpui::ClipboardItem::new_string(
                                 copy_text.clone(),
@@ -245,12 +229,10 @@ pub fn code_block(id: u64, code: &str, lang: &str) -> AnyElement {
         )
         .child(
             div()
-                .px_2()
-                .py_1p5()
-                .text_size(px(11.5))
-                .text_color(crate::shared::theme_colors::color(
-                    crate::shared::theme::TEXT,
-                ))
+                .px_3()
+                .pb_3()
+                .text_size(px(ui_size(12.)))
+                .text_color(color(TEXT))
                 .children(lines.iter().map(|l| code_line(l))),
         )
         .into_any_element()

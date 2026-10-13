@@ -76,8 +76,6 @@ fn font_of(st: &Style) -> Font {
 fn color_of(st: &Style) -> Hsla {
     if st.link {
         c(crate::shared::theme::LINK)
-    } else if st.code {
-        c(0xe6b67d)
     } else if st.strike {
         c(crate::shared::theme::MUTED)
     } else {
@@ -93,7 +91,10 @@ fn push_run(inline: &mut Inline, len: usize, st: &Style) {
     }
     let font = font_of(st);
     let color = color_of(st);
-    let background = st.code.then_some(c(crate::shared::theme::CODE_BG));
+    // Desktop inline code: foreground text on the tag color at half alpha.
+    let background = st
+        .code
+        .then(|| crate::shared::theme_colors::tinted(crate::shared::theme::TAG, 0.5).into());
     let underline = st.link.then(|| UnderlineStyle {
         thickness: px(1.),
         color: None,
