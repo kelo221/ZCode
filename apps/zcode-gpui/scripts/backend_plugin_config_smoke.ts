@@ -77,10 +77,14 @@ export async function backendPluginConfigSmoke(
     const result = zcodePluginsListResultSchema.parse(
       await rpc("plugins/list", { workspace: ref, configScope: scope }),
     );
-    if (result.diagnostics.some((d) => d.severity === "error"))
+    // 原因：v3.15.1 起内置官方插件（如 image-search）在空白隔离根下会报缺失变量的错误诊断；
+    // 修复：只把本 fixture 插件与全局诊断视为失败，其它插件的诊断与本冒烟无关。
+    const errors = result.diagnostics.filter(
+      (d) => d.severity === "error" && (d.pluginId === undefined || d.pluginId === pluginId),
+    );
+    if (errors.length > 0)
       throw new Error(
-        `Disposable config list failed: ${result.diagnostics
-          .filter((d) => d.severity === "error")
+        `Disposable config list failed: ${errors
           .map((d) => `${d.code}:${d.pluginId ?? "global"}`)
           .join(",")}`,
       );

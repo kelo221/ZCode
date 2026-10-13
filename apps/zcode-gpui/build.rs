@@ -84,29 +84,27 @@ fn main() {
     let dest_path = out_dir.join("i18n_data.rs");
     let cache_path = PathBuf::from("i18n_cache.json");
 
-    // Try deno first, then bun, then fallback to cache
-    let deno_res = Command::new("deno")
-        .args([
-            "run",
-            "--allow-read",
-            "--allow-write",
-            "scripts/extract_i18n.ts",
-            dest_path.to_str().unwrap(),
-        ])
-        .status();
-
-    let success = match deno_res {
-        Ok(s) => s.success(),
-        Err(_) => {
-            let bun_res = Command::new("bun")
-                .args(["scripts/extract_i18n.ts", dest_path.to_str().unwrap()])
-                .status();
-            match bun_res {
-                Ok(s) => s.success(),
-                Err(_) => false,
-            }
-        }
+    // Bun first: it resolves packages/ui's `@/` tsconfig alias, which Deno cannot.
+    // A runtime that exists but fails must still fall through to the next one.
+    let dest = dest_path.to_str().unwrap();
+    let runs = |program: &str, args: &[&str]| {
+        Command::new(program)
+            .args(args)
+            .status()
+            .is_ok_and(|s| s.success())
     };
+    let success = runs("bun", &["scripts/extract_i18n.ts", dest])
+        || runs(
+            "deno",
+            &[
+                "run",
+                "--allow-read",
+                "--allow-write",
+                "--allow-env",
+                "scripts/extract_i18n.ts",
+                dest,
+            ],
+        );
 
     if !success {
         if cache_path.exists() {

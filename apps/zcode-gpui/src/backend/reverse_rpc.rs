@@ -36,6 +36,12 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const SCHEDULER_UNAVAILABLE: &str = "Automations and off-peak tasks are managed by the ZCode desktop app; \
      they are not available in the GPUI client";
 
+/// Bot-channel replies and topic attachments belong to the desktop host's
+/// Feishu/Lark relay, which GPUI excludes; `-32601` would misreport them as
+/// an outdated client rather than an unavailable host capability.
+const CHANNEL_UNAVAILABLE: &str = "Bot channels and topic resources are managed by the ZCode desktop app; \
+     they are not available in the GPUI client";
+
 fn respond_result(id: &Value, result: Value) -> ReverseRpcAction {
     ReverseRpcAction::Respond(json!({ "id": id, "result": result }).to_string())
 }
@@ -50,6 +56,10 @@ fn respond_error(id: &Value, code: i64, message: &str) -> ReverseRpcAction {
 /// members added upstream after this table was written.
 fn is_host_scheduler_method(method: &str) -> bool {
     method.starts_with("automation/") || method.starts_with("offPeak/")
+}
+
+fn is_host_channel_method(method: &str) -> bool {
+    method.starts_with("bot/") || method.starts_with("topic/resource/")
 }
 
 /// Dispatches an agent-to-client request based on the method name.
@@ -102,6 +112,16 @@ pub fn dispatch_reverse_rpc(
         m if is_host_scheduler_method(m) => {
             respond_error(id, INTERNAL_ERROR, SCHEDULER_UNAVAILABLE)
         }
+        m if is_host_channel_method(m) => respond_error(id, INTERNAL_ERROR, CHANNEL_UNAVAILABLE),
+
+        // Only sent when runtime preferences enable it, which GPUI never does;
+        // mirrors Desktop's reply when it has no reader so the CLI keeps its
+        // own Markdown profile loading.
+        "subagents/readRuntimeConfig" => respond_error(
+            id,
+            INTERNAL_ERROR,
+            "Subagent runtime config is unavailable on this Host",
+        ),
 
         other => respond_error(
             id,

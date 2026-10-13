@@ -155,9 +155,33 @@ fn test_every_cli_reverse_request_is_classified() {
         "interaction/browserList",
         "interaction/browserExecute",
         "session/requestRuntimePreferences",
+        "bot/channel/reply",
+        "topic/resource/read",
+        "topic/resource/cancel",
+        "subagents/readRuntimeConfig",
     ] {
         let val = respond(method);
         assert_ne!(val["error"]["code"], -32601, "{method} must be classified");
+    }
+}
+
+#[test]
+fn test_bot_channel_and_topic_resources_fail_fast() {
+    for method in [
+        "bot/channel/reply",
+        "topic/resource/read",
+        "topic/resource/cancel",
+    ] {
+        let val = respond(method);
+        assert_eq!(val["error"]["code"], -32603, "{method}");
+        assert!(val.get("result").is_none(), "{method}");
+        assert!(
+            val["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("ZCode desktop"),
+            "{method}"
+        );
     }
 }
 

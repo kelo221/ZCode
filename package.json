@@ -118,7 +118,9 @@
   "packageManager": "bun@1.4.2",
   "overrides": {
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "vitest": "4.1.7",
+    "@vitest/coverage-v8": "4.1.7"
   },
   "patchedDependencies": {
     "vitest@4.1.7": "patches/vitest@4.1.7.patch",
