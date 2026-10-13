@@ -86,6 +86,7 @@ mod settings_models;
 mod settings_navigation;
 #[cfg(test)]
 mod settings_navigation_tests;
+mod settings_rows;
 #[cfg(test)]
 mod settings_shell_tests;
 #[cfg(test)]

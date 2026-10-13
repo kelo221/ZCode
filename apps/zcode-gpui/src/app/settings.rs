@@ -1,5 +1,6 @@
 use crate::app::root::RootView;
 use crate::app::settings_navigation::settings_layout;
+use crate::app::settings_rows::{ControlWidth, settings_card, settings_row};
 use crate::shared::i18n::{LocalePreference, t};
 use crate::shared::preferences::{PreferenceChange, PreferenceOwner, Preferences};
 use crate::shared::theme::{ThemeMode, active_theme, font_size_base};
@@ -114,36 +115,37 @@ impl RootView {
         let error = preferences.error.clone();
         let layout = settings_layout(f32::from(window.viewport_size().width));
         let back = div().child(
-            Button::new(
+            crate::app::settings_navigation::nav_item(
                 "settings-back",
+                IconName::ArrowLeft.path(),
                 crate::shared::i18n::label("Back to workspace", "返回工作区"),
+                false,
+                layout.compact,
             )
-            .icon(IconName::ArrowLeft)
+            .text_color(theme.subtle)
             .on_click(cx.listener(|this, _, window, cx| this.close_settings(window, cx))),
         );
         #[cfg(test)]
         let back = crate::app::test_support::track_children(back, vec!["settings-back".into()]);
         let navigation = div()
             .id("settings-navigation")
+            .w(px(layout.navigation_width))
+            .h_full()
+            .flex_shrink_0()
             .min_h_0()
-            .min_w_0()
             .overflow_y_scroll()
             .flex()
             .flex_col()
             .gap_4()
-            .p_4()
-            .when(layout.compact, |el| {
-                el.w_full().h(px(layout.navigation_height)).flex_shrink_0()
-            })
-            .when(!layout.compact, |el| {
-                el.w(px(264.)).h_full().flex_shrink_0()
-            })
+            .px_2()
+            .py_3()
+            .when(layout.compact, |el| el.items_center())
             .child(back)
-            .child(self.render_settings_navigation(window, cx));
+            .child(self.render_settings_navigation(layout.compact, window, cx));
         let content = match self.settings.section {
             SettingsSection::General => {
                 let selected = settings.language_preference().as_str();
-                let selector = div().child(
+                let selector = div().w_full().child(
                     Select::new("settings-locale", language_choices())
                         .selected(selected)
                         .disabled(blocked)
@@ -163,8 +165,12 @@ impl RootView {
                     .flex()
                     .flex_col()
                     .gap_4()
-                    .child(t("settings.locale"))
-                    .child(selector)
+                    .child(settings_card([settings_row(
+                        t("settings.locale"),
+                        None,
+                        selector,
+                        ControlWidth::Default,
+                    )]))
                     .child(
                         div()
                             .text_color(theme.subtle)
@@ -182,74 +188,72 @@ impl RootView {
                     .or(settings.theme.as_deref())
                     .unwrap_or("system")
                     .to_owned();
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_4()
-                    .child(t("settings.themeMode"))
-                    .child(
-                        Select::new(
-                            "settings-theme",
-                            [
-                                Choice::new(
-                                    "system",
-                                    crate::shared::i18n::label("System", "跟随系统"),
-                                ),
-                                Choice::new("zai-dark", crate::shared::i18n::label("Dark", "深色")),
-                                Choice::new(
-                                    "zai-light",
-                                    crate::shared::i18n::label("Light", "浅色"),
-                                ),
-                            ],
-                        )
-                        .selected(selected)
+                let theme_select = div().w_full().child(
+                    Select::new(
+                        "settings-theme",
+                        [
+                            Choice::new("system", crate::shared::i18n::label("System", "跟随系统")),
+                            Choice::new("zai-dark", crate::shared::i18n::label("Dark", "深色")),
+                            Choice::new("zai-light", crate::shared::i18n::label("Light", "浅色")),
+                        ],
+                    )
+                    .selected(selected)
+                    .disabled(blocked)
+                    .on_change(|value, _, cx| {
+                        Preferences::enqueue(PreferenceChange::Theme(ThemeMode::parse(value)), cx)
+                    }),
+                );
+                let font_slider = div().w_full().child(
+                    Slider::new("settings-font-size", f64::from(font_size_base()))
+                        .range(12., 20.)
+                        .step(1.)
                         .disabled(blocked)
                         .on_change(|value, _, cx| {
-                            Preferences::enqueue(
-                                PreferenceChange::Theme(ThemeMode::parse(value)),
-                                cx,
-                            )
+                            Preferences::enqueue(PreferenceChange::FontSize(value as f32), cx)
                         }),
-                    )
-                    .child(format!(
-                        "{}: {} px",
+                );
+                settings_card([
+                    settings_row(
+                        t("settings.themeMode"),
+                        None,
+                        theme_select,
+                        ControlWidth::Default,
+                    ),
+                    settings_row(
                         crate::shared::i18n::label("Interface font size", "界面字体大小"),
-                        font_size_base()
-                    ))
-                    .child(
-                        Slider::new("settings-font-size", f64::from(font_size_base()))
-                            .range(12., 20.)
-                            .step(1.)
-                            .disabled(blocked)
-                            .on_change(|value, _, cx| {
-                                Preferences::enqueue(PreferenceChange::FontSize(value as f32), cx)
-                            }),
-                    )
-                    .into_any_element()
+                        Some(format!("{} px", font_size_base()).into()),
+                        font_slider,
+                        ControlWidth::Wide,
+                    ),
+                ])
+                .into_any_element()
             }
             SettingsSection::Memory => {
-                let content = div().flex().flex_col().gap_4().child(
+                let switch = div().child(
                     Switch::new(
                         "settings-memory-enabled",
                         settings.memory_enabled.unwrap_or(false),
                     )
-                    .label(crate::shared::i18n::label("Enable Memory", "启用记忆"))
                     .disabled(blocked)
                     .on_change(|enabled, _, cx| {
                         Preferences::enqueue(PreferenceChange::MemoryEnabled(enabled), cx)
                     }),
                 );
                 #[cfg(test)]
-                let content = crate::app::test_support::track_children(
-                    content,
+                let switch = crate::app::test_support::track_children(
+                    switch,
                     vec!["settings-memory-enabled".into()],
                 );
-                content.child(div().text_color(theme.subtle).child(
-                    crate::shared::i18n::label(
+                settings_card([settings_row(
+                    crate::shared::i18n::label("Enable Memory", "启用记忆"),
+                    Some(crate::shared::i18n::label(
                         "Allows configured CLI memory for newly materialized or resumed sessions. This does not reconfigure an active runtime; CLI memory policy still applies.",
                         "允许新建或恢复的会话使用已配置的 CLI 记忆。不会重新配置运行中的会话；仍受 CLI 记忆策略控制。",
-                    ),
-                )).into_any_element()
+                    ).into()),
+                    switch,
+                    ControlWidth::Default,
+                )])
+                .into_any_element()
             }
             SettingsSection::Shortcuts => {
                 self.render_shortcut_settings(&settings, blocked, window, cx)
@@ -266,32 +270,41 @@ impl RootView {
             .min_w_0()
             .h_full()
             .flex()
-            .flex_col()
             .track_focus(&self.settings.focus)
-            .bg(theme.panel)
+            .bg(theme.sidebar)
             .text_color(theme.foreground)
             .text_size(px(font_size_base()))
+            .child(navigation)
             .child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .flex()
-                    .when(layout.compact, |el| el.flex_col())
-                    .child(navigation)
-                    .child(
+                // Desktop settings panel: the workspace panel inset and radius.
+                div().flex_1().min_w_0().h_full().py_1().pr_1().child(
+                    div()
+                        .id("settings-content")
+                        .size_full()
+                        .overflow_y_scroll()
+                        .rounded(px(crate::app::layout::PANEL_RADIUS))
+                        .border_1()
+                        .border_color(theme.border)
+                        .bg(theme.background)
+                        .pt_12()
+                        .flex()
+                        .justify_center()
+                        .child(
                         div()
-                            .id("settings-content")
-                            .flex_1()
+                            .w_full()
+                            .max_w(px(896.))
                             .min_w_0()
-                            .min_h_0()
-                            .overflow_y_scroll()
-                            .when(layout.compact, |el| el.p_4())
-                            .when(!layout.compact, |el| el.p_6())
+                            .when(layout.compact, |el| el.px_4().pb_8())
+                            .when(!layout.compact, |el| el.px_8().pb_10())
                             .flex()
                             .flex_col()
-                            .gap_4()
-                            .child(self.settings.section.title())
+                            .gap_8()
+                            .child(
+                                div()
+                                    .text_size(px(if layout.compact { 24. } else { 30. }))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .child(self.settings.section.title()),
+                            )
                             .child(content)
                             .when(read_only, |el| {
                                 el.child(crate::shared::i18n::label(
@@ -310,7 +323,7 @@ impl RootView {
                                     .child(Button::new("settings-close-manager", crate::shared::i18n::label("Close manager", "关闭管理"))
                                         .on_click(cx.listener(|this, _, _, cx| this.state.update(cx, |s, cx| s.close_profiles(cx)))))
                             })
-                            .when(self.settings.section != SettingsSection::Subagents, |el| el.child(
+                            .when(self.settings.section != SettingsSection::Subagents, |el| el.child(div().flex().child(
                                 Button::new(
                                     "settings-file",
                                     crate::shared::i18n::label(
@@ -332,8 +345,9 @@ impl RootView {
                                         }
                                     },
                                 )),
-                            )),
+                            ))),
                     ),
+                ),
             )
             .into_any_element()
     }

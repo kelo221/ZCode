@@ -53,7 +53,8 @@ fn grouped_navigation_is_complete_unique_and_searchable() {
     assert!(navigation_sections("missing section").is_empty());
     assert!(!settings_layout(1280.).compact);
     assert!(settings_layout(700.).compact);
-    assert!(settings_layout(700.).navigation_height < 700.);
+    assert_eq!(settings_layout(1280.).navigation_width, 268.);
+    assert_eq!(settings_layout(700.).navigation_width, 68.);
 }
 
 pub(super) fn model(provider: &str, name: &str, reasoning: &str) -> ModelOption {

@@ -1,7 +1,6 @@
 use crate::app::{root::RootView, settings::SettingsSection};
 use crate::shared::i18n::label;
-use crate::shared::theme::{active_theme, font_size_sm};
-use ely_gpui_component::buttons::{Button, ButtonVariant};
+use crate::shared::theme::{IconName, active_theme, font_size_sm, ui_size};
 use ely_gpui_component::forms::{Input, InputEvent, TextInput};
 use gpui::{AnyElement, Context, IntoElement, Window, div, prelude::*, px};
 
@@ -39,6 +38,22 @@ impl SettingsSection {
             Self::Plugins => ("Plugins", "插件"),
             Self::Mcp => ("MCP Servers", "MCP 服务器"),
             Self::Usage => ("Usage stats", "用量统计"),
+        }
+    }
+
+    /// Desktop `settingsPageConfig.ts` section icons.
+    pub(crate) fn icon_path(self) -> &'static str {
+        use crate::shared::app_assets::{BLOCKS_ICON, BRAIN_ICON, CABLE_ICON, SETTINGS_2_ICON};
+        match self {
+            Self::General => SETTINGS_2_ICON,
+            Self::Appearance => IconName::Palette.path(),
+            Self::Shortcuts => IconName::Keyboard.path(),
+            Self::Memory => BRAIN_ICON,
+            Self::Models => IconName::Package.path(),
+            Self::Subagents => IconName::Bot.path(),
+            Self::Plugins => BLOCKS_ICON,
+            Self::Mcp => CABLE_ICON,
+            Self::Usage => IconName::ChartColumn.path(),
         }
     }
 
@@ -86,16 +101,57 @@ pub(crate) fn navigation_sections(query: &str) -> Vec<(SettingsGroup, SettingsSe
     .collect()
 }
 
+/// Desktop collapses the 268px navigation to a 68px icon rail below `lg`.
 pub(crate) struct SettingsLayout {
     pub compact: bool,
-    pub navigation_height: f32,
+    pub navigation_width: f32,
 }
 
 pub(crate) fn settings_layout(width: f32) -> SettingsLayout {
+    let compact = width < 1024.;
     SettingsLayout {
-        compact: width < 900.,
-        navigation_height: 160.,
+        compact,
+        navigation_width: if compact { 68. } else { 268. },
     }
+}
+
+/// One navigation row (Desktop `SettingsSidebarButton`): 32px, `rounded-xl`,
+/// 16px icon and the label, which the compact rail hides.
+pub(crate) fn nav_item(
+    id: &'static str,
+    icon_path: &'static str,
+    text: &'static str,
+    active: bool,
+    compact: bool,
+) -> gpui::Stateful<gpui::Div> {
+    let theme = active_theme();
+    div()
+        .id(id)
+        .h(px(32.))
+        .flex()
+        .items_center()
+        .gap_2()
+        .rounded_xl()
+        .when(compact, |el| el.w(px(40.)).h(px(40.)).justify_center())
+        .when(!compact, |el| el.w_full().px(px(10.)))
+        .cursor_pointer()
+        .text_size(px(ui_size(14.)))
+        .text_color(theme.foreground)
+        .when(active, |el| el.bg(theme.surface_hover))
+        .when(!active, |el| el.hover(|s| s.bg(theme.surface_hover)))
+        .child(
+            gpui::svg()
+                .path(icon_path)
+                .size(px(16.))
+                .flex_none()
+                .text_color(theme.foreground),
+        )
+        .when(compact, |el| {
+            el.tooltip(ely_gpui_component::primitives::Tooltip::text(text))
+        })
+        .when(!compact, |el| {
+            el.child(div().min_w_0().truncate().child(text))
+        })
 }
 
 #[derive(Clone, Copy)]
@@ -187,10 +243,12 @@ impl RootView {
 
     pub(crate) fn render_settings_navigation(
         &mut self,
+        compact: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let search = self.settings_search(SettingsSearch::Navigation, window, cx);
+        let search =
+            (!compact).then(|| self.settings_search(SettingsSearch::Navigation, window, cx));
         let mut groups = div().flex().flex_col().gap_4();
         let sections = navigation_sections(&self.settings.query);
         for group in [
@@ -206,21 +264,22 @@ impl RootView {
             if entries.is_empty() {
                 continue;
             }
-            let mut buttons = div().flex().flex_col().gap_1();
+            let mut buttons = div().flex().flex_col().gap_0p5();
             for section in &entries {
                 let section = *section;
-                buttons = buttons.child(
-                    Button::new(section.id(), section.title())
-                        .full_width()
-                        .variant(if self.settings.section == section {
-                            ButtonVariant::Subtle
-                        } else {
-                            ButtonVariant::Ghost
-                        })
+                buttons =
+                    buttons.child(
+                        nav_item(
+                            section.id(),
+                            section.icon_path(),
+                            section.title(),
+                            self.settings.section == section,
+                            compact,
+                        )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.select_settings_section(section, cx)
                         })),
-                );
+                    );
             }
             #[cfg(test)]
             let buttons = crate::app::test_support::track_children(
@@ -231,13 +290,18 @@ impl RootView {
                 div()
                     .flex()
                     .flex_col()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_color(active_theme().subtle)
-                            .text_size(px(font_size_sm()))
-                            .child(group.title()),
-                    )
+                    .when(compact, |el| el.items_center())
+                    .when(!compact, |el| {
+                        el.child(
+                            div()
+                                .px(px(10.))
+                                .pb_1()
+                                .font_weight(gpui::FontWeight::MEDIUM)
+                                .text_color(active_theme().subtlest)
+                                .text_size(px(font_size_sm()))
+                                .child(group.title()),
+                        )
+                    })
                     .child(buttons),
             );
         }
@@ -245,7 +309,7 @@ impl RootView {
             .flex()
             .flex_col()
             .gap_4()
-            .child(search)
+            .children(search)
             .child(groups)
             .when(sections.is_empty(), |el| {
                 el.child(label("No matching settings", "没有匹配的设置"))

@@ -7,6 +7,9 @@ use std::borrow::Cow;
 pub(crate) const BRAIN_ICON: &str = "zcode/brain.svg";
 /// Outline logo behind the draft greeting (Desktop `ZCodeEmptyStateLogo`).
 pub(crate) const EMPTY_LOGO: &str = "zcode/empty-logo.svg";
+pub(crate) const SETTINGS_2_ICON: &str = "zcode/settings-2.svg";
+pub(crate) const BLOCKS_ICON: &str = "zcode/blocks.svg";
+pub(crate) const CABLE_ICON: &str = "zcode/cable.svg";
 
 const LOCAL: &[(&str, &[u8])] = &[
     (BRAIN_ICON, include_bytes!("../../assets/icons/brain.svg")),
@@ -14,6 +17,12 @@ const LOCAL: &[(&str, &[u8])] = &[
         EMPTY_LOGO,
         include_bytes!("../../assets/icons/empty-logo.svg"),
     ),
+    (
+        SETTINGS_2_ICON,
+        include_bytes!("../../assets/icons/settings-2.svg"),
+    ),
+    (BLOCKS_ICON, include_bytes!("../../assets/icons/blocks.svg")),
+    (CABLE_ICON, include_bytes!("../../assets/icons/cable.svg")),
 ];
 
 pub struct AppAssets;
@@ -51,5 +60,18 @@ mod tests {
                 .contains("lucide-brain")
         );
         assert!(AppAssets.load("icons/plus.svg").unwrap().is_some());
+    }
+
+    #[test]
+    fn every_local_icon_constant_is_served() {
+        for path in [
+            BRAIN_ICON,
+            EMPTY_LOGO,
+            SETTINGS_2_ICON,
+            BLOCKS_ICON,
+            CABLE_ICON,
+        ] {
+            assert!(AppAssets.load(path).unwrap().is_some(), "{path}");
+        }
     }
 }
