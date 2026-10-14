@@ -232,7 +232,8 @@ fn composer_activity_pointer_child_and_back_preserve_parent_input() {
         window.focus(&focus, cx);
         RootView::new(state.clone(), cx)
     });
-    for (width, compact) in [(1280., false), (720., true), (1280., false)] {
+    // 767 px and below switch to the phone layout; 780 is the narrowest desktop window.
+    for (width, compact) in [(1280., false), (780., true), (1280., false)] {
         let requested = size(px(width), px(820.));
         window.simulate_resize(requested);
         // 测试平台的同步 resize 回调借用冲突；显式同步 viewport，避免用旧宽度验证响应布局。

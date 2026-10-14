@@ -67,6 +67,8 @@ pub struct RootView {
     pub(crate) composer_compact: bool,
     /// Conversation column width from the last layout pass (transcript rows).
     pub(crate) conversation_column: f32,
+    /// Phone layout page (REMOTE_CONTROL.md "Phone layout"); ignored when wide.
+    pub(crate) mobile_page: crate::app::mobile_shell::MobilePage,
 }
 
 impl RootView {
@@ -86,6 +88,7 @@ impl RootView {
             state,
             composer_compact: true,
             conversation_column: 672.,
+            mobile_page: Default::default(),
             list_state,
             row_index: Vec::new(),
             last_bounds: (0, 0),
@@ -258,6 +261,8 @@ impl Render for RootView {
         }
         self.last_plan_present = plan_present;
 
+        let compact = crate::app::mobile_shell::is_compact(f32::from(window.viewport_size().width));
+        let chat_page = compact && self.mobile_page == crate::app::mobile_shell::MobilePage::Chat;
         div()
             .size_full()
             .flex()
@@ -309,12 +314,17 @@ impl Render for RootView {
                 }),
             )
             // Settings 是独立目的地；只切换渲染，不能卸载 workspace 或改变其业务状态。
-            .when(!self.settings.open, |el| el.child(self.sidebar(cx)))
-            // Main column retains the workspace panel outside Settings.
-            .child(if self.settings.open {
-                self.render_settings(window, cx)
+            .when(!self.settings.open && !chat_page, |el| {
+                el.child(self.sidebar(compact, cx))
+            })
+            // Main column retains the workspace panel outside Settings; the
+            // phone layout shows it only on the chat page.
+            .children(if self.settings.open {
+                Some(self.render_settings(window, cx))
+            } else if compact && !chat_page {
+                None
             } else {
-                self.workspace_panel(
+                let panel = self.workspace_panel(
                     crate::app::workspace_panel::PanelInputs {
                         title,
                         context_tag,
@@ -334,7 +344,18 @@ impl Render for RootView {
                     },
                     window,
                     cx,
-                )
+                );
+                Some(if chat_page {
+                    div()
+                        .size_full()
+                        .flex()
+                        .flex_col()
+                        .child(self.mobile_chat_header(cx))
+                        .child(panel)
+                        .into_any_element()
+                } else {
+                    panel
+                })
             })
             .children(
                 self.quickpick_open

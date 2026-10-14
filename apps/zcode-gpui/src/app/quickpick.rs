@@ -193,6 +193,7 @@ pub fn execute_quickpick_action(
     match action {
         QuickPickItemAction::Command(QuickPickAction::NewTask) => {
             this.close_settings(window, cx);
+            this.show_chat_page();
             this.state.update(cx, |s, cx| s.new_conversation_chat(cx));
         }
         QuickPickItemAction::Command(QuickPickAction::OpenWorkspace) => {
@@ -240,6 +241,7 @@ pub fn execute_quickpick_action(
         }
         QuickPickItemAction::OpenSession { sid, ws_key } => {
             this.close_settings(window, cx);
+            this.show_chat_page();
             this.state.update(cx, |state, cx| {
                 state.select_session(ws_key, sid, cx);
             });

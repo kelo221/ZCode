@@ -114,6 +114,7 @@ impl crate::app::root::RootView {
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.close_settings(window, cx);
                 cx.stop_propagation();
+                this.show_chat_page();
                 this.state
                     .update(cx, |s, cx| s.set_active_workspace(&key_new, cx));
             }));
@@ -171,7 +172,7 @@ impl crate::app::root::RootView {
     }
 
     /// Snapshot of all workspaces + their session rows, grouped by Tasks & Projects.
-    pub(crate) fn sidebar(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn sidebar(&mut self, full_width: bool, cx: &mut Context<Self>) -> AnyElement {
         let (active_workspace, tasks, projects) = {
             let state = self.state.read(cx);
             let active = state.active_ws_key();
@@ -278,6 +279,7 @@ impl crate::app::root::RootView {
             crate::shared::i18n::label("Tasks", "任务").into(),
             cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.close_settings(window, cx);
+                this.show_chat_page();
                 this.state.update(cx, |s, cx| s.new_conversation_chat(cx));
             }),
         );
@@ -292,7 +294,13 @@ impl crate::app::root::RootView {
         );
 
         let sidebar = div()
-            .w(px(264.))
+            .map(|el| {
+                if full_width {
+                    el.w_full()
+                } else {
+                    el.w(px(264.))
+                }
+            })
             .h_full()
             .flex()
             .flex_col()
@@ -302,6 +310,7 @@ impl crate::app::root::RootView {
                 nav_row("new-chat".into(), false)
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.close_settings(window, cx);
+                        this.show_chat_page();
                         this.state.update(cx, |s, cx| s.new_conversation_chat(cx));
                     }))
                     .child(icon(I_ADD, 13., TEXT))

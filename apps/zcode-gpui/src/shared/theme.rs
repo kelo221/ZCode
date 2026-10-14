@@ -195,6 +195,7 @@ pub const I_FOLDER: IconName = IconName::Folder;
 pub const I_CHEVRON_DOWN: IconName = IconName::ChevronDown;
 pub const I_CHEVRON_RIGHT: IconName = IconName::ChevronRight;
 pub const I_ARROW_UP: IconName = IconName::ArrowUp;
+pub const I_ARROW_LEFT: IconName = IconName::ArrowLeft;
 pub const I_STOP: IconName = IconName::Square;
 pub const I_EDIT: IconName = IconName::Pencil;
 pub const I_CLOSE: IconName = IconName::X;

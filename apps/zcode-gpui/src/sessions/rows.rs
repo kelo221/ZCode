@@ -43,6 +43,7 @@ impl crate::app::root::RootView {
                 .group(ROW_GROUP)
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     this.close_settings(window, cx);
+                    this.show_chat_page();
                     this.state
                         .update(cx, |s, cx| s.select_session(&ws_key, &sid, cx));
                 }))

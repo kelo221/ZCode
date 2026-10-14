@@ -30,6 +30,7 @@ pub(crate) mod maintenance;
 mod mcp_authorization_controls_tests;
 mod mcp_authorization_view;
 pub(crate) mod mcp_pane;
+pub(crate) mod mobile_shell;
 pub(crate) mod navigation;
 pub(crate) mod os_lifecycle;
 pub(crate) mod parts;

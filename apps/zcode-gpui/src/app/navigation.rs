@@ -48,6 +48,10 @@ impl RootView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        // Android's back key arrives as an unmapped key named "back".
+        if event.keystroke.key == "back" {
+            return self.handle_back(window, cx);
+        }
         if self.quickpick_open {
             return crate::app::quickpick::handle_quickpick_key(self, event, window, cx);
         }
@@ -79,6 +83,7 @@ impl RootView {
             }
             Some(ShortcutCommandId::NewTask) => {
                 self.close_settings(window, cx);
+                self.show_chat_page();
                 self.state
                     .update(cx, |state, cx| state.new_conversation_chat(cx));
             }

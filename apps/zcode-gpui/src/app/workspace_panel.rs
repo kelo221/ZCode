@@ -5,6 +5,7 @@ use crate::app::layout::{
     CENTER_MIN_WIDTH, PANEL_GAP, PANEL_RADIUS, SIDE_PANE_WIDTH, SIDEBAR_WIDTH,
     conversation_padding, conversation_width, side_pane_fits,
 };
+use crate::app::mobile_shell::is_compact;
 use crate::app::root::RootView;
 use crate::composer::input::Composer;
 use crate::conversation::turn_meta::PlanState;
@@ -44,7 +45,12 @@ impl RootView {
         } else {
             0.
         };
-        let center = (window_width - SIDEBAR_WIDTH - PANEL_GAP - side).max(CENTER_MIN_WIDTH);
+        let compact = is_compact(window_width);
+        let center = if compact {
+            window_width - 2. * PANEL_GAP
+        } else {
+            (window_width - SIDEBAR_WIDTH - PANEL_GAP - side).max(CENTER_MIN_WIDTH)
+        };
         let column = conversation_width(center, input.is_draft || input.rows_empty);
         let padding = conversation_padding(center);
         self.conversation_column = column;
@@ -153,6 +159,7 @@ impl RootView {
             .gap(px(PANEL_GAP))
             .py(px(PANEL_GAP))
             .pr(px(PANEL_GAP))
+            .when(compact, |el| el.pl(px(PANEL_GAP)))
             .child(centre)
             .when(docked, |el| el.child(self.dock_pane(true, window, cx)))
             .into_any_element()
