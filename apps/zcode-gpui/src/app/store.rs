@@ -42,6 +42,7 @@ pub struct AppState {
     /// createSession.config since CAS config commands need a live session.
     pub ui_model_value: Option<String>,
     pub ui_mode: Option<String>,
+    pub ui_thought: Option<String>,
     pub composer: Entity<crate::composer::input::Composer>,
     /// Per-session draft text saved when navigating between conversations.
     pub session_drafts: HashMap<String, String>,
@@ -114,6 +115,7 @@ impl AppState {
             workspace_configs: HashMap::new(),
             ui_model_value: None,
             ui_mode: None,
+            ui_thought: None,
             composer: cx.new(crate::composer::input::Composer::new),
             session_drafts: HashMap::new(),
             draft_submission_overrides: HashMap::new(),

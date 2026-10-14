@@ -125,3 +125,31 @@ fn failed_inventory_is_not_retried_from_render_and_old_form_id_cannot_submit() {
         assert!(view.subagents.form.as_ref().unwrap().error.is_none());
     });
 }
+
+#[test]
+fn long_profile_form_scrolls_with_the_settings_panel() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (mut app, state, _isolated) = fixture();
+    let mut window = app.open_window(|window, cx| {
+        let mut view = RootView::new(state.clone(), cx);
+        view.open_settings_section(SettingsSection::Subagents, window, cx);
+        view
+    });
+    window.simulate_resize(size(px(1280.), px(600.)));
+    window.update(|_, window, cx| window.bounds_changed(cx));
+    window.draw();
+    window.simulate_click(center(&app, "subagents-new"), MouseButton::Left);
+    window.draw();
+    let before = center(&app, "profile-form-save");
+    assert!(before.y > px(600.), "fixture must overflow the panel");
+    window.simulate_scroll(
+        gpui::point(px(1240.), px(300.)),
+        gpui::point(px(0.), px(-400.)),
+    );
+    window.draw();
+    let after = center(&app, "profile-form-save");
+    assert!(
+        after.y < before.y,
+        "panel did not scroll: {before:?} -> {after:?}"
+    );
+}

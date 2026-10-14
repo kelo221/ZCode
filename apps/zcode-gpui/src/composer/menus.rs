@@ -111,6 +111,7 @@ fn model_menu(effective: &EffectiveConfig, models: &[ModelOption], root: Entity<
                             s.switch_model(&value_provider, &value_model, &thought, cx);
                         } else {
                             s.ui_model_value = Some(raw_value.clone());
+                            s.ui_thought = None;
                         }
                     });
                 });
@@ -154,6 +155,8 @@ fn thought_menu(effective: &EffectiveConfig, root: Entity<RootView>) -> Menu {
                         return;
                     }
                     if !s.effective_config().has_session {
+                        s.ui_thought = Some(thought);
+                        cx.notify();
                         return;
                     }
                     if provider.is_empty() || model.is_empty() {

@@ -74,3 +74,74 @@ fn restored_draft_thinking_selection_uses_the_existing_override() {
     window.draw();
     app.update_entity(&state, |s, _| assert!(s.submission_override().is_null()));
 }
+
+#[test]
+fn plain_draft_thinking_selection_is_kept_and_submitted() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = TestApp::with_text_system_and_assets(
+        Arc::new(gpui::NoopTextSystem::new()),
+        Arc::new(ely_gpui_component::Assets),
+    );
+    app.update(|cx| {
+        ely_gpui_component::init(cx);
+        cx.set_global(TestTargets::default());
+        crate::shared::preferences::Preferences::install_at(
+            Default::default(),
+            std::env::temp_dir().join(uuid::Uuid::now_v7().to_string()),
+            Arc::new(|| true),
+            cx,
+        );
+    });
+    let state = app.new_entity(AppState::for_test);
+    app.update_entity(&state, |s, _| {
+        let key = s.workspaces[0].key.clone();
+        s.active_workspace = Some(key.clone());
+        let mut catalog = crate::composer::catalog::WorkspaceConfig::default();
+        catalog.apply_state(
+            &json!({"configOptions":[{"id":"model","currentValue":"test/model","options":[
+                {"value":"test/model","name":"Model","modelThoughtLevels":["high"]},
+                {"value":"test/other","name":"Other","modelThoughtLevels":["low"]}
+            ]}]}),
+        );
+        s.workspace_configs.insert(key, catalog);
+        assert!(s.submission_override().is_null());
+        assert_eq!(s.effective_config().thought_display(), "Default");
+    });
+    let mut window = app.open_window(|_, cx| RootView::new(state.clone(), cx));
+    window.simulate_resize(size(px(1280.), px(820.)));
+    window.update(|_, window, cx| window.bounds_changed(cx));
+    window.draw();
+    let target = app.update(|cx| cx.global::<TestTargets>().0["thought-menu"]);
+    window.simulate_click(target.center(), MouseButton::Left);
+    window.draw();
+    window.simulate_keystroke("down");
+    window.draw();
+    window.simulate_keystroke("down");
+    window.draw();
+    window.simulate_keystroke("enter");
+    window.draw();
+    window.simulate_event(gpui::KeyUpEvent {
+        keystroke: gpui::Keystroke::parse("enter").unwrap(),
+    });
+    window.draw();
+    app.update_entity(&state, |s, _| {
+        assert_eq!(s.ui_thought.as_deref(), Some("high"));
+        let effective = s.effective_config();
+        assert_eq!(effective.thought, "high");
+        assert_eq!(effective.thought_display(), "High");
+        let config = s.draft_config();
+        assert_eq!(config["thought"], "high");
+        assert_eq!(config["provider"], "test");
+        assert_eq!(config["model"], "model");
+        assert_eq!(
+            config["modelSelection"]["options"]["reasoningLevel"],
+            "high"
+        );
+        assert!(s.submission_override().is_null());
+
+        // A level the newly chosen model doesn't offer is not projected or sent.
+        s.ui_model_value = Some("test/other".into());
+        assert_eq!(s.effective_config().thought, "");
+        assert!(s.draft_config().get("modelSelection").is_none());
+    });
+}

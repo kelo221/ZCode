@@ -183,6 +183,7 @@ impl AppState {
         self.draft = false;
         self.ui_model_value = None;
         self.ui_mode = None;
+        self.ui_thought = None;
         self.restore_draft(sid, cx);
 
         self.ensure_spawned(ws_key, cx);
@@ -217,6 +218,7 @@ impl AppState {
         self.draft = true;
         self.ui_model_value = None;
         self.ui_mode = None;
+        self.ui_thought = None;
         self.restore_draft(&format!("draft:{ws_key}"), cx);
         cx.notify();
     }
@@ -235,6 +237,7 @@ impl AppState {
             self.draft = true;
             self.ui_model_value = None;
             self.ui_mode = None;
+            self.ui_thought = None;
             self.restore_draft(&format!("draft:{key}"), cx);
             cx.notify();
         }

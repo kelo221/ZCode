@@ -86,6 +86,19 @@ impl AppState {
                 config["thought"] = json!(thought);
             }
         }
+        let draft = self.effective_config_with_override(false);
+        if !draft.thought.is_empty() && !draft.provider.is_empty() && !draft.model.is_empty() {
+            // Desktop parity: handleDraftSelectThought (useDraftConfigControl.ts)
+            // submits both `thought` and `modelSelection.options.reasoningLevel`.
+            config["provider"] = json!(draft.provider);
+            config["model"] = json!(draft.model);
+            config["thought"] = json!(draft.thought);
+            config["modelSelection"] = json!({
+                "providerId": draft.provider,
+                "modelId": draft.model,
+                "options": { "reasoningLevel": draft.thought },
+            });
+        }
         if let Some(mode) = &self.ui_mode {
             if mode == "plan" {
                 // Desktop parity: plan is submitted as build + planEnabled
@@ -207,11 +220,16 @@ impl AppState {
             .clone()
             .or_else(|| cfg.map(|c| c.default_mode.clone()))
             .unwrap_or_else(|| "build".into());
+        let thought = self
+            .ui_thought
+            .clone()
+            .filter(|t| thought_levels.contains(t))
+            .unwrap_or_default();
         EffectiveConfig {
             provider,
             model,
             model_label,
-            thought: String::new(),
+            thought,
             thought_levels,
             mode,
             has_session: false,
@@ -276,7 +294,7 @@ impl EffectiveConfig {
             "max" => "Max".into(),
             "ultra" => "Ultra".into(),
             "extra-high" | "extra_high" | "xhigh" => "X-High".into(),
-            "" => "Off".into(),
+            "" => "Default".into(),
             _ => title_case(&self.thought),
         }
     }
@@ -309,7 +327,7 @@ mod tests {
         assert_eq!(display("on"), "On");
         assert_eq!(display("disabled"), "Off");
         assert_eq!(display("off"), "Off");
-        assert_eq!(display(""), "Off");
+        assert_eq!(display(""), "Default");
         assert_eq!(display("high"), "High");
         assert_eq!(display("xhigh"), "X-High");
     }

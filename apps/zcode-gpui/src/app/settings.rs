@@ -49,6 +49,12 @@ impl SettingsSection {
             _ => return None,
         })
     }
+
+    /// Panes that pin their own header and scroll an inner region; every other
+    /// section scrolls with the whole settings panel.
+    pub(crate) fn owns_scroll(self) -> bool {
+        matches!(self, Self::Plugins | Self::Mcp | Self::Usage)
+    }
 }
 
 pub(crate) struct SettingsView {
@@ -285,7 +291,9 @@ impl RootView {
                 // Desktop settings panel: the workspace panel inset and radius.
                 div().flex_1().min_w_0().h_full().py_1().pr_1().child(
                     div()
-                        .id("settings-content")
+                        // GPUI sizes the scroll range from direct children only,
+                        // so the column must keep its content height here.
+                        .id(("settings-content", self.settings.section as usize))
                         .size_full()
                         .overflow_y_scroll()
                         .rounded(px(crate::app::layout::PANEL_RADIUS))
@@ -294,12 +302,15 @@ impl RootView {
                         .bg(theme.background)
                         .pt_12()
                         .flex()
-                        .justify_center()
+                        .flex_col()
+                        .items_center()
                         .child(
                         div()
                             .w_full()
                             .max_w(px(896.))
                             .min_w_0()
+                            .when(self.settings.section.owns_scroll(), |el| el.flex_1().min_h_0())
+                            .when(!self.settings.section.owns_scroll(), |el| el.flex_shrink_0())
                             .when(layout.compact, |el| el.px_4().pb_8())
                             .when(!layout.compact, |el| el.px_8().pb_10())
                             .flex()
