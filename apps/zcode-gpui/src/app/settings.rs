@@ -191,6 +191,11 @@ impl RootView {
                                 "其他设置仍可在 ZCode 桌面端中使用。",
                             )),
                     )
+                    .child(
+                        div()
+                            .text_color(theme.subtle)
+                            .child(crate::app::draft_greeting::unofficial_notice()),
+                    )
                     .into_any_element()
             }
             SettingsSection::Appearance => {

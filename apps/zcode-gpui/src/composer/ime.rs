@@ -12,11 +12,23 @@ impl EntityInputHandler for Composer {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
-        // Caret-only selection (empty range) in UTF-16 units.
-        let pos = self.caret_utf16();
+        let caret = self.caret_utf16();
+        let anchor = self
+            .selection()
+            .map(|sel| {
+                utf16_of(
+                    &self.content,
+                    if sel.start == self.caret {
+                        sel.end
+                    } else {
+                        sel.start
+                    },
+                )
+            })
+            .unwrap_or(caret);
         Some(UTF16Selection {
-            range: pos..pos,
-            reversed: false,
+            range: anchor.min(caret)..anchor.max(caret),
+            reversed: caret < anchor,
         })
     }
 
@@ -54,8 +66,10 @@ impl EntityInputHandler for Composer {
                 let end = self.byte_from_utf16(r.end).unwrap_or(self.content.len());
                 start..end
             })
+            .or_else(|| self.selection())
             .unwrap_or(self.caret..self.caret);
         let cleaned = self.sanitize(text);
+        self.anchor = None;
         // Chip-atomic: a range touching a chip is widened to the whole chip.
         let range = self.edit_range(range, &cleaned);
         self.caret = range.start + cleaned.len();
@@ -78,8 +92,10 @@ impl EntityInputHandler for Composer {
                 let end = self.byte_from_utf16(r.end).unwrap_or(self.content.len());
                 start..end
             })
+            .or_else(|| self.selection())
             .unwrap_or(self.caret..self.caret);
         let cleaned = self.sanitize(new_text);
+        self.anchor = None;
         let marked_len_utf16: usize = cleaned.chars().map(char::len_utf16).sum();
         // The marked range is derived from the range actually replaced, so a
         // composition never starts inside (or spans part of) a chip.
@@ -101,8 +117,8 @@ impl EntityInputHandler for Composer {
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<gpui::Bounds<Pixels>> {
-        // IME candidate window positioning: anchor to the composer element.
-        Some(element_bounds)
+        // IME candidate window: at the painted caret, else the whole element.
+        Some(self.view.caret_bounds.get().unwrap_or(element_bounds))
     }
 
     fn character_index_for_point(

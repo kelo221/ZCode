@@ -157,7 +157,7 @@ fn main() {
                 WindowOptions {
                     window_bounds: Some(initial_bounds),
                     titlebar: Some(TitlebarOptions {
-                        title: Some("ZCode (GPUI)".into()),
+                        title: Some("ZCode GPUI (unofficial)".into()),
                         ..Default::default()
                     }),
                     ..Default::default()

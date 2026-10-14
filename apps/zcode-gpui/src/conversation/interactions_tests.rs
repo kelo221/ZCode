@@ -53,8 +53,13 @@ fn parses_ask_user_question() {
     assert_eq!(pi.questions.len(), 2);
     assert_eq!(
         pi.questions[0].options[0],
-        ("Postgres".into(), "SQL".into())
+        QuestionOption {
+            label: "Postgres".into(),
+            value: "pg".into(),
+            description: "SQL".into()
+        }
     );
+    assert!(!pi.is_plan_approval());
     assert!(pi.questions[1].multi_select);
 }
 
@@ -92,15 +97,16 @@ fn questions_answer_keys_by_question_text() {
         },
     ];
     let mut picks: HashMap<usize, Vec<String>> = HashMap::new();
-    toggle_pick(picks.entry(0).or_default(), "MySQL", false);
-    toggle_pick(picks.entry(0).or_default(), "Postgres", false);
-    toggle_pick(picks.entry(1).or_default(), "Cache", true);
-    toggle_pick(picks.entry(1).or_default(), "Queue", true);
-    toggle_pick(picks.entry(1).or_default(), "Cache", true);
+    toggle_pick(picks.entry(0).or_default(), "my", false);
+    toggle_pick(picks.entry(0).or_default(), "pg", false);
+    toggle_pick(picks.entry(1).or_default(), "a", true);
+    toggle_pick(picks.entry(1).or_default(), "b", true);
+    toggle_pick(picks.entry(1).or_default(), "a", true);
     assert_eq!(
         questions_answer(&questions, &picks),
         json!({ "action": "accept",
-                "content": { "answers": { "Which DB?": "Postgres", "Extras?": "Queue" } } })
+                "content": { "answers": { "Which DB?": "pg", "Extras?": "b" },
+                             "answer_0": "pg", "answer_1": ["b"] } })
     );
 }
 
@@ -137,6 +143,8 @@ fn pi(id: &str) -> PendingInteraction {
         full_access: None,
         questions: vec![],
         free_text: false,
+        schema_interaction: String::new(),
+        plan: None,
     }
 }
 
@@ -176,4 +184,58 @@ fn released_interaction_becomes_answerable_again() {
     r.release("req-1");
     assert_eq!(r.reconcile(vec![pi("req-1")]).len(), 1);
     assert!(r.begin("req-1"));
+}
+
+fn plan_value() -> Value {
+    json!({
+        "interactionId": "req-plan", "kind": "userInput", "anchorRowId": 7, "createdAt": 1,
+        "payload": {
+            "kind": "userInput", "prompt": "Agent wants to exit plan mode", "freeText": true,
+            "toolCallId": "t9", "toolName": "ExitPlanMode",
+            "input": { "plan": "# Plan\n- step" },
+            "schema": { "interaction": "plan_approval", "toolName": "ExitPlanMode" },
+            "questions": [ { "question": "Agent wants to exit plan mode", "header": "Plan",
+                "options": [ { "value": "approve", "label": "Approve",
+                               "description": "Exit plan mode and start implementation." } ] } ]
+        }
+    })
+}
+
+#[test]
+fn parses_plan_approval_with_plan_text() {
+    let pi = PendingInteraction::from_value(&plan_value()).unwrap();
+    assert!(pi.is_plan_approval());
+    assert_eq!(pi.plan.as_deref(), Some("# Plan\n- step"));
+    assert_eq!(pi.questions[0].options[0].value, PLAN_APPROVE_VALUE);
+}
+
+/// The broker (`normalizePlanApprovalAnswer`) reads
+/// `answers[<fixed question>] ?? answer_0 ?? answer`; the projection's
+/// question text differs from the fixed one, so the positional keys must
+/// carry the value "approve" (not the label).
+#[test]
+fn plan_approval_answer_reaches_broker_through_positional_keys() {
+    let pi = PendingInteraction::from_value(&plan_value()).unwrap();
+    let answer = plan_approve_answer(&pi);
+    assert_eq!(answer["action"], "accept");
+    assert_eq!(answer["content"]["answer_0"], "approve");
+    assert_eq!(answer["content"]["answer"], "approve");
+    assert_eq!(
+        answer["content"]["answers"]["Agent wants to exit plan mode"],
+        "approve"
+    );
+}
+
+#[test]
+fn option_value_falls_back_to_label() {
+    let o = parse_question_option(&json!({ "label": "Cache" }));
+    assert_eq!(o.value, "Cache");
+}
+
+#[test]
+fn stepper_clamps_to_question_range() {
+    assert_eq!(step_question(0, true, 3), 1);
+    assert_eq!(step_question(2, true, 3), 2);
+    assert_eq!(step_question(0, false, 3), 0);
+    assert_eq!(step_question(2, false, 3), 1);
 }

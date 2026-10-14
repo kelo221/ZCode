@@ -47,6 +47,7 @@ fn applies_chat_deltas() {
             text: "Hello".into(),
             state: "streaming".into(),
             can_retry: false,
+            created_at: None,
         }
     );
     // Non-text paths (tool input streaming) must not touch chat text.

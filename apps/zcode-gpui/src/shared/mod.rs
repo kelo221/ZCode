@@ -9,6 +9,7 @@ pub(crate) mod diff_view;
 pub(crate) mod i18n;
 pub(crate) mod identity;
 pub(crate) mod isolation;
+pub(crate) mod local_time;
 pub(crate) mod markdown;
 pub(crate) mod mcp;
 pub(crate) mod os;

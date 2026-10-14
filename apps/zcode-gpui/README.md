@@ -1,5 +1,7 @@
 # zcode-gpui
 
+> **Unofficial.** This is a community GPUI client for the ZCode CLI backend. It is not an official ZCode product and is not supported by the ZCode team.
+
 Native Rust/GPUI frontend for the existing ZCode CLI app-server. Chat, project/session navigation, model and mode selection, basic review/files/terminal panes, and a first Settings slice are implemented. This is **not complete Electron parity**: provider/capability configuration, parts of plugin/workflow management, host-owned task metadata, and native lifecycle/distribution remain incomplete. See [PARITY.md](PARITY.md) and [SETTINGS.md](SETTINGS.md).
 
 ## Running

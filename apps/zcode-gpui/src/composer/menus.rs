@@ -12,7 +12,7 @@ use crate::composer::config_cmds::{EffectiveConfig, title_case};
 use ely_gpui_component::buttons::ButtonVariant;
 use ely_gpui_component::menus::{DropdownMenu, Menu, MenuItem};
 use ely_gpui_component::primitives::IconName;
-use gpui::{Context, Entity, IntoElement, ParentElement, Styled, div};
+use gpui::{Context, Entity, IntoElement, ParentElement, Styled, div, prelude::*};
 
 pub const MODES: [(&str, &str); 4] = [
     ("build", "Ask before changes"),
@@ -33,6 +33,14 @@ impl RootView {
             .map(|c| c.models.clone())
             .unwrap_or_default();
         let root = cx.entity();
+        let rate = {
+            let state = self.state.read(cx);
+            state
+                .active
+                .as_ref()
+                .and_then(|sid| state.conversations.get(sid))
+                .and_then(|c| c.throughput.rate(std::time::Instant::now()))
+        };
 
         div()
             .flex()
@@ -49,19 +57,29 @@ impl RootView {
                 .into_any_element()
             }))
             .children((!effective.thought_levels.is_empty()).then(|| {
-                let trigger = div().child(
+                let indicator = self.thought_indicator(&effective, cx);
+                let trigger = div().flex().items_center().child(indicator).child(
                     DropdownMenu::new(
                         "thought-menu",
                         effective.thought_display(),
                         thought_menu(&effective, root.clone()),
                     )
-                    .icon(IconName::Lightbulb)
                     .variant(ButtonVariant::Ghost),
                 );
                 #[cfg(test)]
                 let trigger =
                     crate::app::test_support::track_children(trigger, vec!["thought-menu".into()]);
                 trigger.into_any_element()
+            }))
+            .children(rate.map(|r| {
+                div()
+                    .id("tokens-per-second")
+                    .flex_none()
+                    .text_size(gpui::px(crate::shared::theme::ui_size(12.)))
+                    .text_color(crate::shared::theme_colors::color(
+                        crate::shared::theme::MUTED,
+                    ))
+                    .child(crate::conversation::throughput::format_rate(r))
             }))
     }
 
@@ -148,22 +166,7 @@ fn thought_menu(effective: &EffectiveConfig, root: Entity<RootView>) -> Menu {
         menu = menu.item(MenuItem::radio(label, selected).on_click(move |_, cx| {
             root.update(cx, |root, cx| {
                 root.state.update(cx, |s, cx| {
-                    let thought = lv.clone();
-                    // /plan 草稿已有 override，但没有 live session；先更新同一 owner，避免思考级别点击被吞掉。
-                    if s.set_restored_model(&provider, &model, &thought) {
-                        cx.notify();
-                        return;
-                    }
-                    if !s.effective_config().has_session {
-                        s.ui_thought = Some(thought);
-                        cx.notify();
-                        return;
-                    }
-                    if provider.is_empty() || model.is_empty() {
-                        s.switch_thought(&thought, cx);
-                    } else {
-                        s.switch_model(&provider, &model, &thought, cx);
-                    }
+                    crate::composer::thought_cycle::apply_thought(s, &provider, &model, &lv, cx);
                 });
             });
         }));

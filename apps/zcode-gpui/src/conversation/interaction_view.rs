@@ -4,16 +4,17 @@
 use crate::app::root::RootView;
 use crate::conversation::interactions::{
     FULL_ACCESS_OPTION_ID, PendingInteraction, decline_answer, free_text_answer, option_answer,
-    questions_answer, toggle_pick,
 };
 use crate::shared::theme::{ACCENT, AMBER, BORDER, CARD, DANGER, MUTED, TEXT};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Stateful, div, prelude::*};
 use serde_json::Value;
 
-fn action_btn(id: String, label: &str, bg: u32, fg: u32) -> Stateful<Div> {
+pub(crate) fn action_btn(id: String, label: &str, bg: u32, fg: u32) -> Stateful<Div> {
     div()
         .id(SharedString::from(id))
+        .min_w_0()
+        .max_w_full()
         .px_2()
         .py_1()
         .text_xs()
@@ -27,7 +28,7 @@ fn action_btn(id: String, label: &str, bg: u32, fg: u32) -> Stateful<Div> {
 
 impl RootView {
     /// Answer button: settles the interaction with a fixed answer.
-    fn answer_btn(
+    pub(crate) fn answer_btn(
         &self,
         iid: &str,
         key: &str,
@@ -41,6 +42,7 @@ impl RootView {
             move |this, _, _, cx| {
                 cx.stop_propagation();
                 this.question_picks.remove(&iid);
+                this.question_steps.remove(&iid);
                 let answer = answer.clone();
                 let iid = iid.clone();
                 this.state
@@ -74,58 +76,6 @@ impl RootView {
             }))
     }
 
-    fn question_block(&self, pi: &PendingInteraction, cx: &mut Context<Self>) -> Div {
-        let picks = self.question_picks.get(&pi.interaction_id);
-        let mut block = div().flex().flex_col().gap_2();
-        for (qi, q) in pi.questions.iter().enumerate() {
-            let selected = picks.and_then(|p| p.get(&qi)).cloned().unwrap_or_default();
-            let mut chips = div().flex().flex_wrap().gap_1();
-            for (oi, (label, description)) in q.options.iter().enumerate() {
-                let on = selected.contains(label);
-                let (iid, label_c, multi) =
-                    (pi.interaction_id.clone(), label.clone(), q.multi_select);
-                chips = chips.child(
-                    action_btn(
-                        format!("iq-{iid}-{qi}-{oi}"),
-                        label,
-                        if on { ACCENT } else { CARD },
-                        if on { 0x000000 } else { TEXT },
-                    )
-                    .border_1()
-                    .border_color(rgb(BORDER))
-                    .when(!description.is_empty(), |el| {
-                        el.flex().flex_col().child(
-                            div()
-                                .font_weight(FontWeight::NORMAL)
-                                .text_color(rgb(if on { 0x000000 } else { MUTED }))
-                                .child(description.clone()),
-                        )
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        let picks = this.question_picks.entry(iid.clone()).or_default();
-                        toggle_pick(picks.entry(qi).or_default(), &label_c, multi);
-                        cx.notify();
-                    })),
-                );
-            }
-            block = block.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(MUTED))
-                            .child(format!("{} · {}", q.header, q.question)),
-                    )
-                    .child(chips),
-            );
-        }
-        block
-    }
-
     pub(crate) fn interaction_cards(
         &self,
         interactions: &[PendingInteraction],
@@ -138,6 +88,9 @@ impl RootView {
     }
 
     fn interaction_card(&self, pi: &PendingInteraction, cx: &mut Context<Self>) -> AnyElement {
+        if pi.is_plan_approval() {
+            return self.plan_approval_card(pi, cx);
+        }
         let iid = pi.interaction_id.as_str();
         let title = match pi.kind.as_str() {
             "permission" if !pi.tool_name.is_empty() => {
@@ -148,7 +101,7 @@ impl RootView {
             _ => "Agent question".to_string(),
         };
         let mut actions = div().flex().flex_wrap().gap_2().pt_1();
-        let mut body = div().flex().flex_col().gap_2();
+        let mut body = div().flex().flex_col().gap_2().w_full().min_w_0();
         match pi.kind.as_str() {
             "permission" => {
                 for o in &pi.options {
@@ -204,21 +157,7 @@ impl RootView {
                         actions = actions.child(btn);
                     }
                 } else {
-                    body = body.child(self.question_block(pi, cx));
-                    let iid_s = iid.to_string();
-                    let questions = pi.questions.clone();
-                    actions = actions.child(
-                        action_btn(format!("ia-{iid}-submit"), "Submit", ACCENT, 0x000000)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                let picks = this.question_picks.remove(&iid_s).unwrap_or_default();
-                                let answer = questions_answer(&questions, &picks);
-                                let iid = iid_s.clone();
-                                this.state.update(cx, |app, cx| {
-                                    app.resolve_interaction(&iid, answer, cx)
-                                });
-                            })),
-                    );
+                    body = body.child(self.question_stepper(pi, cx));
                 }
                 if pi.free_text || !pi.questions.is_empty() {
                     actions = actions.child(self.free_text_btn(
@@ -248,6 +187,8 @@ impl RootView {
         }
         div()
             .id(SharedString::from(format!("interaction-{iid}")))
+            .w_full()
+            .min_w_0()
             .flex()
             .flex_col()
             .gap_2()
@@ -265,7 +206,13 @@ impl RootView {
                     .child(title),
             )
             .when(!pi.text.is_empty(), |el| {
-                el.child(div().text_xs().text_color(rgb(TEXT)).child(pi.text.clone()))
+                el.child(
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .text_color(rgb(TEXT))
+                        .child(pi.text.clone()),
+                )
             })
             .child(body)
             .child(actions)

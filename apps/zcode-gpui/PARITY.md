@@ -5,6 +5,51 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## Chat usability slice (2026-10-14)
+
+Product rules for this slice. Owners are unchanged: the CLI owns rows, usage and
+interaction resolution; GPUI only mirrors and renders, plus local UI state (stepper index,
+image cache, composer selection).
+
+- **Plan approval (ExitPlanMode).** A `userInput` interaction whose
+  `payload.schema.interaction` is `plan_approval` (or whose tool is ExitPlanMode) renders the
+  plan from `payload.input.plan` as Markdown with one-click **Approve**, **Request changes**
+  (message-box text as feedback) and **Decline**. Answers use the shape of Desktop
+  `buildElicitationResponseContent`: `answers[question]`, `answer_<i>`, and `answer` for a
+  single question, carrying option *values*. The broker reads `answer_0`/`answer` because the
+  projected question text is the tool's `reason`, not its fixed string. Acceptance:
+  Approve exits plan mode instead of "Permission denied for ExitPlanMode".
+- **AskUserQuestion.** One question at a time (header badge, `n / N`, Back,
+  Continue→Submit on the last). Options are full-width wrapping rows. Nothing overflows the
+  card at any width.
+- **Composer editing.** One wrapped text layout (no horizontal overflow). Selection with
+  Shift+arrows/Home/End/drag, Ctrl/Cmd+A, Ctrl+Backspace/Delete and Ctrl+Left/Right by word
+  (Alt on macOS), Ctrl/Cmd+C/X copy/cut, typing/paste/IME replace the selection, triple
+  click selects all.
+- **Tool cards.** No raw JSON by default: AskUserQuestion, ExitPlanMode (Markdown), TodoWrite
+  (checklist), Agent/Task (description + prompt), TaskOutput (status + output, from the
+  `task_output` display or the tagged text), otherwise a key/value view. Raw text only while
+  input is not valid JSON. Outputs drop `<system-reminder>` blocks and reduce TaskOutput and
+  `<task-notification>` wrappers to their readable body. Background-result user rows render as
+  a notice card, not XML.
+- **Images.** Tool results show inline images from `display.images` (`node_repl_images`) and
+  `display.media`, and images read by the Read tool from absolute local paths. Images are
+  decoded in the background with the Files-pane limits, cached by source, and enlarge on
+  click. User attachments show name/size chips only: rows carry references, not bytes.
+- **Reasoning.** Investigated: main-session Claude models return mostly signature-only
+  thinking (85% empty blocks in the model-io log), while subagent models return full text.
+  GPUI is correct to mirror empty rows. An expanded empty block says the model did not share
+  its reasoning.
+- **Thinking level.** Brain icon plus a vertical success-coloured bar filled by the level's
+  position among non-off levels (Desktop `ThoughtLevelCycleControl`). Clicking it cycles
+  levels; the label opens the menu.
+- **Timestamps and throughput.** User and assistant rows show local `createdAt`
+  (`HH:MM`, plus the date when not today). The composer shows output tokens/s: `~` estimate
+  from streamed characters while a response streams (usage arrives only at ModelComplete),
+  then the exact `usage.cumulative.outputTokens` delta over the streaming time.
+- **Identity.** The window title, draft greeting and Settings › General state that this is an
+  unofficial community client, not an official ZCode product.
+
 ## v3.15.1 sync and Bun runtime rule (2026-10-13)
 
 The branch is rebased onto upstream v3.15.1 (`feat/gpui-v3.15.1`). **The owner replaced

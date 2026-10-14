@@ -19,6 +19,11 @@ pub enum Row {
         entity_id: String,
         text: String,
         can_edit: bool,
+        /// realUser | backgroundResult | goalContinuation | mailbox | synthetic | workflowLaunch
+        origin: String,
+        /// `createdAt`, Unix epoch milliseconds.
+        created_at: Option<u64>,
+        attachments: Vec<crate::composer::attachment::AttachmentRef>,
     },
     AssistantText {
         row_id: u64,
@@ -26,6 +31,7 @@ pub enum Row {
         text: String,
         state: String,
         can_retry: bool,
+        created_at: Option<u64>,
     },
     Reasoning {
         row_id: u64,
@@ -35,10 +41,14 @@ pub enum Row {
     ToolCall {
         row_id: u64,
         label: String,
+        /// Wire `toolName`; renderers dispatch on this, `label` is display text.
+        tool_name: String,
         status: String,
         input_text: String,
         output_text: String,
         tool_call_id: Option<String>,
+        /// `display` of the row, else of `output` (toolDisplay.ts payloads).
+        display: Option<Value>,
     },
     Subagent {
         row_id: u64,
@@ -63,6 +73,11 @@ impl Row {
                 .to_string()
         };
         let row_id = v.get("rowId").and_then(Value::as_u64).unwrap_or(0);
+        let created_at = v
+            .get("createdAt")
+            .and_then(Value::as_f64)
+            .filter(|t| *t > 0.)
+            .map(|t| t as u64);
         let entity_id = v
             .get("entityId")
             .and_then(Value::as_str)
@@ -102,6 +117,17 @@ impl Row {
                 entity_id,
                 text: str_field("text"),
                 can_edit,
+                origin: str_field("origin"),
+                created_at,
+                attachments: v
+                    .get("attachments")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|r| serde_json::from_value(r.clone()).ok())
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             },
             "assistantText" => Row::AssistantText {
                 row_id,
@@ -109,6 +135,7 @@ impl Row {
                 text: str_field("text"),
                 state: str_field("state"),
                 can_retry,
+                created_at,
             },
             "reasoning" => {
                 let duration_ms = v.get("durationMs").and_then(Value::as_u64);
@@ -141,6 +168,11 @@ impl Row {
                     .and_then(Value::as_str)
                     .map(ToString::to_string);
 
+                let display = v
+                    .get("display")
+                    .or_else(|| v.get("output").and_then(|o| o.get("display")))
+                    .filter(|d| d.is_object())
+                    .cloned();
                 Row::ToolCall {
                     row_id,
                     label: ["label", "title", "toolName", "name"]
@@ -148,10 +180,12 @@ impl Row {
                         .find_map(|k| v.get(*k).and_then(Value::as_str))
                         .unwrap_or("tool")
                         .to_string(),
+                    tool_name: str_field("toolName"),
                     status: str_field("status"),
                     input_text,
                     output_text,
                     tool_call_id,
+                    display,
                 }
             }
             "subagent" => {

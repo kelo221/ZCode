@@ -35,8 +35,11 @@ pub struct RootView {
     pub(crate) agents_expanded: bool,
     /// Destructive action awaiting a second click ("del:<sid>", "undo:<rowId>").
     pub(crate) confirm: Option<String>,
-    /// Question picks per interaction: interactionId → question index → labels.
+    /// Question picks per interaction: interactionId → question index → option values.
     pub(crate) question_picks: HashMap<String, HashMap<usize, Vec<String>>>,
+    /// Question stepper position per interaction (interactionId → question index).
+    pub(crate) question_steps: HashMap<String, usize>,
+    pub(crate) tool_images: crate::transcript::tool_images::ToolImageCache,
     pub(crate) dock_open: bool,
     pub(crate) dock_tab: DockTab,
     pub(crate) term_open: bool,
@@ -96,6 +99,8 @@ impl RootView {
             agents_expanded: true,
             confirm: None,
             question_picks: HashMap::new(),
+            question_steps: HashMap::new(),
+            tool_images: Default::default(),
             commit_input,
             dock_open: false,
             dock_tab: DockTab::Review,

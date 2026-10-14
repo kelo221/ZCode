@@ -26,13 +26,25 @@ pub struct InteractionOption {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct QuestionOption {
+    pub label: String,
+    /// What is sent back; falls back to the label when the payload has none.
+    pub value: String,
+    pub description: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub struct Question {
     pub question: String,
     pub header: String,
-    /// Option labels; the broker matches answers by label.
-    pub options: Vec<(String, String)>,
+    pub options: Vec<QuestionOption>,
     pub multi_select: bool,
 }
+
+/// `payload.schema.interaction` value the CLI uses for ExitPlanMode approval.
+pub const PLAN_APPROVAL_INTERACTION: &str = "plan_approval";
+/// `EXIT_PLAN_MODE_APPROVAL_APPROVE` in interaction-broker.ts.
+pub const PLAN_APPROVE_VALUE: &str = "approve";
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PendingInteraction {
@@ -46,6 +58,10 @@ pub struct PendingInteraction {
     pub full_access: Option<InteractionOption>,
     pub questions: Vec<Question>,
     pub free_text: bool,
+    /// `payload.schema.interaction` (e.g. `plan_approval`); empty when absent.
+    pub schema_interaction: String,
+    /// ExitPlanMode `payload.input.plan` (markdown); `None` for other tools.
+    pub plan: Option<String>,
 }
 
 fn str_of(v: &Value, k: &str) -> String {
@@ -89,11 +105,7 @@ impl PendingInteraction {
                         options: q
                             .get("options")
                             .and_then(Value::as_array)
-                            .map(|os| {
-                                os.iter()
-                                    .map(|o| (str_of(o, "label"), str_of(o, "description")))
-                                    .collect()
-                            })
+                            .map(|os| os.iter().map(parse_question_option).collect())
                             .unwrap_or_default(),
                         multi_select: q
                             .get("multiSelect")
@@ -114,6 +126,15 @@ impl PendingInteraction {
                 .get("freeText")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            schema_interaction: payload
+                .get("schema")
+                .map(|s| str_of(s, "interaction"))
+                .unwrap_or_default(),
+            plan: payload
+                .get("input")
+                .and_then(|i| i.get("plan"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
             kind,
         })
     }
@@ -121,6 +142,26 @@ impl PendingInteraction {
     /// The option whose answer means "deny" (used for deny-with-feedback).
     pub fn deny_option(&self) -> Option<&InteractionOption> {
         self.options.iter().find(|o| o.kind == "deny")
+    }
+
+    pub fn is_plan_approval(&self) -> bool {
+        self.kind == "userInput"
+            && (self.schema_interaction == PLAN_APPROVAL_INTERACTION
+                || self.tool_name.eq_ignore_ascii_case("ExitPlanMode"))
+    }
+}
+
+fn parse_question_option(o: &Value) -> QuestionOption {
+    let label = str_of(o, "label");
+    let value = o
+        .get("value")
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+        .map_or_else(|| label.clone(), str::to_string);
+    QuestionOption {
+        label,
+        value,
+        description: str_of(o, "description"),
     }
 }
 
@@ -139,17 +180,50 @@ pub fn free_text_answer(option_id: Option<&str>, text: &str) -> Value {
     answer
 }
 
-/// Multi-question AskUserQuestion answer: `content.answers` keyed by the
-/// question text, values are the picked option labels (comma-joined, like
-/// the broker's `normalizeAnswerValue`).
+/// Question answer in the shape of Desktop `buildElicitationResponseContent`
+/// (packages/ui/src/ElicitationDialog.tsx): `answers` keyed by question text
+/// (comma-joined), plus `answer_<i>` per question and `answer` for a single
+/// question. `picks` holds option *values*.
+///
+// 修复：ExitPlanMode 的问题文本是投影层的 `reason`，与 broker 固定的问题文案不同，
+// broker 只能经 `answer_0`/`answer` 取到审批值；此前只发 `answers[label]`（"Approve"
+// 而非 value "approve"），每次批准都落成 "Permission denied for ExitPlanMode"。
 pub fn questions_answer(questions: &[Question], picks: &HashMap<usize, Vec<String>>) -> Value {
     let mut answers = Map::new();
+    let mut content = Map::new();
     for (i, q) in questions.iter().enumerate() {
-        if let Some(labels) = picks.get(&i).filter(|l| !l.is_empty()) {
-            answers.insert(q.question.clone(), json!(labels.join(", ")));
+        let Some(values) = picks.get(&i).filter(|v| !v.is_empty()) else {
+            continue;
+        };
+        answers.insert(q.question.clone(), json!(values.join(", ")));
+        let positional = if q.multi_select {
+            json!(values)
+        } else {
+            json!(values[0])
+        };
+        if questions.len() == 1 {
+            content.insert("answer".into(), positional.clone());
         }
+        content.insert(format!("answer_{i}"), positional);
     }
-    json!({ "action": "accept", "content": { "answers": answers } })
+    content.insert("answers".into(), Value::Object(answers));
+    json!({ "action": "accept", "content": content })
+}
+
+/// One-click ExitPlanMode approval.
+pub fn plan_approve_answer(pi: &PendingInteraction) -> Value {
+    let questions = if pi.questions.is_empty() {
+        vec![Question {
+            question: pi.text.clone(),
+            header: String::new(),
+            options: vec![],
+            multi_select: false,
+        }]
+    } else {
+        pi.questions.clone()
+    };
+    let picks = HashMap::from([(0, vec![PLAN_APPROVE_VALUE.to_string()])]);
+    questions_answer(&questions[..1], &picks)
 }
 
 pub fn decline_answer() -> Value {
@@ -195,16 +269,26 @@ impl ResolvingInteractions {
     }
 }
 
-/// Toggle a pick: single-select replaces, multi-select toggles membership.
-pub fn toggle_pick(picks: &mut Vec<String>, label: &str, multi: bool) {
+/// Toggle a pick (an option value): single-select replaces, multi-select
+/// toggles membership.
+pub fn toggle_pick(picks: &mut Vec<String>, value: &str, multi: bool) {
     if multi {
-        if let Some(pos) = picks.iter().position(|p| p == label) {
+        if let Some(pos) = picks.iter().position(|p| p == value) {
             picks.remove(pos);
         } else {
-            picks.push(label.to_string());
+            picks.push(value.to_string());
         }
     } else {
-        *picks = vec![label.to_string()];
+        *picks = vec![value.to_string()];
+    }
+}
+
+/// Stepper position after Continue/Back, clamped to the question list.
+pub fn step_question(current: usize, forward: bool, total: usize) -> usize {
+    if forward {
+        (current + 1).min(total.saturating_sub(1))
+    } else {
+        current.saturating_sub(1)
     }
 }
 

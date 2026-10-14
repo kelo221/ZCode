@@ -10,6 +10,8 @@ use crate::shared::theme::{
     UI_FONT, icon,
 };
 use crate::shared::theme_colors::tinted;
+use crate::transcript::tagged_text::clean_tool_output;
+use crate::transcript::tool_inputs::{canonical_tool, generic_input_view, mono, task_output_view};
 use ely_gpui_component::primitives::IconName;
 use gpui::{
     AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px,
@@ -17,6 +19,17 @@ use gpui::{
 use serde_json::Value;
 
 const TOOL_GROUP: &str = "tool-summary";
+
+/// Borrowed view of a `Row::ToolCall` for rendering.
+pub(crate) struct ToolCallView<'a> {
+    pub row_id: u64,
+    pub label: &'a str,
+    pub tool_name: &'a str,
+    pub status: &'a str,
+    pub input_text: &'a str,
+    pub output_text: &'a str,
+    pub display: Option<&'a Value>,
+}
 
 /// Desktop renderer icon per tool kind (`ToolCallBlocks/renderers/*`).
 fn tool_icon(label: &str) -> IconName {
@@ -27,6 +40,8 @@ fn tool_icon(label: &str) -> IconName {
         "WebFetch" | "WebSearch" => IconName::Globe,
         "Task" | "Agent" | "CreateWorkflow" => IconName::Bot,
         "TodoWrite" | "TodoRead" => IconName::ListTodo,
+        "AskUserQuestion" => IconName::CircleHelp,
+        "ExitPlanMode" => IconName::ListChecks,
         _ => IconName::Wrench,
     }
 }
@@ -34,17 +49,31 @@ fn tool_icon(label: &str) -> IconName {
 impl crate::app::root::RootView {
     pub(crate) fn render_tool_row(
         &self,
-        r_id: u64,
-        label: &str,
-        status: &str,
-        input_text: &str,
-        output_text: &str,
+        view: ToolCallView<'_>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let ToolCallView {
+            row_id: r_id,
+            label,
+            tool_name,
+            status,
+            input_text,
+            output_text,
+            display,
+        } = view;
+        let tool = canonical_tool(if tool_name.is_empty() {
+            label
+        } else {
+            tool_name
+        });
         let expanded = self.expanded_tools.contains(&r_id);
         let is_running = status == "running" || status == "inputStreaming";
         let is_error = status == "error";
         let input: Option<Value> = serde_json::from_str(input_text).ok();
+        let images = self.tool_images_view(
+            crate::transcript::tool_images::image_refs(tool, status, input.as_ref(), display),
+            cx,
+        );
 
         div()
             .w_full()
@@ -67,7 +96,7 @@ impl crate::app::root::RootView {
                         }
                         cx.notify();
                     }))
-                    .child(icon(tool_icon(label), 16., MUTED))
+                    .child(icon(tool_icon(tool), 16., MUTED))
                     .child(
                         div()
                             .flex_none()
@@ -75,7 +104,7 @@ impl crate::app::root::RootView {
                             .text_color(rgb(if is_running { MUTED } else { SUBTLEST }))
                             .child(label.to_string()),
                     )
-                    .child(summary_label(label, input.as_ref()))
+                    .child(summary_label(tool, input.as_ref()))
                     .when(is_error, |el| {
                         el.child(
                             div()
@@ -84,7 +113,7 @@ impl crate::app::root::RootView {
                                 .child(crate::shared::i18n::label("Failed", "失败")),
                         )
                     })
-                    .when(label == "CreateWorkflow" || label == "Agent", |chip| {
+                    .when(tool == "CreateWorkflow" || tool == "Agent", |chip| {
                         chip.child(
                             div()
                                 .id(ElementId::NamedInteger("subagent-badge".into(), r_id))
@@ -135,25 +164,14 @@ impl crate::app::root::RootView {
                             .border_1()
                             .border_color(rgb(BORDER))
                             .bg(rgb(BG))
-                            .child(input_view(label, input.as_ref(), input_text))
-                            .when(!output_text.is_empty(), |out| {
-                                out.child(
-                                    if crate::shared::diff_view::looks_like_diff(output_text) {
-                                        crate::shared::diff_view::render_diff(output_text)
-                                    } else {
-                                        div()
-                                            .font_family(MONO_FONT)
-                                            .text_size(px(ui_size(12.)))
-                                            .text_color(rgb(MUTED))
-                                            // gpui 不绘制制表符，`cat -n` 风格的行号会与正文粘连；展开为空格。
-                                            .child(output_text.replace('\t', "    "))
-                                            .into_any_element()
-                                    },
-                                )
-                            }),
+                            .w_full()
+                            .min_w_0()
+                            .child(input_view(tool, input.as_ref(), input_text, r_id))
+                            .child(output_view(tool, display, output_text)),
                     ),
                 )
             })
+            .children(images.map(|el| div().pt_2().w_full().child(el)))
             .into_any_element()
     }
 }
@@ -197,6 +215,18 @@ fn tool_summary(label: &str, v: &Value) -> Option<String> {
         "WebFetch" => str_field("url"),
         "WebSearch" => str_field("query"),
         "Task" | "Agent" => str_field("description").or_else(|| str_field("prompt")),
+        "TaskOutput" | "TaskStop" => str_field("task_id"),
+        "AskUserQuestion" => v
+            .get("questions")
+            .and_then(Value::as_array)
+            .and_then(|qs| qs.first())
+            .and_then(|q| q.get("question"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        "TodoWrite" => v
+            .get("todos")
+            .and_then(Value::as_array)
+            .map(|t| format!("{} todos", t.len())),
         _ => None,
     }
 }
@@ -216,9 +246,30 @@ fn short_path(path: String) -> String {
     }
 }
 
+/// Expanded output: TaskOutput gets its status view, diffs render as diffs,
+/// anything else is the text with model-only wrappers removed.
+fn output_view(tool: &str, display: Option<&Value>, output_text: &str) -> AnyElement {
+    if tool == "TaskOutput" && (display.is_some() || !output_text.is_empty()) {
+        return task_output_view(display, output_text);
+    }
+    let text = clean_tool_output(output_text);
+    if text.is_empty() {
+        return div().into_any_element();
+    }
+    if crate::shared::diff_view::looks_like_diff(&text) {
+        return crate::shared::diff_view::render_diff(&text);
+    }
+    div()
+        .w_full()
+        .min_w_0()
+        .text_color(rgb(MUTED))
+        .child(mono(&text))
+        .into_any_element()
+}
+
 /// Expanded input view: Bash shows the command, edits show a synthesized
-/// +/- diff, anything else falls back to the raw wire text.
-fn input_view(label: &str, input: Option<&Value>, raw: &str) -> AnyElement {
+/// +/- diff, other tools get a readable per-tool or key/value view.
+fn input_view(label: &str, input: Option<&Value>, raw: &str, id_base: u64) -> AnyElement {
     if let Some(v) = input {
         match label {
             "Bash" => {
@@ -252,7 +303,7 @@ fn input_view(label: &str, input: Option<&Value>, raw: &str) -> AnyElement {
             _ => {}
         }
     }
-    mono_block(raw)
+    generic_input_view(label, input, raw, id_base)
 }
 
 fn mono_block(text: &str) -> AnyElement {

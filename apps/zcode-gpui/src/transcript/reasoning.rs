@@ -33,6 +33,17 @@ impl RootView {
     ) -> AnyElement {
         let expanded = self.expanded_reasonings.contains(&row_id);
         let muted = rgb(SUBTLEST);
+        // 实测（model-io 调试日志）：Claude 类模型多数思考块只带签名、正文为空，
+        // 子代理所用模型则返回完整思考；行本身正常，展开后说明原因而非显示空框。
+        let body = if text.trim().is_empty() {
+            crate::shared::i18n::label(
+                "This model did not share its reasoning text.",
+                "该模型未提供思考内容。",
+            )
+            .to_string()
+        } else {
+            text.to_owned()
+        };
         div()
             .w_full()
             .flex()
@@ -90,6 +101,8 @@ impl RootView {
                     div().pt_3().child(
                         div()
                             .id(ElementId::NamedInteger("thought-body".into(), row_id))
+                            .w_full()
+                            .min_w_0()
                             .max_h(px(240.))
                             .overflow_y_scroll()
                             .ml_2()
@@ -98,7 +111,7 @@ impl RootView {
                             .border_color(rgb(BORDER))
                             .text_size(px(ui_size(14.)))
                             .text_color(muted)
-                            .child(text.to_owned()),
+                            .child(body),
                     ),
                 )
             })

@@ -105,6 +105,8 @@ pub struct ConversationState {
     pub subagents: Option<crate::conversation::subagents::SubagentsState>,
     /// Background work items (backgroundWorkSummarySchema).
     pub background_works: Vec<crate::conversation::subagents::BackgroundWork>,
+    /// Output tokens/s for the composer meter.
+    pub throughput: crate::conversation::throughput::Throughput,
 }
 
 /// V4 `sessionPhaseSchema` phases during which a turn is live.
@@ -155,6 +157,9 @@ impl ConversationState {
         }
         if let Some(config) = snap.get("config") {
             self.apply_config(config);
+        }
+        if let Some(usage) = snap.get("usage") {
+            self.throughput.on_usage(usage, std::time::Instant::now());
         }
         if let Some(pis) = snap.get("pendingInteractions").and_then(Value::as_array) {
             self.set_pending_interactions(pis);
@@ -218,44 +223,6 @@ impl ConversationState {
         }
     }
 
-    fn apply_control(&mut self, control: &Value) {
-        self.can_stop = control.get("canStop").and_then(Value::as_bool) == Some(true);
-        self.phase = control
-            .get("phase")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .to_string();
-        self.last_error = match control.get("lastError") {
-            Some(e) if !e.is_null() => Some((
-                e.get("code")
-                    .and_then(Value::as_str)
-                    .unwrap_or("error")
-                    .to_string(),
-                // Provider errors may quote the rejected key verbatim.
-                crate::shared::redact::scrub(
-                    e.get("message")
-                        .and_then(Value::as_str)
-                        .unwrap_or("unknown error"),
-                ),
-            )),
-            _ => None,
-        };
-        self.api_retry = match control.get("apiRetry") {
-            Some(r) if !r.is_null() => Some(r.clone()),
-            _ => None,
-        };
-        self.active_foreground_execution_id = control
-            .get("activeWorks")
-            .and_then(Value::as_array)
-            .and_then(|works| {
-                works.iter().find_map(|w| {
-                    w.get("foregroundExecutionId")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                })
-            });
-    }
-
     /// Whole-key replacement of the `config` region (sessionConfigStateSchema).
     pub fn apply_config(&mut self, config: &Value) {
         let str_field = |k: &str| {
@@ -313,6 +280,7 @@ impl ConversationState {
                     if append.is_empty() {
                         continue;
                     }
+                    self.throughput.on_stream(append, std::time::Instant::now());
                     if let Some(row) = d
                         .get("rowId")
                         .and_then(Value::as_u64)
@@ -324,6 +292,9 @@ impl ConversationState {
                 }
                 "state.updated" => {
                     if let Some(patch) = d.get("patch") {
+                        if let Some(usage) = patch.get("usage") {
+                            self.throughput.on_usage(usage, std::time::Instant::now());
+                        }
                         if let Some(routing) = patch.get("inputRouting") {
                             self.input_routing =
                                 crate::composer::delivery::InputRouting::from_value(routing);

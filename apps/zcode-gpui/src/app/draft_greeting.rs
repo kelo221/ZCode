@@ -6,6 +6,15 @@ use crate::shared::theme::{SUBTLEST, TEXT};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{AnyElement, div, prelude::*, px};
 
+/// Shown wherever the app identifies itself: this port is a community
+/// project, not a ZCode product.
+pub(crate) fn unofficial_notice() -> &'static str {
+    crate::shared::i18n::label(
+        "Unofficial community GPUI client — not an official ZCode product.",
+        "非官方社区 GPUI 客户端，并非 ZCode 官方产品。",
+    )
+}
+
 /// Desktop's hour buckets (`getChatEmptyGreetingMessageId`).
 pub(crate) fn greeting_key(hour: u32) -> &'static str {
     match hour {
@@ -71,6 +80,13 @@ pub(crate) fn draft_greeting(column: f32) -> AnyElement {
                 .line_height(gpui::relative(1.2))
                 .text_color(rgb(TEXT))
                 .child(crate::shared::i18n::t(greeting_key(local_hour())).to_string()),
+        )
+        .child(
+            div()
+                .pt_2()
+                .text_size(px(12.))
+                .text_color(rgb(SUBTLEST))
+                .child(unofficial_notice()),
         )
         .into_any_element()
 }

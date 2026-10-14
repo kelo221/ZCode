@@ -9,4 +9,8 @@ pub(crate) mod scroll;
 #[cfg(test)]
 mod scroll_tests;
 pub(crate) mod subagent_card;
+pub(crate) mod tagged_text;
 pub(crate) mod tool_card;
+pub(crate) mod tool_images;
+pub(crate) mod tool_inputs;
+pub(crate) mod user_row;

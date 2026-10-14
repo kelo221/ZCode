@@ -1,14 +1,10 @@
-//! Single-line composer with IME support (composition via marked text),
-//! caret navigation, clipboard paste, and Enter-to-submit.
+//! Composer text input with IME support (composition via marked text) and
+//! Enter-to-submit. Keyboard editing lives in `keys.rs`, wrapped rendering
+//! and mouse placement in `text_view.rs`.
 
 use crate::composer::attachment::AttachmentRef;
 use crate::composer::chips::{self, ChipTable};
-use crate::shared::theme::ui_size;
-use crate::shared::theme_colors::color as rgb;
-use gpui::{
-    ClickEvent, Context, CursorStyle, EventEmitter, FocusHandle, KeyDownEvent, Keystroke, Render,
-    Window, canvas, div, prelude::*, px,
-};
+use gpui::{Context, EventEmitter, FocusHandle};
 use std::ops::Range;
 use std::path::PathBuf;
 
@@ -25,6 +21,8 @@ pub struct Composer {
     pub(crate) content: String,
     pub(crate) replacement_generation: u64,
     pub(crate) caret: usize,
+    /// Selection anchor; the selection spans anchor..caret when they differ.
+    pub(crate) anchor: Option<usize>,
     pub(crate) marked_utf16: Option<Range<usize>>,
     pub(crate) focus: FocusHandle,
     pub(crate) single_line: bool,
@@ -34,6 +32,7 @@ pub struct Composer {
     pub(crate) attachments: Vec<AttachmentRef>,
     pub(crate) temp_owned: Vec<PathBuf>,
     pub(crate) chips: ChipTable,
+    pub(crate) view: crate::composer::text_view::TextViewState,
 }
 
 impl Composer {
@@ -42,6 +41,7 @@ impl Composer {
             content: String::new(),
             replacement_generation: 0,
             caret: 0,
+            anchor: None,
             marked_utf16: None,
             focus: cx.focus_handle(),
             single_line: false,
@@ -50,6 +50,7 @@ impl Composer {
             attachments: Vec::new(),
             temp_owned: Vec::new(),
             chips: ChipTable::default(),
+            view: Default::default(),
         }
     }
 
@@ -67,6 +68,7 @@ impl Composer {
             .checked_add(1)
             .expect("composer generation exhausted");
         self.caret = 0;
+        self.anchor = None;
         self.marked_utf16 = None;
         self.chips.clear();
         std::mem::take(&mut self.content)
@@ -110,12 +112,14 @@ impl Composer {
             .expect("composer generation exhausted");
         self.content = text.to_string();
         self.caret = self.content.len();
+        self.anchor = None;
         self.marked_utf16 = None;
         self.chips.clear();
     }
 
     pub fn insert_chip(&mut self, range: Range<usize>, chip: &str) {
         self.marked_utf16 = None;
+        self.anchor = None;
         self.caret = chips::insert_chip(&mut self.content, &mut self.chips, range, chip);
     }
 
@@ -133,13 +137,16 @@ impl Composer {
             .collect()
     }
 
-    fn insert_at_caret(&mut self, text: &str, cx: &mut Context<Self>) {
+    /// Insert at the caret, replacing the selection if there is one.
+    pub(crate) fn insert_at_caret(&mut self, text: &str, cx: &mut Context<Self>) {
         let cleaned = self.sanitize(text);
         if cleaned.is_empty() {
             return;
         }
-        let r = self.edit_range(self.caret..self.caret, &cleaned);
+        let range = self.selection().unwrap_or(self.caret..self.caret);
+        let r = self.edit_range(range, &cleaned);
         self.caret = r.start + cleaned.len();
+        self.anchor = None;
         cx.notify();
     }
 
@@ -159,118 +166,6 @@ impl Composer {
             .chars()
             .map(char::len_utf16)
             .sum()
-    }
-
-    fn move_caret(&mut self, delta: isize, cx: &mut Context<Self>) {
-        let bytes = &self.content;
-        let new = if delta < 0 {
-            self.chips.chip_ending_at(self.caret).unwrap_or_else(|| {
-                bytes[..self.caret]
-                    .char_indices()
-                    .next_back()
-                    .map(|(i, _)| i)
-                    .unwrap_or(0)
-            })
-        } else {
-            self.chips.chip_starting_at(self.caret).unwrap_or_else(|| {
-                bytes[self.caret..]
-                    .chars()
-                    .next()
-                    .map(|c| self.caret + c.len_utf8())
-                    .unwrap_or(self.caret)
-            })
-        };
-        self.caret = self.chips.snap(new);
-        self.marked_utf16 = None;
-        cx.notify();
-    }
-
-    fn delete_at_caret(&mut self, backward: bool, cx: &mut Context<Self>) {
-        if self.marked_utf16.take().is_some() {
-            cx.notify();
-            return;
-        }
-        let range = if backward {
-            self.content[..self.caret]
-                .char_indices()
-                .next_back()
-                .map(|(i, c)| i..i + c.len_utf8())
-        } else {
-            self.content[self.caret..]
-                .chars()
-                .next()
-                .map(|c| self.caret..self.caret + c.len_utf8())
-        };
-        if let Some(r) = range {
-            let removed = self.edit_range(r, "");
-            self.caret = removed.start;
-        }
-        cx.notify();
-    }
-
-    fn on_key_down(&mut self, ev: &KeyDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
-        let Keystroke { key, modifiers, .. } = &ev.keystroke;
-        let mut handled = true;
-        match key.as_str() {
-            "enter" => {
-                if self.marked_utf16.is_none() && !modifiers.shift {
-                    let trigger = if !self.single_line
-                        && crate::composer::delivery::primary_modifier(modifiers)
-                    {
-                        crate::composer::delivery::SubmitTrigger::ModifiedEnter
-                    } else {
-                        crate::composer::delivery::SubmitTrigger::Ordinary
-                    };
-                    cx.emit(ComposerEvent::Submitted(trigger));
-                } else if modifiers.shift {
-                    self.insert_at_caret("\n", cx);
-                } else {
-                    handled = false;
-                }
-            }
-            "backspace" => self.delete_at_caret(true, cx),
-            "delete" => self.delete_at_caret(false, cx),
-            "left" => self.move_caret(-1, cx),
-            "right" => self.move_caret(1, cx),
-            "home" => {
-                self.caret = 0;
-                self.marked_utf16 = None;
-                cx.notify();
-            }
-            "end" => {
-                self.caret = self.content.len();
-                self.marked_utf16 = None;
-                cx.notify();
-            }
-            "v" if modifiers.control || modifiers.platform => self.paste_clipboard(cx),
-            _ => handled = false,
-        }
-        if handled {
-            cx.stop_propagation();
-        }
-    }
-
-    fn paste_clipboard(&mut self, cx: &mut Context<Self>) {
-        let Some(item) = cx.read_from_clipboard() else {
-            return;
-        };
-        let mut has_image = false;
-        for entry in item.entries() {
-            if let gpui::ClipboardEntry::Image(img) = entry
-                && !img.bytes.is_empty()
-            {
-                has_image = true;
-                cx.emit(ComposerEvent::ImagePasted {
-                    bytes: img.bytes.clone(),
-                    format: img.format,
-                    replacement: self.replacement_generation,
-                });
-            }
-        }
-        if !has_image {
-            self.marked_utf16 = None;
-            self.insert_at_caret(&item.text().unwrap_or_default(), cx);
-        }
     }
 }
 
@@ -309,84 +204,5 @@ impl crate::app::root::RootView {
             }
         })
         .detach();
-    }
-}
-
-impl Render for Composer {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let empty = self.content.is_empty();
-        let before = self.content[..self.caret].to_string();
-        let after = self.content[self.caret..].to_string();
-        let entity = cx.entity();
-        let focus = self.focus.clone();
-
-        div()
-            .id("composer-input")
-            .key_context("Composer")
-            .track_focus(&self.focus)
-            .cursor(CursorStyle::IBeam)
-            .w_full()
-            .min_w_0()
-            .min_h(px(44.))
-            .px_1()
-            .text_size(px(ui_size(14.)))
-            .text_color(rgb(crate::shared::theme::TEXT))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                window.focus(&this.focus, cx);
-            }))
-            .on_key_down(cx.listener(Self::on_key_down))
-            .child(
-                div()
-                    .id("composer-canvas-host")
-                    .relative()
-                    .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_center()
-                    .w_full()
-                    .child(
-                        canvas(
-                            |_, _, _| {},
-                            move |bounds, _, window, cx| {
-                                window.handle_input(
-                                    &focus,
-                                    gpui::ElementInputHandler::new(bounds, entity.clone()),
-                                    cx,
-                                );
-                            },
-                        )
-                        .absolute()
-                        .size_full(),
-                    )
-                    .children(empty.then(|| {
-                        div().text_color(rgb(crate::shared::theme::MUTED)).child(
-                            if self.single_line {
-                                self.placeholder
-                            } else if self.new_task {
-                                crate::shared::i18n::t("chat.placeholder.newTask")
-                            } else {
-                                crate::shared::i18n::t("chat.placeholder.followUpAsk")
-                            },
-                        )
-                    })),
-            )
-            .children((!empty).then(|| {
-                div()
-                    .flex()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_center()
-                    .min_w_0()
-                    .child(before)
-                    .child(
-                        div()
-                            .w(px(1.5))
-                            .h(px(18.))
-                            .bg(rgb(crate::shared::theme::TEXT))
-                            .mr(px(0.5))
-                            .ml(px(0.5)),
-                    )
-                    .child(after)
-            }))
     }
 }

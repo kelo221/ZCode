@@ -2,12 +2,10 @@
 //! assistant text with streaming cursor, collapsible reasoning, and expandable tool cards.
 
 use crate::conversation::model::Row;
+use crate::shared::theme::TEXT;
 use crate::shared::theme::ui_size;
-use crate::shared::theme::{BORDER, SURFACE, TEXT};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div, prelude::*, px};
-
-const USER_GROUP: &str = "user-message";
 
 impl crate::app::root::RootView {
     /// `row_actions` is false until the snapshot's log epoch is known; row
@@ -40,44 +38,21 @@ impl crate::app::root::RootView {
                 entity_id,
                 text,
                 can_edit,
-            } => Some(
-                // Desktop ConversationUserInputBubble: right-aligned surface card
-                // with a squared top-right corner; actions appear on hover.
-                div()
-                    .group(USER_GROUP)
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .items_end()
-                    .gap_1()
-                    .child(
-                        div()
-                            .max_w(px(576.))
-                            .bg(rgb(SURFACE))
-                            .border_1()
-                            .border_color(rgb(BORDER))
-                            .rounded_tl(px(12.))
-                            .rounded_bl(px(12.))
-                            .rounded_br(px(12.))
-                            .rounded_tr(px(2.))
-                            .px_4()
-                            .py_3()
-                            .text_size(px(ui_size(14.)))
-                            .text_color(rgb(TEXT))
-                            .child(text.clone()),
-                    )
-                    .child(
-                        self.user_message_actions(
-                            *row_id,
-                            entity_id.clone(),
-                            text.clone(),
-                            *can_edit && row_actions,
-                            cx,
-                        )
-                        .opacity(0.)
-                        .group_hover(USER_GROUP, |s| s.opacity(1.)),
-                    )
-                    .into_any_element(),
+                origin,
+                created_at,
+                attachments,
+            } => self.render_user_row(
+                crate::transcript::user_row::UserRowView {
+                    row_id: *row_id,
+                    entity_id,
+                    text,
+                    can_edit: *can_edit,
+                    origin,
+                    created_at: *created_at,
+                    attachments,
+                },
+                row_actions,
+                cx,
             ),
             Row::AssistantText {
                 row_id,
@@ -85,6 +60,7 @@ impl crate::app::root::RootView {
                 text,
                 state,
                 can_retry,
+                created_at,
             } => {
                 let streaming = state == "streaming";
                 let can_retry = *can_retry && !streaming && row_actions;
@@ -101,13 +77,22 @@ impl crate::app::root::RootView {
                             text, *row_id, streaming,
                         ))
                         .when(!streaming && !text.is_empty(), |el| {
-                            el.child(self.assistant_message_actions(
-                                *row_id,
-                                entity_id.clone(),
-                                text.clone(),
-                                can_retry,
-                                cx,
-                            ))
+                            el.child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(self.assistant_message_actions(
+                                        *row_id,
+                                        entity_id.clone(),
+                                        text.clone(),
+                                        can_retry,
+                                        cx,
+                                    ))
+                                    .children(crate::transcript::user_row::timestamp_label(
+                                        *created_at,
+                                    )),
+                            )
                         })
                         .into_any_element(),
                 )
@@ -124,12 +109,24 @@ impl crate::app::root::RootView {
                 input_text,
                 output_text,
                 tool_call_id,
+                tool_name,
+                display,
             } => {
                 let maybe_subagent = tool_call_id
                     .as_deref()
                     .and_then(|tcid| self.find_subagent_for_tool_call(tcid, cx));
-                let tool_el =
-                    self.render_tool_row(*row_id, label, status, input_text, output_text, cx);
+                let tool_el = self.render_tool_row(
+                    crate::transcript::tool_card::ToolCallView {
+                        row_id: *row_id,
+                        label,
+                        tool_name,
+                        status,
+                        input_text,
+                        output_text,
+                        display: display.as_ref(),
+                    },
+                    cx,
+                );
                 if let Some(subagent_row) = maybe_subagent {
                     let subagent_el = self.render_subagent_card(&subagent_row, true, cx);
                     Some(
