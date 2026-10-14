@@ -1,0 +1,47 @@
+[workspace]
+resolver = "3"
+members = [".", "gpui_android"]
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+gpui = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b" }
+gpui_wgpu = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b" }
+util = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b" }
+anyhow = "1.0.86"
+futures = "0.3.32"
+libc = "0.2"
+log = "0.4.16"
+serde_json = "1.0.144"
+uuid = { version = "1.1.2", features = ["v4", "v7"] }
+
+[package]
+name = "zcode-gpui-android"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license = "Apache-2.0"
+description = "Android build of zcode-gpui (remote client for a desktop instance)"
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[target.'cfg(target_os = "android")'.dependencies]
+zcode-gpui = { path = "../zcode-gpui" }
+gpui_android = { path = "gpui_android" }
+android-activity = { version = "0.6", features = ["game-activity"] }
+android_logger = "0.13"
+log.workspace = true
+# Debug builds would otherwise read embedded assets from the build machine's disk.
+rust-embed = { version = "8.12", features = ["debug-embed"] }
+
+# ely-gpui-component depends on gpui_platform, which has no Android branch upstream.
+[patch."https://github.com/zed-industries/zed"]
+gpui_platform = { path = "patches/gpui_platform" }
+
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"

@@ -5,7 +5,9 @@
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
+#[cfg(windows)]
 use std::io::{Read, Write};
+#[cfg(windows)]
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::Arc;

@@ -62,7 +62,8 @@ pub(crate) fn decode(bytes: Vec<u8>, format: ImageFormat) -> Preview {
     if rgba.len() as u64 > MAX_PIXELS * 4 {
         return invalid();
     }
-    for pixel in rgba.as_mut().as_chunks_mut::<4>().0 {
+    let bytes: &mut [u8] = &mut rgba;
+    for pixel in bytes.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     Preview::Image(ImagePreview {

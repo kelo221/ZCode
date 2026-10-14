@@ -49,6 +49,10 @@ image cache, composer selection).
   then the exact `usage.cumulative.outputTokens` delta over the streaming time.
 - **Identity.** The window title, draft greeting and Settings › General state that this is an
   unofficial community client, not an official ZCode product.
+- **Phone remote control:** not shipped yet. It is planned as a local-network-only native
+  Android build of this app talking to the desktop instance; spec and build-spike results
+  are in [REMOTE_CONTROL.md](REMOTE_CONTROL.md). The Desktop relay implementation
+  (`packages/desktop/src/main/webRemoteControl*.ts`) is not ported.
 
 ## v3.15.1 sync and Bun runtime rule (2026-10-13)
 
@@ -137,8 +141,8 @@ Electron app for coding work, at a fraction of the memory, without forking the b
    `cargo fmt --check` + `clippy --all-targets -D warnings` + `cargo test` green.
 
 **Out of scope for parity** (decided, revisit only with a new requirement):
-computer use (CUA helper, macOS TCC), remote SSH/WSL/Docker workspaces, phone relay /
-bots, conversation share, whiteboard, treemapping, model-trajectory and developer-tools
+computer use (CUA helper, macOS TCC), remote SSH/WSL/Docker workspaces, the Desktop
+phone relay (a LAN-only replacement is planned in REMOTE_CONTROL.md) / bots, conversation share, whiteboard, treemapping, model-trajectory and developer-tools
 panes, feedback center, resource-manager window, coding-plan purchase webview, ARMS
 telemetry. Do not expose excluded capabilities as functioning controls; an explicit
 unavailable message or desktop handoff is required at any future entrypoint.

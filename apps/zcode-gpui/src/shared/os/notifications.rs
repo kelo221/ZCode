@@ -6,6 +6,7 @@
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+#[cfg(windows)]
 use std::process::Command;
 
 pub fn notify_task_completed(title: &str, body: &str, is_window_focused: bool) {

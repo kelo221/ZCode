@@ -1,0 +1,43 @@
+[package]
+name = "gpui_platform"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+# zed 1a28cff crates/gpui_platform plus a target_os = "android" branch.
+
+[lib]
+path = "src/gpui_platform.rs"
+doctest = false
+
+[features]
+default = []
+font-kit = ["gpui_macos/font-kit"]
+runtime_shaders = ["gpui_macos/runtime_shaders"]
+test-support = ["gpui/test-support", "gpui_macos/test-support", "gpui_windows/test-support", "gpui_wgpu/test-support"]
+bench-support = ["gpui/bench-support", "gpui_macos/bench-support", "gpui_wgpu/bench-support"]
+inspector = ["gpui/inspector"]
+screen-capture = ["gpui/screen-capture", "gpui_macos/screen-capture", "gpui_windows/screen-capture", "gpui_linux/screen-capture"]
+wayland = ["gpui_linux/wayland"]
+x11 = ["gpui_linux/x11"]
+
+[dependencies]
+anyhow = "1"
+gpui = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+gpui_macos = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+gpui_windows = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b" }
+gpui = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b", features = ["windows-manifest"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+gpui_linux = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui_wgpu = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b", optional = true }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+gpui_web = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169bac058bca40dfbfeb7621d19b" }
+console_error_panic_hook = "0.1"
