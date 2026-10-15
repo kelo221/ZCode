@@ -107,6 +107,8 @@ pub struct ConversationState {
     pub background_works: Vec<crate::conversation::subagents::BackgroundWork>,
     /// Output tokens/s for the composer meter.
     pub throughput: crate::conversation::throughput::Throughput,
+    /// Renderable `usage.contextWindow` for the composer ring.
+    pub context_window: Option<crate::conversation::context_usage::ContextWindow>,
 }
 
 /// V4 `sessionPhaseSchema` phases during which a turn is live.
@@ -159,7 +161,7 @@ impl ConversationState {
             self.apply_config(config);
         }
         if let Some(usage) = snap.get("usage") {
-            self.throughput.on_usage(usage, std::time::Instant::now());
+            self.apply_usage(usage);
         }
         if let Some(pis) = snap.get("pendingInteractions").and_then(Value::as_array) {
             self.set_pending_interactions(pis);
@@ -223,6 +225,12 @@ impl ConversationState {
         }
     }
 
+    /// Whole-key replacement of the `usage` region (sessionUsageStateSchema).
+    fn apply_usage(&mut self, usage: &Value) {
+        self.throughput.on_usage(usage, std::time::Instant::now());
+        self.context_window = crate::conversation::context_usage::ContextWindow::from_usage(usage);
+    }
+
     /// Whole-key replacement of the `config` region (sessionConfigStateSchema).
     pub fn apply_config(&mut self, config: &Value) {
         let str_field = |k: &str| {
@@ -262,16 +270,12 @@ impl ConversationState {
                 "row.appended" | "row.upserted" => {
                     if let Some(r) = d.get("row") {
                         let id = r.get("rowId").and_then(Value::as_u64).unwrap_or(0);
-                        let row = Row::from_value(r);
-                        if let Row::Reasoning {
-                            duration_ms: Some(ms),
-                            ..
-                        } = row
+                        if d.get("op").and_then(Value::as_str) == Some("row.appended")
+                            && crate::conversation::throughput::is_model_output_row(r)
                         {
-                            self.throughput
-                                .on_reasoning(id, ms, std::time::Instant::now());
+                            self.throughput.on_model_row(std::time::Instant::now());
                         }
-                        self.rows.insert(id, row);
+                        self.rows.insert(id, Row::from_value(r));
                     }
                 }
                 "row.removed" => {
@@ -289,7 +293,9 @@ impl ConversationState {
                     if append.is_empty() {
                         continue;
                     }
-                    self.throughput.on_stream(append, std::time::Instant::now());
+                    if crate::conversation::throughput::is_model_output_path(path) {
+                        self.throughput.on_stream(append, std::time::Instant::now());
+                    }
                     if let Some(row) = d
                         .get("rowId")
                         .and_then(Value::as_u64)
@@ -302,7 +308,7 @@ impl ConversationState {
                 "state.updated" => {
                     if let Some(patch) = d.get("patch") {
                         if let Some(usage) = patch.get("usage") {
-                            self.throughput.on_usage(usage, std::time::Instant::now());
+                            self.apply_usage(usage);
                         }
                         if let Some(routing) = patch.get("inputRouting") {
                             self.input_routing =

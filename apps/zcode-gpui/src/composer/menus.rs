@@ -1,6 +1,7 @@
 //! Composer pickers built on ely-gpui-component menus: model (provider-grouped),
 //! thinking level and collaboration mode. Desktop parity:
 //! packages/ui/src/v4/composer/V4ComposerModeControls.tsx + ModelConfigSelect.
+//! The context-window ring leads the row, as in Desktop's model controls.
 //!
 //! Ely hosts render a `Ghost` trigger button and float the panel under it,
 //! flipping above when the composer sits at the window's bottom edge
@@ -33,20 +34,35 @@ impl RootView {
             .map(|c| c.models.clone())
             .unwrap_or_default();
         let root = cx.entity();
-        let rate = {
+        let (rate, context_window) = {
             let state = self.state.read(cx);
-            state
+            let conversation = state
                 .active
                 .as_ref()
-                .and_then(|sid| state.conversations.get(sid))
-                .and_then(|c| c.throughput.rate(std::time::Instant::now()))
+                .and_then(|sid| state.conversations.get(sid));
+            (
+                conversation.and_then(|c| c.throughput.rate(std::time::Instant::now())),
+                conversation.and_then(|c| c.context_window.clone()),
+            )
         };
+        #[cfg(test)]
+        let tracked: Vec<String> = [
+            context_window.is_some().then_some("context-ring"),
+            (!models.is_empty()).then_some("model-menu-row"),
+            (!effective.thought_levels.is_empty()).then_some("thought-menu-row"),
+            rate.is_some().then_some("tokens-per-second"),
+        ]
+        .into_iter()
+        .flatten()
+        .map(str::to_string)
+        .collect();
 
-        div()
+        let row = div()
             .flex()
             .flex_row()
             .items_center()
             .gap_1()
+            .children(context_window.map(crate::composer::context_ring::context_ring))
             .children((!models.is_empty()).then(|| {
                 DropdownMenu::new(
                     "model-menu",
@@ -80,7 +96,10 @@ impl RootView {
                         crate::shared::theme::MUTED,
                     ))
                     .child(crate::conversation::throughput::format_rate(r))
-            }))
+            }));
+        #[cfg(test)]
+        let row = crate::app::test_support::track_children(row, tracked);
+        row
     }
 
     /// Mode picker (left of the composer row); Full access is highlighted by

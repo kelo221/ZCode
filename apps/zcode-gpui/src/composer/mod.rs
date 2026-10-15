@@ -7,6 +7,7 @@ pub(crate) mod autocomplete;
 pub(crate) mod catalog;
 pub(crate) mod chips;
 pub(crate) mod config_cmds;
+mod context_ring;
 pub(crate) mod delivery;
 pub(crate) mod editing;
 pub(crate) mod held_queue;

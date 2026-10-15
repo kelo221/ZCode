@@ -1,15 +1,17 @@
 //! Output tokens per second for the composer meter.
 //!
-//! The backend only reports usage when a model response completes
+//! The backend reports usage once per main-agent model call
 //! (`state.updated` `usage.cumulative.outputTokens` on ModelComplete), so
 //! while a response streams the rate is estimated from streamed characters
 //! (~4 per token). At completion the exact output-token delta over the
 //! generation time replaces the estimate.
 //!
-//! Output tokens include thinking, which often streams no text (Claude sends
-//! signature-only thinking), so the generation window starts at the earliest
-//! of the first visible delta and the start of the response's reasoning
-//! (reasoning row `durationMs` back from when the row reported it).
+//! 修复原因：输出 token 包含不流出文本的思考（Claude 只发签名）与工具参数。旧窗口从第一个
+//! 可见增量（常是调用末尾的工具参数）或推理行的 `durationMs` 起算，而 CLI 从不下发
+//! `durationMs`，几秒的调用被当成零点几秒（界面显示 1473 tok/s，同一会话 model-io 日志里
+//! 真实速率为 52–125 tok/s）。现在窗口从本次调用第一个模型输出行出现时起算：CLI 在
+//! `reasoning_start` 就追加 streaming 推理行（即使没有文本），在 `tool_input_start` 追加
+//! `inputStreaming` 工具行，在 `text_start` 追加 streaming 正文行。
 
 use serde_json::Value;
 use std::time::Instant;
@@ -29,41 +31,45 @@ pub struct Rate {
 pub struct Throughput {
     stream_start: Option<Instant>,
     streamed_chars: usize,
-    /// Start of the exact-rate window; `None` until this response produced
-    /// visible output or a timed reasoning row.
+    /// Start of the exact-rate window: the first model output of the current
+    /// call. `None` until one appeared.
     window_start: Option<Instant>,
-    /// Highest reasoning row already counted, so a later upsert of an older
-    /// row can't stretch the window back over tool time.
-    last_reasoning_row: Option<u64>,
     cumulative_output: Option<u64>,
     last: Option<Rate>,
 }
 
+/// Whether an appended row is the model starting to produce output: a
+/// streaming reasoning or text row, or a tool call whose input streams.
+pub fn is_model_output_row(row: &Value) -> bool {
+    match row.get("kind").and_then(Value::as_str) {
+        Some("reasoning" | "assistantText") => {
+            row.get("state").and_then(Value::as_str) == Some("streaming")
+        }
+        Some("toolCall") => row.get("status").and_then(Value::as_str) == Some("inputStreaming"),
+        _ => false,
+    }
+}
+
+/// Whether a `row.delta` path carries this session's model output. Subagent
+/// summaries (`summaryText`) stream child output the parent's usage omits.
+pub fn is_model_output_path(path: &str) -> bool {
+    matches!(path, "text" | "inputText")
+}
+
 impl Throughput {
-    /// A `row.delta` append arrived.
+    /// A model output row was appended (see [`is_model_output_row`]).
+    pub fn on_model_row(&mut self, now: Instant) {
+        self.window_start.get_or_insert(now);
+    }
+
+    /// A model output `row.delta` append arrived.
     pub fn on_stream(&mut self, appended: &str, now: Instant) {
         if appended.is_empty() {
             return;
         }
         self.stream_start.get_or_insert(now);
-        self.widen_window(now);
+        self.window_start.get_or_insert(now);
         self.streamed_chars += appended.chars().count();
-    }
-
-    /// A reasoning row with a measured duration arrived (append or upsert).
-    pub fn on_reasoning(&mut self, row_id: u64, duration_ms: u64, now: Instant) {
-        if self.last_reasoning_row.is_some_and(|last| row_id <= last) {
-            return;
-        }
-        self.last_reasoning_row = Some(row_id);
-        let started = now
-            .checked_sub(std::time::Duration::from_millis(duration_ms))
-            .unwrap_or(now);
-        self.widen_window(started);
-    }
-
-    fn widen_window(&mut self, start: Instant) {
-        self.window_start = Some(self.window_start.map_or(start, |s| s.min(start)));
     }
 
     /// A `usage` region arrived (snapshot or patch).
@@ -143,28 +149,55 @@ mod tests {
     }
 
     #[test]
-    fn hidden_thinking_time_counts_toward_the_exact_rate() {
-        // 20 s of signature-only thinking, then a short sentence: 1500 tokens
-        // over 0.5 s of visible text read as 3000 tok/s before.
+    fn hidden_thinking_and_tool_input_use_the_whole_call() {
+        // The pattern from this session's model-io log: 6 s of signature-only
+        // thinking, then 400 tokens of tool input in the last 0.3 s. Timed
+        // from the first tool-input delta it read as ~1300 tok/s.
         let t0 = Instant::now();
         let mut t = Throughput::default();
         t.on_usage(&usage(0), t0);
-        let thought = t0 + Duration::from_secs(20);
-        t.on_reasoning(7, 20_000, thought);
-        t.on_stream("Done.", thought);
-        t.on_usage(&usage(1500), thought + Duration::from_millis(500));
-        let done = t.rate(thought + Duration::from_secs(1)).unwrap();
-        assert!((done.tokens_per_sec - 1500. / 20.5).abs() < 0.01);
+        t.on_model_row(t0); // streaming reasoning row, no text
+        let tool = t0 + Duration::from_millis(5_700);
+        t.on_model_row(tool); // inputStreaming tool row
+        t.on_stream(&"x".repeat(1_200), tool);
+        t.on_usage(&usage(400), t0 + Duration::from_secs(6));
+        let done = t.rate(t0 + Duration::from_secs(7)).unwrap();
+        assert!(done.exact);
+        assert!((done.tokens_per_sec - 400. / 6.).abs() < 0.01);
 
-        // An older reasoning row upserted again later doesn't stretch the next window.
-        let t1 = thought + Duration::from_secs(60);
-        t.on_reasoning(7, 20_000, t1);
-        t.on_stream(&"x".repeat(40), t1);
-        t.on_usage(&usage(1600), t1 + Duration::from_secs(1));
+        // The tool runs between calls; the next call's window starts at its
+        // own first output row, not at the previous usage event.
+        let next = t0 + Duration::from_secs(30);
+        t.on_model_row(next);
+        t.on_usage(&usage(500), next + Duration::from_secs(2));
         assert_eq!(
-            t.rate(t1 + Duration::from_secs(1)).unwrap().tokens_per_sec,
-            100.
+            t.rate(next + Duration::from_secs(2))
+                .unwrap()
+                .tokens_per_sec,
+            50.
         );
+    }
+
+    #[test]
+    fn model_output_rows_and_paths() {
+        for row in [
+            json!({ "kind": "reasoning", "state": "streaming", "text": "" }),
+            json!({ "kind": "toolCall", "status": "inputStreaming" }),
+            json!({ "kind": "assistantText", "state": "streaming" }),
+        ] {
+            assert!(is_model_output_row(&row), "{row}");
+        }
+        for row in [
+            json!({ "kind": "reasoning", "state": "complete" }),
+            json!({ "kind": "toolCall", "status": "running" }),
+            json!({ "kind": "subagent" }),
+            json!({ "kind": "userInput" }),
+        ] {
+            assert!(!is_model_output_row(&row), "{row}");
+        }
+        assert!(is_model_output_path("text"));
+        assert!(is_model_output_path("inputText"));
+        assert!(!is_model_output_path("summaryText"));
     }
 
     #[test]

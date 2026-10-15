@@ -5,6 +5,24 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## Context ring and tok/s meter (2026-10-15)
+
+- **Context ring.** As in Desktop's model controls, the composer footer starts with a 14px
+  ring (28px ghost button, `chat-context-usage-trigger`) showing `usage.contextWindow`
+  `usedTokens / maxTokens`, clamped to 0–100%. The track is the subtle color at 25% opacity and
+  the arc at 70%, starting at 12 o'clock and running clockwise with round ends. It is hidden when
+  the window is null, zero or invalid. Snapshot and `state.updated` usage replace it whole.
+- **Usage card.** Hovering the ring opens a 320px card: "Context windows" with the compact
+  summary (`12.3K/200K (6.2%)`, 万/亿 in Chinese), a bar filled to the used share and split by
+  the breakdown sources (largest first, ties in Desktop's source order, chart color fading toward
+  the surface), one row per source with its share of the breakdown, and "Average cache hit rate"
+  only at 78% or more. The Coding Plan and Start Plan panels are not ported.
+- **tok/s.** The exact rate divides a call's output tokens by the time from its first model
+  output to its usage event. The first output is the first appended streaming reasoning or text
+  row, or `inputStreaming` tool row, so signature-only thinking counts toward the time. Before,
+  the window started at the first visible delta, which made a 6 s thinking-plus-tool call read
+  as over 1000 tok/s. Subagent `summaryText` deltas no longer feed the estimate.
+
 ## Browser Use bridge slice (2026-10-15)
 
 - **Browser tool works through your own browser.** `interaction/browserList` returns one
