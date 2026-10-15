@@ -115,3 +115,21 @@ fn wide_windows_keep_the_desktop_layout_on_either_page() {
     assert!(wide.contains(&"workspace-sidebar".to_string()));
     assert!(!wide.contains(&"mobile-back-home".to_string()));
 }
+
+#[test]
+fn phone_build_hides_the_desktop_dock_and_terminal() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = app();
+    let state = app.new_entity(AppState::for_test);
+    let mut window = app.open_window(|_, cx| RootView::new(state.clone(), cx));
+    window.update(|view, _, cx| assert!(view.desktop_tools(cx)));
+    app.update(|cx| state.update(cx, |s, _| s.phone_client.enabled = true));
+    window.update(|view, _, cx| {
+        assert!(!view.desktop_tools(cx));
+        // An auto-open from a plan or a stale flag must not render the dock.
+        view.dock_open = true;
+        view.term_open = true;
+    });
+    resize(&mut window, 411.);
+    window.draw();
+}

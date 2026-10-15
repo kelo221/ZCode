@@ -31,7 +31,9 @@ pub(crate) enum SettingsSection {
     Subagents,
     Plugins,
     Mcp,
+    Browser,
     Usage,
+    Phone,
 }
 
 impl SettingsSection {
@@ -45,7 +47,9 @@ impl SettingsSection {
             "subagents" => Self::Subagents,
             "plugins" => Self::Plugins,
             "mcp" => Self::Mcp,
+            "browser" => Self::Browser,
             "usage" => Self::Usage,
+            "phone" => Self::Phone,
             _ => return None,
         })
     }
@@ -92,23 +96,6 @@ impl RootView {
         let focus = self.state.read(cx).composer.read(cx).focus.clone();
         window.focus(&focus, cx);
         cx.notify();
-    }
-
-    pub(crate) fn settings_footer(&self, cx: &mut Context<Self>) -> AnyElement {
-        // Desktop sidebar footer: a plain sidebar row, not a bordered button.
-        let footer = div().py_1().child(
-            crate::sessions::items::nav_row("open-settings".into(), false)
-                .child(crate::shared::theme::icon(
-                    IconName::Settings,
-                    16.,
-                    crate::shared::theme::MUTED,
-                ))
-                .child(t("quickPick.command.settings").to_string())
-                .on_click(cx.listener(|this, _, window, cx| this.open_settings(window, cx))),
-        );
-        #[cfg(test)]
-        let footer = crate::app::test_support::track_children(footer, vec!["open-settings".into()]);
-        footer.into_any_element()
     }
 
     pub(crate) fn render_settings(
@@ -279,7 +266,9 @@ impl RootView {
             SettingsSection::Subagents => self.render_subagents_settings(window, cx),
             SettingsSection::Plugins => self.plugins_pane(window, cx),
             SettingsSection::Mcp => self.mcp_pane(cx),
+            SettingsSection::Browser => self.browser_pane(cx),
             SettingsSection::Usage => self.usage_pane(cx),
+            SettingsSection::Phone => self.phone_pane(cx),
         };
         div()
             .id("settings-page")

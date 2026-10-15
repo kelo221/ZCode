@@ -42,6 +42,21 @@ class MainActivity : GameActivity() {
             }
             ViewCompat.onApplyWindowInsets(v, insets)
         }
+        handlePairLink(intent)
+    }
+
+    // singleTask: a scanned link reaches the running app here.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handlePairLink(intent)
+    }
+
+    private fun handlePairLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (intent.action != Intent.ACTION_VIEW || data.scheme != "zcode-gpui") return
+        // The native library is loaded by GameActivity.onCreate before this runs.
+        NativeBridge.nativeSubmitPairLink(data.toString())
     }
 
     // ---- IME (called from Rust) -------------------------------------

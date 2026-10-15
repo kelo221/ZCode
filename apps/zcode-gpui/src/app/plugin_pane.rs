@@ -60,11 +60,7 @@ impl RootView {
                         } else if let Some(detail) = self.selected_plugin_detail(cx) {
                             detail
                         } else {
-                            match if self.settings.open {
-                                PluginSegment::ManageInstalled
-                            } else {
-                                self.plugin_segment
-                            } {
+                            match self.plugin_segment {
                                 PluginSegment::Public => self.render_public_segment(&overview, cx),
                                 PluginSegment::Personal => {
                                     self.render_personal_segment(&overview, cx)
@@ -93,16 +89,13 @@ impl RootView {
 
     fn render_plugins_header(&self, cx: &mut Context<Self>) -> AnyElement {
         let active = self.plugin_segment;
-        let management = self.settings.open;
-        let tabs = if management {
-            &[(PluginSegment::ManageInstalled, "Manage Installed")][..]
-        } else {
-            &[
-                (PluginSegment::Public, "Public (Official)"),
-                (PluginSegment::Personal, "Personal Sources"),
-                (PluginSegment::ManageInstalled, "Manage Installed"),
-            ][..]
-        };
+        // CONTEXT.md: the store page is the plugin settings page, so the
+        // listing segments and Manage Installed live together in Settings.
+        let tabs = [
+            (PluginSegment::Public, "Public (Official)"),
+            (PluginSegment::Personal, "Personal Sources"),
+            (PluginSegment::ManageInstalled, "Manage Installed"),
+        ];
 
         div()
             .id("plugins-header")

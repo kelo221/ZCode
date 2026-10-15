@@ -84,32 +84,34 @@ impl RootView {
                     }))
             }))
             .children(phase_badge(phase))
-            .child(
-                toggle("dock-toggle", IconName::PanelRight, self.dock_open, "Tools").on_click(
-                    cx.listener(|this, _, _, cx| {
-                        this.dock_open = !this.dock_open;
-                        if this.dock_open {
-                            this.on_dock_tab(this.dock_tab, cx);
+            .when(self.desktop_tools(cx), |el| {
+                el.child(
+                    toggle("dock-toggle", IconName::PanelRight, self.dock_open, "Tools").on_click(
+                        cx.listener(|this, _, _, cx| {
+                            this.dock_open = !this.dock_open;
+                            if this.dock_open {
+                                this.on_dock_tab(this.dock_tab, cx);
+                            }
+                            cx.notify();
+                        }),
+                    ),
+                )
+                .child(
+                    toggle(
+                        "term-toggle",
+                        IconName::Terminal,
+                        self.term_open,
+                        "Terminal",
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.term_open = !this.term_open;
+                        if this.term_open {
+                            this.ensure_term(cx);
+                            window.focus(&this.term.focus, cx);
                         }
                         cx.notify();
-                    }),
-                ),
-            )
-            .child(
-                toggle(
-                    "term-toggle",
-                    IconName::Terminal,
-                    self.term_open,
-                    "Terminal",
+                    })),
                 )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.term_open = !this.term_open;
-                    if this.term_open {
-                        this.ensure_term(cx);
-                        window.focus(&this.term.focus, cx);
-                    }
-                    cx.notify();
-                })),
-            )
+            })
     }
 }

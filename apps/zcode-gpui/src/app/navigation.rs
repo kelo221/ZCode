@@ -52,6 +52,9 @@ impl RootView {
         if event.keystroke.key == "back" {
             return self.handle_back(window, cx);
         }
+        if event.keystroke.key == "escape" && self.close_image_viewer(cx) {
+            return true;
+        }
         if self.quickpick_open {
             return crate::app::quickpick::handle_quickpick_key(self, event, window, cx);
         }

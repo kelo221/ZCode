@@ -139,50 +139,51 @@ pub fn highlight(code: &str, lang: &str) -> Vec<CodeLine> {
 
 const CODE_FONT: &str = crate::shared::theme::MONO_FONT;
 
-/// Render one highlighted line as a single flowing text element (spans as
-/// runs — separate divs would stack each colored chunk vertically).
-fn code_line(spans: &[CodeSpan]) -> gpui::AnyElement {
-    use gpui::{
-        Font, FontFeatures, FontStyle, FontWeight, StrikethroughStyle, StyledText, TextRun,
-    };
+/// The whole block as one text with newline-joined lines and spans as runs,
+/// so a selection can cover several lines (separate line elements could not).
+pub(crate) fn code_text(lines: &[CodeLine]) -> (String, Vec<gpui::TextRun>) {
+    use gpui::{Font, FontFeatures, FontStyle, FontWeight, TextRun};
 
-    if spans.is_empty() {
-        return div().child(" ").into_any_element();
-    }
-    let mut text = String::new();
-    let mut runs = Vec::with_capacity(spans.len());
-    for s in spans {
-        if s.text.is_empty() {
-            continue;
-        }
-        text.push_str(&s.text);
-        runs.push(TextRun {
-            len: s.text.len(),
-            font: Font {
-                family: CODE_FONT.into(),
-                features: FontFeatures::default(),
-                fallbacks: None,
-                weight: if s.bold {
-                    FontWeight::BOLD
-                } else {
-                    FontWeight::NORMAL
-                },
-                style: if s.italic {
-                    FontStyle::Italic
-                } else {
-                    FontStyle::Normal
-                },
+    let run = |len: usize, color: u32, bold: bool, italic: bool| TextRun {
+        len,
+        font: Font {
+            family: CODE_FONT.into(),
+            features: FontFeatures::default(),
+            fallbacks: None,
+            weight: if bold {
+                FontWeight::BOLD
+            } else {
+                FontWeight::NORMAL
             },
-            color: crate::shared::theme_colors::color(s.color).into(),
-            background_color: None,
-            underline: None,
-            strikethrough: Option::<StrikethroughStyle>::None,
-        });
+            style: if italic {
+                FontStyle::Italic
+            } else {
+                FontStyle::Normal
+            },
+        },
+        color: crate::shared::theme_colors::color(color).into(),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let mut text = String::new();
+    let mut runs = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if i > 0 {
+            text.push('\n');
+            runs.push(run(1, crate::shared::theme::TEXT, false, false));
+        }
+        for s in line.iter().filter(|s| !s.text.is_empty()) {
+            text.push_str(&s.text);
+            runs.push(run(s.text.len(), s.color, s.bold, s.italic));
+        }
     }
     if text.is_empty() {
-        return div().child(" ").into_any_element();
+        // An empty block still shows one blank line.
+        text.push(' ');
+        runs.push(run(1, crate::shared::theme::TEXT, false, false));
     }
-    StyledText::new(text).with_runs(runs).into_any_element()
+    (text, runs)
 }
 
 /// Fenced code block card: header with language label + Copy, highlighted body.
@@ -233,7 +234,14 @@ pub fn code_block(id: u64, code: &str, lang: &str) -> AnyElement {
                 .pb_3()
                 .text_size(px(ui_size(12.)))
                 .text_color(color(TEXT))
-                .children(lines.iter().map(|l| code_line(l))),
+                .child({
+                    let (text, runs) = code_text(&lines);
+                    crate::shared::selectable::SelectableText::new(
+                        gpui::ElementId::NamedInteger("code-text".into(), id),
+                        text,
+                    )
+                    .runs(runs)
+                }),
         )
         .into_any_element()
 }

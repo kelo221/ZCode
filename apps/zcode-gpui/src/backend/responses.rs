@@ -39,6 +39,9 @@ impl AppState {
                 .get("message")
                 .and_then(Value::as_str)
                 .unwrap_or("rpc error");
+            // 手机端会自动查询子智能体、斜杠命令等桌面专属面板；桌面网关按白名单拒绝。
+            // 这类拒绝是预期行为：只结算 pending 让面板显示不可用，不弹错误横幅也不标记工作区出错。
+            let refused = crate::remote::scope::is_phone_scope_refusal(&err);
             let msg = if self
                 .ws(ws_key)
                 .is_some_and(|w| matches!(w.pending.get(&id), Some(Pending::SlashCatalog(_))))
@@ -52,8 +55,10 @@ impl AppState {
             } else {
                 self.plugin_config_feedback(ws_key, id, msg)
             };
-            self.status_error(ws_key, msg);
-            self.push_error(format!("request failed: {msg}"));
+            if !refused {
+                self.status_error(ws_key, msg);
+                self.push_error(format!("request failed: {msg}"));
+            }
             let pending = self.ws_mut(ws_key).and_then(|ws| ws.pending.remove(&id));
             if let Some(pending) = &pending {
                 self.settle_inspection_error(ws_key, pending, msg);
@@ -145,6 +150,7 @@ impl AppState {
                     .map(str::to_string);
                 let ws_key = ws_key.to_string();
                 if let Some(settings) = result.as_ref().and_then(|r| r.get("settings")) {
+                    self.cache_model_settings(&ws_key, settings);
                     self.workspace_configs
                         .entry(ws_key.clone())
                         .or_default()

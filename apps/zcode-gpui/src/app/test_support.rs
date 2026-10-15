@@ -44,6 +44,7 @@ impl AppState {
             workspaces: vec![WorkspaceHandle::new(std::env::temp_dir(), vec![])],
             active_workspace: None,
             navigation_generation: 0,
+            plugin_prompt_applied: 0,
             held_confirmation: None,
             conversations: Default::default(),
             workflow_navigation_generation: 0,
@@ -71,6 +72,9 @@ impl AppState {
             launch_candidates: vec![],
             retired_temp_files: vec![],
             profiles: Default::default(),
+            phone: crate::remote::gateway::PhoneGateway::new(None),
+            phone_client: Default::default(),
+            browser: Default::default(),
         }
     }
 }

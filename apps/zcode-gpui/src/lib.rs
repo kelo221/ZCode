@@ -14,9 +14,11 @@
 
 mod app;
 mod backend;
+mod browser_bridge;
 mod composer;
 mod conversation;
 mod files;
+pub mod remote;
 mod review;
 mod sessions;
 mod shared;
@@ -38,6 +40,16 @@ pub struct Startup {
     workspace: PathBuf,
     settings: shared::settings::AppSettings,
     settings_section: Option<app::settings::SettingsSection>,
+    remote_client: bool,
+}
+
+impl Startup {
+    /// Serve every workspace from the paired desktop instead of local agents
+    /// (the Android build).
+    pub fn remote_client(mut self) -> Self {
+        self.remote_client = true;
+        self
+    }
 }
 
 /// Load settings, data paths, theme and font size for `workspace`.
@@ -59,6 +71,7 @@ pub fn load_startup(workspace: PathBuf) -> Startup {
         workspace,
         settings,
         settings_section: None,
+        remote_client: false,
     }
 }
 
@@ -182,14 +195,22 @@ pub fn open_window(cx: &mut App, startup: Startup) {
         workspace,
         settings,
         settings_section,
+        remote_client,
     } = startup;
     ely_gpui_component::init(cx);
     shared::preferences::Preferences::install(settings, cx);
     shared::acceptance::apply_runtime(cx);
     // One agent per known workspace (desktop parity: processes are keyed by
     // workspace key; the project list comes from ~/.zcode/v2/setting.json).
-    let workspaces = discover_workspaces(&workspace, 8);
-    let candidates = resolve_candidates(&workspace);
+    // The remote client gets its workspaces from the desktop instead.
+    let (workspaces, candidates) = if remote_client {
+        (Vec::new(), Vec::new())
+    } else {
+        (
+            discover_workspaces(&workspace, 8),
+            resolve_candidates(&workspace),
+        )
+    };
     let window_state = shared::window_state::load_window_state();
     let initial_bounds = window_state.to_window_bounds(cx);
     cx.open_window(
@@ -209,7 +230,13 @@ pub fn open_window(cx: &mut App, startup: Startup) {
                     }
                 })
                 .detach();
-            let state = cx.new(|cx| AppState::new(workspaces, candidates, cx));
+            let state = cx.new(|cx| {
+                if remote_client {
+                    AppState::new_remote(cx)
+                } else {
+                    AppState::new(workspaces, candidates, cx)
+                }
+            });
             let root = cx.new(|cx| {
                 let mut root = RootView::new(state, cx);
                 if let Some(section) = settings_section {

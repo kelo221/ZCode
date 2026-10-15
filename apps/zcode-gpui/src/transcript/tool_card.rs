@@ -11,7 +11,9 @@ use crate::shared::theme::{
 };
 use crate::shared::theme_colors::tinted;
 use crate::transcript::tagged_text::clean_tool_output;
-use crate::transcript::tool_inputs::{canonical_tool, generic_input_view, mono, task_output_view};
+use crate::transcript::tool_inputs::{
+    canonical_tool, generic_input_view, mono, selectable, task_output_view,
+};
 use ely_gpui_component::primitives::IconName;
 use gpui::{
     AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px,
@@ -71,6 +73,7 @@ impl crate::app::root::RootView {
         let is_error = status == "error";
         let input: Option<Value> = serde_json::from_str(input_text).ok();
         let images = self.tool_images_view(
+            r_id,
             crate::transcript::tool_images::image_refs(tool, status, input.as_ref(), display),
             cx,
         );
@@ -156,6 +159,8 @@ impl crate::app::root::RootView {
                 el.child(
                     div().pt_2().child(
                         div()
+                            // Scopes the selectable text ids to this card.
+                            .id(ElementId::NamedInteger("tool-body".into(), r_id))
                             .flex()
                             .flex_col()
                             .gap_2()
@@ -263,7 +268,7 @@ fn output_view(tool: &str, display: Option<&Value>, output_text: &str) -> AnyEle
         .w_full()
         .min_w_0()
         .text_color(rgb(MUTED))
-        .child(mono(&text))
+        .child(mono("output", &text))
         .into_any_element()
 }
 
@@ -274,7 +279,7 @@ fn input_view(label: &str, input: Option<&Value>, raw: &str, id_base: u64) -> An
         match label {
             "Bash" => {
                 if let Some(cmd) = v.get("command").and_then(Value::as_str) {
-                    return mono_block(cmd);
+                    return mono_block("command", cmd);
                 }
             }
             "Edit" | "Write" | "MultiEdit" | "NotebookEdit" => {
@@ -288,13 +293,14 @@ fn input_view(label: &str, input: Option<&Value>, raw: &str, id_base: u64) -> An
                                 .font_family(UI_FONT)
                                 .text_size(px(ui_size(11.5)))
                                 .text_color(rgb(MUTED))
-                                .child(
+                                .child(selectable(
+                                    "file-path",
                                     v.get("file_path")
                                         .and_then(Value::as_str)
                                         .or_else(|| v.get("notebook_path").and_then(Value::as_str))
                                         .unwrap_or("")
                                         .to_string(),
-                                ),
+                                )),
                         )
                         .child(crate::shared::diff_view::render_diff(&diff))
                         .into_any_element();
@@ -306,12 +312,12 @@ fn input_view(label: &str, input: Option<&Value>, raw: &str, id_base: u64) -> An
     generic_input_view(label, input, raw, id_base)
 }
 
-fn mono_block(text: &str) -> AnyElement {
+fn mono_block(slot: &'static str, text: &str) -> AnyElement {
     div()
         .font_family(MONO_FONT)
         .text_size(px(ui_size(11.)))
         .text_color(rgb(TEXT))
-        .child(text.to_string())
+        .child(selectable(slot, text.to_string()))
         .into_any_element()
 }
 
@@ -358,3 +364,7 @@ fn edit_diff(v: &Value, label: &str) -> Option<String> {
         pair(v.get("old_string")?, v.get("new_string")?)
     }
 }
+
+#[cfg(test)]
+#[path = "selection_tests.rs"]
+mod selection_tests;

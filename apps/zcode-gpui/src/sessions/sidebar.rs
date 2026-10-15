@@ -3,7 +3,8 @@
 //! sidebar. Session lists load progressively (3 latest, then two "Load more"
 //! clicks to everything — see sessions/items.rs) and project folders toggle
 //! open/closed on the header (desktop parity:
-//! workspace-grouped-tasks/group-item.tsx handleHeaderClick). The desktop
+//! workspace-grouped-tasks/group-item.tsx handleHeaderClick); an open folder
+//! stays open when another project becomes active. The desktop
 //! virtualizes its list, so it never needed these caps; our plain rows do.
 
 use crate::backend::workspace::WorkspacePurpose;
@@ -119,23 +120,20 @@ impl crate::app::root::RootView {
                     .update(cx, |s, cx| s.set_active_workspace(&key_new, cx));
             }));
         let key_toggle = key.to_string();
-        let is_active_at_render = active;
+        let expanded_at_render = expanded;
         nav_row(SharedString::from(format!("ws-{key}")), false)
             .h(px(32.))
             .pl(px(6.))
             .mt_1()
-            // Folder toggle (desktop handleHeaderClick): the active folder
-            // collapses/expands on click; a collapsed folder opens (and
-            // activates) on click. The "+" still just starts a draft.
+            // Folder toggle (desktop handleHeaderClick): an open folder
+            // closes; a closed one opens, and activates when it isn't the
+            // active project so its agent loads the sessions. The "+" still
+            // just starts a draft.
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.close_settings(window, cx);
                 cx.stop_propagation();
-                if is_active_at_render {
-                    if !this.ws_collapsed.remove(&key_toggle) {
-                        this.ws_collapsed.insert(key_toggle.clone());
-                    }
-                } else {
-                    this.ws_collapsed.remove(&key_toggle);
+                this.folders.toggle(&key_toggle, expanded_at_render);
+                if !expanded_at_render && !active {
                     this.state
                         .update(cx, |s, cx| s.set_active_workspace(&key_toggle, cx));
                 }
@@ -235,9 +233,7 @@ impl crate::app::root::RootView {
         let mut projects_list: Vec<AnyElement> = Vec::new();
         for (key, display, status, indices, active_index) in &projects {
             let active = active_workspace.as_deref() == Some(key.as_str());
-            // Folder rule: the active project is open unless the user closed
-            // it; other projects stay closed until clicked (which opens them).
-            let expanded = active && !self.ws_collapsed.contains(key.as_str());
+            let expanded = self.folders.is_open(key, active);
             projects_list.push(self.project_row(key, display, status, active, expanded, cx));
             if expanded {
                 let VisibleRows { mut rows, hidden } =
@@ -263,16 +259,6 @@ impl crate::app::root::RootView {
                 );
             }
         }
-
-        let footer: SharedString = {
-            let state = self.state.read(cx);
-            state
-                .active_ws_key()
-                .and_then(|k| state.ws(&k))
-                .map(|w| format!("{} · {}", w.conn_desc, w.status))
-                .unwrap_or_else(|| "no workspace".into())
-                .into()
-        };
 
         let tasks_header = section_header(
             "new-conversation-task",
@@ -353,16 +339,7 @@ impl crate::app::root::RootView {
                     .child(projects_header)
                     .children(projects_list),
             )
-            .child(self.settings_footer(cx))
-            .child(
-                div()
-                    .px_4()
-                    .py_2()
-                    .text_size(px(ui_size(11.)))
-                    .text_color(rgb(MUTED))
-                    .truncate()
-                    .child(footer),
-            );
+            .child(self.sidebar_footer(cx));
         #[cfg(test)]
         let sidebar = crate::app::test_support::track_children(
             div().child(sidebar),

@@ -1,7 +1,7 @@
 use crate::app::{
-    dock::DockTab,
     plugin_pane::PluginSegment,
     root::RootView,
+    settings::SettingsSection,
     store::AppState,
     test_support::{RUNTIME_TEST_LOCK, TestTargets},
 };
@@ -40,9 +40,9 @@ fn personal_source_add_refresh_and_management_buttons_are_pointer_reachable() {
     });
     let mut window = app.open_window(|_, cx| RootView::new(state.clone(), cx));
     window.simulate_resize(size(px(1280.), px(820.)));
-    window.update(|view, _, cx| {
-        view.dock_open = true;
-        view.dock_tab = DockTab::Plugins;
+    window.update(|view, window, cx| {
+        view.open_settings(window, cx);
+        view.select_settings_section(SettingsSection::Plugins, cx);
         view.plugin_segment = PluginSegment::Personal;
         cx.notify();
     });
@@ -80,9 +80,9 @@ fn personal_source_add_refresh_and_management_buttons_are_pointer_reachable() {
         )
     });
     while rx.try_recv().is_ok() {}
-    window.update(|view, window, cx| {
-        view.open_settings(window, cx);
-        view.select_settings_section(crate::app::settings::SettingsSection::Plugins, cx);
+    window.update(|view, _, cx| {
+        view.plugin_segment = PluginSegment::ManageInstalled;
+        cx.notify();
     });
     window.draw();
     let toggle = app.update(|cx| cx.global::<TestTargets>().0["toggle-tool"]);
@@ -109,8 +109,7 @@ fn personal_source_add_refresh_and_management_buttons_are_pointer_reachable() {
         s.workspaces[0].inspection.plugins.finish(crate::shared::plugins::PluginsOverviewResult::from_value(&json!({"marketplaces":[{"id":"personal","name":"Personal","pluginCount":1}],"availablePlugins":[{"id":"tool","name":"tool","marketplace":"personal","installed":true,"listing":{"examplePrompts":["Example"]}}],"installedPlugins":[],"restorableBuiltins":[],"diagnostics":[],"capability":{"supported":true}})));
         s.active = Some("parent".into()); s.draft = false;
     });
-    window.update(|view, window, cx| {
-        view.close_settings(window, cx);
+    window.update(|view, _, cx| {
         view.plugin_segment = PluginSegment::Personal;
         cx.notify();
     });
@@ -129,5 +128,7 @@ fn personal_source_add_refresh_and_management_buttons_are_pointer_reachable() {
         assert_eq!(s.composer.read(cx).text(), "[@tool](plugin://tool) Example");
         assert_eq!(s.session_drafts["parent"], "parent draft");
     });
+    window.draw();
+    window.read(|view, _| assert!(!view.settings.open, "the prefilled draft is shown"));
     assert!(rx.try_recv().is_err());
 }

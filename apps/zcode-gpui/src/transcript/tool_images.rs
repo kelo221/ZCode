@@ -3,14 +3,14 @@
 //! files read by the Read tool. Decoding runs in the background through the
 //! Files pane's decoder and is cached by source.
 
-use crate::files::image_preview::{ImagePreview, decode, element};
+use crate::files::image_preview::{ImagePreview, decode};
 use crate::files::preview::{Preview, read_preview};
 use crate::shared::theme::{BORDER, MUTED, ui_size};
 use crate::shared::theme_colors::color as rgb;
 use base64::Engine;
 use gpui::{AnyElement, Context, ElementId, ObjectFit, StyledImage, div, img, prelude::*, px};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -103,10 +103,36 @@ fn load(r: ImageRef) -> Result<ImagePreview, String> {
     }
 }
 
+/// Thumbnails fit inside this box, keeping the image's aspect ratio.
+const THUMB_MAX_W: f32 = 320.;
+const THUMB_MAX_H: f32 = 240.;
+
 #[derive(Default)]
 pub(crate) struct ToolImageCache {
     images: HashMap<String, Option<Result<ImagePreview, String>>>,
-    enlarged: HashSet<String>,
+    /// The image open in the full-window viewer (`image_viewer.rs`).
+    pub(crate) viewer: Option<crate::transcript::image_viewer::Viewer>,
+}
+
+impl ToolImageCache {
+    #[cfg(test)]
+    pub(crate) fn insert_loaded(&mut self, key: &str, preview: ImagePreview) {
+        self.images.insert(key.to_string(), Some(Ok(preview)));
+    }
+
+    pub(crate) fn loaded(&self, key: &str) -> Option<&ImagePreview> {
+        match self.images.get(key) {
+            Some(Some(Ok(preview))) => Some(preview),
+            _ => None,
+        }
+    }
+}
+
+/// `(width, height)` scaled to fit `max_w × max_h` without enlarging.
+pub(crate) fn fit(width: u32, height: u32, max_w: f32, max_h: f32) -> (f32, f32) {
+    let (w, h) = (width.max(1) as f32, height.max(1) as f32);
+    let scale = (max_w / w).min(max_h / h).min(1.);
+    (w * scale, h * scale)
 }
 
 impl crate::app::root::RootView {
@@ -127,8 +153,10 @@ impl crate::app::root::RootView {
         .detach();
     }
 
+    /// `row_id` keeps element ids unique when one file is read many times.
     pub(crate) fn tool_images_view(
         &self,
+        row_id: u64,
         refs: Vec<ImageRef>,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
@@ -151,37 +179,26 @@ impl crate::app::root::RootView {
                 Some(None) => row = row.child(note("Loading image…")),
                 Some(Some(Err(e))) => row = row.child(note(e)),
                 Some(Some(Ok(preview))) => {
-                    let big = self.tool_images.enlarged.contains(&key);
-                    let id = ElementId::Name(format!("tool-img-{key}").into());
+                    let id = ElementId::Name(format!("tool-img-{row_id}-{key}").into());
+                    let (w, h) = fit(preview.width, preview.height, THUMB_MAX_W, THUMB_MAX_H);
                     row = row.child(
-                        if big {
-                            div()
-                                .id(id)
-                                .w_full()
-                                .cursor_pointer()
-                                .child(element(preview))
-                        } else {
-                            div()
-                                .id(id)
-                                .cursor_pointer()
-                                .rounded_md()
-                                .border_1()
-                                .border_color(rgb(BORDER))
-                                .overflow_hidden()
-                                .child(
-                                    img(gpui::ImageSource::Render(preview.image.clone()))
-                                        .w(px(240.))
-                                        .h(px(160.))
-                                        .object_fit(ObjectFit::Contain),
-                                )
-                        }
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            if !this.tool_images.enlarged.remove(&key) {
-                                this.tool_images.enlarged.insert(key.clone());
-                            }
-                            cx.notify();
-                        })),
+                        div()
+                            .id(id)
+                            .cursor_pointer()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(BORDER))
+                            .overflow_hidden()
+                            .child(
+                                img(gpui::ImageSource::Render(preview.image.clone()))
+                                    .w(px(w))
+                                    .h(px(h))
+                                    .object_fit(ObjectFit::Contain),
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.open_image_viewer(key.clone(), cx);
+                            })),
                     );
                 }
             }
@@ -233,6 +250,13 @@ mod tests {
         assert!(image_refs("Read", "success", Some(&text), None).is_empty());
         let rel = json!({ "file_path": "shot.png" });
         assert!(image_refs("Read", "success", Some(&rel), None).is_empty());
+    }
+
+    #[test]
+    fn thumbnails_keep_the_aspect_ratio_and_never_enlarge() {
+        assert_eq!(fit(1080, 2400, 320., 240.), (108., 240.));
+        assert_eq!(fit(1920, 1080, 320., 240.), (320., 180.));
+        assert_eq!(fit(100, 50, 320., 240.), (100., 50.));
     }
 
     #[test]

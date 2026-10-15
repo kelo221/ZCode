@@ -29,6 +29,9 @@ pub struct AppState {
     /// Workspace key of the context used for "New chat" (last selected).
     pub active_workspace: Option<String>,
     pub(crate) navigation_generation: u64,
+    /// Bumped each time a plugin example prompt is prefilled; the view closes
+    /// Settings (where the store lives) so the prefilled draft is visible.
+    pub(crate) plugin_prompt_applied: u64,
     pub(crate) held_confirmation:
         Option<std::sync::Arc<crate::composer::held_queue::HeldConfirmation>>,
     pub(crate) workflow_navigation_generation: u64,
@@ -68,13 +71,16 @@ pub struct AppState {
     pub child_owner: HashMap<String, (String, String)>,
     /// Active child subagent session being viewed (read-only)
     pub viewing_child: Option<String>,
-    /// Backend launch candidates for workspaces added at runtime (the
-    /// folder picker; startup workspaces get their own copies).
+    /// Backend launch candidates for runtime-added workspaces (startup ones get their own copies).
     pub(crate) launch_candidates: Vec<crate::backend::launcher::BackendLaunch>,
-    /// Temp files from submitted pasted images: kept until quit (the backend
-    /// may still read the reference), deleted on app exit.
+    /// Pasted-image temp files: the backend may still read them, so they are deleted on quit.
     pub(crate) retired_temp_files: Vec<PathBuf>,
     pub(crate) profiles: crate::app::profile_state::ProfileState,
+    /// Desktop: the phone gateway (listener, pairing, phone sockets) and the browser bridge.
+    pub(crate) phone: crate::remote::gateway::PhoneGateway,
+    pub(crate) browser: crate::browser_bridge::BrowserBridge,
+    /// Phone build: the paired desktop that serves every workspace.
+    pub(crate) phone_client: crate::remote::phone_state::PhoneClient,
 }
 
 impl AppState {
@@ -83,13 +89,34 @@ impl AppState {
         candidates: Vec<crate::backend::launcher::BackendLaunch>,
         cx: &mut Context<Self>,
     ) -> Self {
+        Self::build(workspace_paths, candidates, false, cx)
+    }
+
+    /// Phone build: no local agents; workspaces come from the paired desktop.
+    pub fn new_remote(cx: &mut Context<Self>) -> Self {
+        Self::build(Vec::new(), Vec::new(), true, cx)
+    }
+
+    fn build(
+        workspace_paths: Vec<PathBuf>,
+        candidates: Vec<crate::backend::launcher::BackendLaunch>,
+        remote: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let isolated = crate::shared::isolation::active().is_some();
         let mut state = Self {
+            phone: crate::remote::gateway::PhoneGateway::new(
+                (!remote && !isolated).then(crate::remote::pairing::PairingStore::path),
+            ),
+            phone_client: Default::default(),
+            browser: Default::default(),
             workspaces: workspace_paths
                 .into_iter()
                 .map(|p| WorkspaceHandle::new(p, candidates.clone()))
                 .collect(),
             active_workspace: None,
             navigation_generation: 0,
+            plugin_prompt_applied: 0,
             held_confirmation: None,
             conversations: HashMap::new(),
             workflow_navigation_generation: 0,
@@ -128,16 +155,22 @@ impl AppState {
             assembler: crate::backend::wire::FrameAssembler::new(),
             route_cursors: HashMap::new(),
         };
-        state.register_conversation_workspace(candidates);
-        let primary = state
-            .workspaces
-            .iter()
-            .find(|w| w.purpose == crate::backend::workspace::WorkspacePurpose::Project)
-            .map(|w| w.key.clone());
-        state.active_workspace =
-            primary.or_else(|| state.workspaces.first().map(|w| w.key.clone()));
-        if let Some(key) = state.active_workspace.clone() {
-            state.spawn_workspace(&key, cx);
+        if remote {
+            state.start_remote_client(cx);
+        } else {
+            state.register_conversation_workspace(candidates);
+            let primary = state
+                .workspaces
+                .iter()
+                .find(|w| w.purpose == crate::backend::workspace::WorkspacePurpose::Project)
+                .map(|w| w.key.clone());
+            state.active_workspace =
+                primary.or_else(|| state.workspaces.first().map(|w| w.key.clone()));
+            if let Some(key) = state.active_workspace.clone() {
+                state.spawn_workspace(&key, cx);
+            }
+            state.init_phone_gateway(cx);
+            state.init_browser_bridge(cx);
         }
         state.start_maintenance(cx);
         crate::backend::flow_cmds::start_tail_poll(cx);
@@ -178,6 +211,7 @@ impl AppState {
     /// Terminate all workspace agents cleanly.
     pub fn shutdown_all_workspaces(&mut self) {
         self.profiles.shutdown();
+        self.browser.shutdown(std::time::Instant::now());
         for w in &mut self.workspaces {
             w.shutdown();
         }

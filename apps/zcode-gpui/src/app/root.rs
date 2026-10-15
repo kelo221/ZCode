@@ -51,6 +51,7 @@ pub struct RootView {
     last_phase: String,
     auto_opened_this_turn: bool,
     last_plan_present: bool,
+    seen_plugin_prompt: u64,
     pub(crate) middle_scroll: Option<crate::transcript::scroll::MiddleScrollState>,
     /// An autoscroll `on_next_frame` callback is queued (see transcript/scroll.rs).
     pub(crate) autoscroll_frame_pending: bool,
@@ -59,7 +60,7 @@ pub struct RootView {
     pub(crate) quickpick_selected: usize,
     pub(crate) os_lifecycle: crate::app::os_lifecycle::OsLifecycleState,
     pub(crate) plugin_segment: crate::app::plugin_pane::PluginSegment,
-    pub(crate) ws_collapsed: HashSet<String>,
+    pub(crate) folders: crate::sessions::folders::Folders,
     /// Per-workspace session-row step (0=3 latest, 1=extended, 2=all).
     pub(crate) session_limit_step: HashMap<String, u8>,
     pub(crate) settings: crate::app::settings::SettingsView,
@@ -72,6 +73,12 @@ pub struct RootView {
 }
 
 impl RootView {
+    /// False on the phone build: the dock (git review, files, workflows,
+    /// plugins) and the terminal act on this device, not the desktop.
+    pub(crate) fn desktop_tools(&self, cx: &gpui::App) -> bool {
+        !self.state.read(cx).phone_client.enabled
+    }
+
     pub fn new(state: Entity<AppState>, cx: &mut Context<Self>) -> Self {
         cx.observe_global::<ely_gpui_component::theme::Theme>(|_, cx| cx.notify())
             .detach();
@@ -114,6 +121,7 @@ impl RootView {
             last_phase: String::new(),
             auto_opened_this_turn: false,
             last_plan_present: false,
+            seen_plugin_prompt: 0,
             middle_scroll: None,
             autoscroll_frame_pending: false,
             quickpick_open: false,
@@ -121,7 +129,7 @@ impl RootView {
             quickpick_selected: 0,
             os_lifecycle: crate::app::os_lifecycle::OsLifecycleState::default(),
             plugin_segment: crate::app::plugin_pane::PluginSegment::Public,
-            ws_collapsed: HashSet::new(),
+            folders: Default::default(),
             session_limit_step: HashMap::new(),
             subagents: Default::default(),
             settings: crate::app::settings::SettingsView {
@@ -253,13 +261,24 @@ impl Render for RootView {
         // progress capsule is visible without hunting for it. A manual close
         // is respected for the rest of the turn.
         let plan_present = plan.as_ref().is_some_and(|p| !p.items.is_empty());
-        if plan_present && !self.last_plan_present && !self.auto_opened_this_turn {
+        if plan_present
+            && !self.last_plan_present
+            && !self.auto_opened_this_turn
+            && self.desktop_tools(cx)
+        {
             self.dock_open = true;
             self.dock_tab = crate::app::dock::DockTab::Review;
             self.auto_opened_this_turn = true;
             self.on_dock_tab(crate::app::dock::DockTab::Review, cx);
         }
         self.last_plan_present = plan_present;
+        let plugin_prompt_applied = self.state.read(cx).plugin_prompt_applied;
+        if plugin_prompt_applied != self.seen_plugin_prompt {
+            self.seen_plugin_prompt = plugin_prompt_applied;
+            if self.settings.open {
+                self.close_settings(window, cx);
+            }
+        }
 
         let compact = crate::app::mobile_shell::is_compact(f32::from(window.viewport_size().width));
         let chat_page = compact && self.mobile_page == crate::app::mobile_shell::MobilePage::Chat;
@@ -361,5 +380,6 @@ impl Render for RootView {
                 self.quickpick_open
                     .then(|| crate::app::quickpick::render_quickpick_modal(self, window, cx)),
             )
+            .children(self.render_image_viewer(window, cx))
     }
 }

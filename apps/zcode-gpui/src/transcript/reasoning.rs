@@ -23,6 +23,13 @@ fn duration_label(duration_ms: Option<u64>) -> String {
     }
 }
 
+/// 实测（model-io 调试日志）：Claude 类模型多数思考块只带签名、正文为空，
+/// 常与下一个带正文的思考块相邻，导致出现两行 "Thought"。正文为空的行不渲染；
+/// 流式增量写入正文后该行会自然出现。
+pub(crate) fn has_reasoning_text(text: &str) -> bool {
+    !text.trim().is_empty()
+}
+
 impl RootView {
     pub(crate) fn render_reasoning(
         &self,
@@ -33,17 +40,7 @@ impl RootView {
     ) -> AnyElement {
         let expanded = self.expanded_reasonings.contains(&row_id);
         let muted = rgb(SUBTLEST);
-        // 实测（model-io 调试日志）：Claude 类模型多数思考块只带签名、正文为空，
-        // 子代理所用模型则返回完整思考；行本身正常，展开后说明原因而非显示空框。
-        let body = if text.trim().is_empty() {
-            crate::shared::i18n::label(
-                "This model did not share its reasoning text.",
-                "该模型未提供思考内容。",
-            )
-            .to_string()
-        } else {
-            text.to_owned()
-        };
+        let body = text.to_owned();
         div()
             .w_full()
             .flex()
@@ -121,7 +118,14 @@ impl RootView {
 
 #[cfg(test)]
 mod tests {
-    use super::duration_label;
+    use super::{duration_label, has_reasoning_text};
+
+    #[test]
+    fn signature_only_reasoning_is_hidden() {
+        assert!(!has_reasoning_text(""));
+        assert!(!has_reasoning_text("  \n"));
+        assert!(has_reasoning_text("Checking the ATM path."));
+    }
 
     #[test]
     fn duration_rounds_up_to_whole_seconds() {

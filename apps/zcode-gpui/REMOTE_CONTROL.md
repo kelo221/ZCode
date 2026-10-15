@@ -1,7 +1,8 @@
 # Phone remote control: native Android client over the local network
 
-Status: **in progress**. Build spikes 1 and 2 passed on 2026-10-14 (see "Spike results"). The
-unconnected app runs on a phone (see "Android app status").
+Status: **in progress**. The LAN slice works end to end on a Pixel 7a against a Windows
+desktop (2026-10-15, see "LAN slice" › Verified). The cargo feature split, the remaining phone
+UI work and hardening are still open.
 This file is the spec for the feature. Update it before changing behaviour.
 
 ## Product rules
@@ -20,6 +21,10 @@ This file is the spec for the feature. Update it before changing behaviour.
   - attach images.
 
   Files, git review, terminal, plugins, MCP and subagent management stay desktop-only.
+- **Browser Use from the phone (2026-10-15):** a turn started on the phone runs on the
+  desktop's agent, so its browser tool drives the desktop's browser through the desktop's
+  extension bridge (`BROWSER_BRIDGE.md`). The phone has no bridge of its own, and the phone
+  build hides Settings › Browser Use.
 
 ## Architecture and owners
 
@@ -114,6 +119,150 @@ phone reconnects ─▶ subscribes again ─▶ snapshot (resume-from-seq is a l
    - a CLI restart;
    - revocation, a wrong certificate fingerprint, oversized lines.
 
+## LAN slice (2026-10-15)
+
+The first connected version. Where it differs from the plan above, this section wins.
+
+**Protocol facts it relies on** (CLI `apps/zcode-cli/packages/bootstrap/src/zcode-protocol/`):
+
+- Over stdio the CLI writes a subscribe response (`{ack:{subscriptionId, mode, logEpoch}}`)
+  **before** that subscription's first frame (`transport.ts` response, then the post-response
+  outbox). The desktop scope sits on the raw stdio lines, so it learns a phone subscription's
+  id from the ack before any of its frames, and **does not need to hold early frames**. The TS
+  scope holds them only because it sits above an RPC facade.
+- CLI→client requests use string ids (`server-N`) and always go to the desktop.
+- No `initialize` is needed on stdio. Readiness is the `startup/storageState` `phase:"ready"`
+  notification.
+- `clientMode:"web-remote-replayable"` selects the CLI's replayable delivery profile (slower
+  flush, no desktop-only rows), which is what a phone wants.
+- `v4/connection/flow` with `state:"closed"` drops a connection's flow state and uploads.
+
+**Desktop owners.** `AppState` owns the gateway: the pairing store, the open phone
+connections and one `RemoteScope` per open phone socket. Listener threads only do TLS,
+authentication and line IO, and send events to `AppState`. Nothing else holds phone state.
+
+```text
+listener thread                AppState (gpui thread)                    CLI stdin/stdout
+TLS accept + auth ──Authed────▶ reply {"type":"workspaces"}
+phone line ─────────Line──────▶ {"type":"open"} ─▶ ensure_spawned(ws) ─▶ (spawn if idle)
+                               storage ready ─▶ phone gets startup/storageState ready
+phone line ─────────Line──────▶ scope.from_phone: allowlist, id remap,
+                                connectionId/clientMode injected ──────────▶ stdin
+                               stdout line ─▶ scope.from_cli (before the desktop parses it):
+                                id ≥ REMOTE_ID_BASE ─▶ phone (id restored) or dropped
+                                frame of a phone-owned subscriptionId ─▶ phone
+                                everything else ─▶ the desktop, as before
+socket closed ──────Closed────▶ scope.close: flow closed + unsubscribe all ─▶ stdin
+                               CLI exit / unload ─▶ phone sockets for that workspace closed
+```
+
+- **Ids.** Remote request ids come from one counter starting at 2^48 (exact in JS numbers),
+  so they never collide with the desktop's ids, which start at 1. A response with such an id
+  that no scope owns any more is dropped.
+- **Allowlist.** Methods: `v4/conversation/{subscribe,unsubscribe,resync,rowsRange,
+  attachmentRead,attachmentStat}`, `v4/connection/flow`, `v4/attachment/{begin,chunk,commit,
+  abort,read,previewSource}`, and `v4/command`. Subscribe topics: `conversation/*`, plus
+  `sessions-index/<key>` and `workspace-config/<key>` of the opened workspace only.
+  `v4/command` types: `createSession, sendText, sendGoalCommand, stop, compact, retryTurn,
+  editUserQuery, setAssistantFeedback, sendQueuedNow, editQueueItem, reorderQueueItem,
+  deleteQueueItem, setAutoDrain, resolveInteraction, snoozeInteractionAutoResolution,
+  switchModelConfig, switchCollaborationMode, setFollowupMode, pauseGoal, resumeGoal,
+  cancelBackgroundWork, renameSession`. Everything else, including `deleteSession`,
+  file rewind, workspace hook trust and workflows, gets JSON-RPC error `-32601` with
+  `data.phoneScope: true`. The phone settles such a request quietly (its panel shows
+  "unavailable"); it is never an error banner or a workspace error, because the phone UI
+  still asks for desktop-only panels such as the subagent directory on its own.
+- **Model catalog.** The phone's `session/create` probe is answered by the desktop from the
+  `settings` of its own probe, without a session id, so the phone never creates or deletes
+  a throwaway session. A phone that opens a workspace whose agent has only just started asks
+  before the desktop has that catalog; the gateway holds the probe and answers it when the
+  desktop's own probe returns (an empty answer left the phone without a model picker).
+- **Identity.** Every `connectionId` in phone params is replaced by the scope's
+  `gpui-lan-<uuid>`, and subscribe's `clientMode` by `web-remote-replayable`. The phone
+  build keeps sending its usual values; they are never trusted.
+- **Backpressure.** If more than 32 MiB is queued for one phone socket, the desktop closes it
+  (the phone reconnects and re-subscribes to a fresh snapshot).
+- **Phone activity** counts as workspace activity, so idle unload leaves it alone.
+
+**Transport and pairing.**
+
+- TCP port 47821 on the desktop's LAN address (the interface of its default route), TLS 1.3
+  via rustls with the `ring` provider. The desktop's self-signed certificate (rcgen) is
+  created once and stored in the data dir. The phone accepts only the SHA-256 fingerprint
+  of that certificate from the pairing link.
+- Lines are newline-delimited and capped at `MAX_RAW_LINE_BYTES` in both directions. An
+  overlong line closes the socket.
+- Handshake: the first line must arrive within 10 s and is `pair` or `auth`. The reply is
+  `{"type":"paired","deviceToken"}` (pairing only), then `{"type":"workspaces","workspaces":
+  [{key,display,purpose}]}`. The next line is either `{"type":"open","workspaceKey"}`,
+  answered with `{"type":"opened"}` after which both sides switch to raw V4 lines, or the
+  phone closes (list-only socket). Errors are
+  `{"type":"error","code"}` followed by close.
+- Pairing tokens are 32 random bytes, single-use, valid for 5 minutes. A new pairing replaces
+  the previously paired phone. The desktop stores only the SHA-256 of the device token, with
+  the device name and pairing time, in `phone-remote.json` in the data dir, plus whether the
+  listener is enabled (default off).
+- More than 5 failed `pair`/`auth` attempts from one IP within a minute are refused until the
+  minute passes.
+- Tokens and links are never logged.
+
+**Desktop Settings › Phone** (last in the Data and statistics group): an enable switch, the listen
+address, the pairing link with a QR code and a copy button (a fresh link per click, valid 5
+minutes), the paired phone's name with a Revoke button, and the number of connected phone
+sockets. Revoke drops the stored device and closes its sockets.
+
+**Phone (`remote-client`).** Selected at runtime on Android, not with a cargo feature yet (the
+`local-backend`/`remote-client` feature split stays open in phase 1).
+
+- `Startup::remote_client()` makes `AppState` start with no local workspaces and no local
+  agent. It reads the pairing from `$HOME/remote-pairing.json`
+  (`{host,port,fingerprint,deviceToken}`) and fetches the desktop's workspace list over a
+  list-only socket. Each desktop workspace becomes a `WorkspaceHandle` with the desktop's key
+  and display name and a remote target instead of launch candidates.
+- `WorkspaceHandle::try_spawn` with a remote target calls `remote::client::connect`, which
+  returns a `Connection` at once. TLS, `auth` and `open` run on its IO thread; failures arrive
+  as a log line plus `Exited`. The rest of the app is unchanged.
+- Reconnect: a remote workspace never runs out of candidates. After a drop it retries with
+  backoff (1 s doubling to 15 s), showing "desktop offline" before the first successful start
+  and "reconnecting to desktop" after. A re-subscribe brings a fresh snapshot.
+- Pairing link: `zcode-gpui://pair?host=…&port=…&fp=…&t=…`. Android delivers it through an
+  intent filter on `MainActivity` (camera QR scan or `adb shell am start -d`) and a JNI call
+  into Rust. Settings › Phone on the phone also accepts a pasted link. Pairing sends
+  `pair`, stores the returned device token, then loads the workspace list.
+- When the phone isn't paired, the sidebar shows no workspaces and an error banner explains
+  how to pair. Settings › Phone on the phone shows the paired desktop, "Pair from clipboard"
+  and "Forget desktop".
+- The dock (git review, files, workflows, plugins, MCP) and the terminal act on the device's
+  own files, so the phone build hides their header toggles and never renders them, including
+  the dock's automatic opening for a turn with a plan (`RootView::desktop_tools`).
+
+**Code.** `src/remote/`: `scope` (allowlist, ids, routing), `gateway` and `gateway_controls`
+(desktop owner in `AppState`), `listener`, `pairing`, `tls`, `handshake`, `line_socket`,
+`link`, `client` and `phone_state` (phone side). Hooks: `backend/events.rs` routes CLI lines
+through `route_cli_line_to_phone` before the desktop parses them and tells phones when storage
+is ready; `transport_state.rs` closes a workspace's phone sockets with its CLI;
+`maintenance.rs` never unloads a workspace a phone has open. Android: `MainActivity` intent
+filter (`singleTask`) → `NativeBridge.nativeSubmitPairLink` → `remote::submit_pair_link`.
+
+**Verified (2026-10-15, Pixel 7a over Wi-Fi to a Windows desktop):**
+
+- Enabling the switch listens on the LAN address; the QR code renders; "Copy link" works.
+- Opening the link on the phone pairs it (the desktop shows the phone's name); the phone lists
+  the desktop's projects and sessions, including sessions running on the desktop.
+- Opening a session shows its live transcript (markdown and tables), with no error banners.
+- Restarting the desktop: the listener comes back on its own and the phone reconnects with its
+  stored pairing, without a new link.
+- A new task sent from the phone runs on the desktop's CLI and the reply streams back.
+- The model picker on a cold workspace lists the desktop's full catalog.
+- Tests: `src/remote/*_tests.rs` (scope, real-TLS listener/client on loopback, gateway routing
+  in `AppState`) and `mobile_shell_tests.rs` (phone hides the dock and terminal).
+
+**Not in this slice:** the cargo feature split, a chosen (rather than detected) interface,
+resume-from-seq, CJK fonts, the idle repaint, a "reconnecting" banner inside the chat page
+(the status shows only in the sidebar footer), and a new draft's model label ("model…" when the
+workspace default doesn't match the catalog, shared with the desktop). Socket IO uses blocking reads with a 15 ms
+timeout so one thread can both read and write.
+
 ## Phone layout
 
 Ported from `packages/ui/src/WebRemoteControlMobileShell.tsx`. It applies when the window is at
@@ -166,8 +315,9 @@ The spike workspace lives outside the repo (`%LOCALAPPDATA%\Android\spike`).
 
 ## Android app status (2026-10-14)
 
-`apps/zcode-gpui-android` runs the real `zcode-gpui` window on the Pixel 7a. It is not
-connected to anything yet, so the workspace shows "no backend".
+`apps/zcode-gpui-android` runs the real `zcode-gpui` window on the Pixel 7a as a remote
+client of a paired desktop (see "LAN slice"). Before pairing it shows no workspaces and a
+banner explaining how to pair.
 
 - **Startup.** `android_main` sets `HOME` and `TMPDIR` to the app's private directories and calls
   `zcode_gpui::load_startup` and `open_window`, the same calls the desktop binary makes.

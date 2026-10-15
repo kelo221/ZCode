@@ -211,7 +211,8 @@ impl RootView {
         if self.state.read(cx).viewing_child.as_deref() == Some(child) {
             // 隐藏 composer 不会自动撤销焦点；离开父输入后才能保证 child 真正只读。
             window.focus(&self.settings.focus, cx);
-            self.dock_open = false;
+            // 原先这里会关闭侧栏，且返回父会话时没有恢复，用户每次都要重新打开。
+            // Desktop 打开子代理不改变侧栏开合（useAppPanels.handleOpenSubagentSession），故保持原状。
         }
         cx.notify();
     }

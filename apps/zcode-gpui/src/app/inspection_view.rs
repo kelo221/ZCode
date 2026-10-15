@@ -108,12 +108,22 @@ impl RootView {
         // 页面停在 Resume。修复：Settings 尚未打开时进入 Subagents 也算进入。
         let entering_subagents =
             enters_subagents(self.settings.section, section, self.settings.open);
+        let entering_plugins = section == SettingsSection::Plugins
+            && (self.settings.section != section || !self.settings.open);
+        let entering_browser = section == SettingsSection::Browser
+            && (self.settings.section != section || !self.settings.open);
         self.settings.section = section;
+        if entering_browser {
+            self.state
+                .update(cx, |s, cx| s.refresh_browser_registration(cx));
+        }
         if entering_subagents && self.state.read(cx).profiles.consented {
             self.state.update(cx, |s, cx| s.activate_profiles(cx));
         }
-        if section == SettingsSection::Plugins {
-            self.plugin_segment = crate::app::plugin_pane::PluginSegment::ManageInstalled;
+        // 插件商店并入 Settings 后（CONTEXT.md「商店页结构」），进入时落在公开分段；
+        // 已在该页时保留用户所选分段。
+        if entering_plugins {
+            self.plugin_segment = crate::app::plugin_pane::PluginSegment::Public;
         }
         cx.notify();
     }

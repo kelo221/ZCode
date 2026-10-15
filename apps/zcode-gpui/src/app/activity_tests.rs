@@ -221,7 +221,12 @@ fn composer_activity_pointer_child_and_back_preserve_parent_input() {
     app.update_entity(&state, |s, cx| {
         s.active_workspace = Some(s.workspaces[0].key.clone());
         s.active = Some("parent".into());
-        s.conversations.insert("parent".into(), parent("child"));
+        let mut conv = parent("child");
+        // A title far wider than the side panel: Stop / Open must still fit inside it.
+        conv.subagents.as_mut().unwrap().running[0].title =
+            "Port stb_vorbis to Rust bit-exact with every decoder path verified".into();
+        conv.subagents.as_mut().unwrap().running[0].started_at = Some(0);
+        s.conversations.insert("parent".into(), conv);
         s.composer.update(cx, |c, cx| {
             c.set_text("parent draft");
             c.add_attachment(attachment.clone(), cx);
@@ -260,8 +265,19 @@ fn composer_activity_pointer_child_and_back_preserve_parent_input() {
     });
     window.draw();
     let open = app.update(|cx| cx.global::<TestTargets>().0["agent-open-child"]);
+    let dock_right = 1280. - crate::app::layout::PANEL_GAP;
+    assert!(
+        f32::from(open.right()) <= dock_right,
+        "Open button overflows the side panel: {open:?}"
+    );
     window.simulate_click(open.center(), MouseButton::Left);
-    window.read(|v, cx| assert_eq!(v.state.read(cx).viewing_child.as_deref(), Some("child")));
+    window.read(|v, cx| {
+        assert_eq!(v.state.read(cx).viewing_child.as_deref(), Some("child"));
+        assert!(
+            v.dock_open,
+            "opening a subagent must not close the side panel"
+        );
+    });
     window.simulate_input("must not reach parent");
     window.simulate_keystroke("enter");
     window.read(|v, cx| {
@@ -277,5 +293,11 @@ fn composer_activity_pointer_child_and_back_preserve_parent_input() {
         v.close_child_conversation(window, cx);
         assert!(v.state.read(cx).composer.read(cx).focus.is_focused(window));
     });
-    window.read(|v, cx| assert!(v.state.read(cx).viewing_child.is_none()));
+    window.read(|v, cx| {
+        assert!(v.state.read(cx).viewing_child.is_none());
+        assert!(
+            v.dock_open,
+            "returning to the parent keeps the side panel open"
+        );
+    });
 }

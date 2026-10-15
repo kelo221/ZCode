@@ -202,11 +202,13 @@ impl AppState {
         kind: &str,
         payload: &Value,
     ) -> Result<(), String> {
+        let mut was_empty = false;
         let first_sid = match kind {
             "snapshot" => {
                 let Some(ws) = self.ws_mut(ws_key) else {
                     return Err("sessions-index for unknown workspace".into());
                 };
+                was_empty = ws.sessions.is_empty();
                 // `sessions` is validated to be an array; individual invalid
                 // entries are skipped (forward compatibility).
                 let mut list: Vec<SessionEntry> = payload
@@ -264,6 +266,7 @@ impl AppState {
             self.active = Some(sid.clone());
             self.subscribe_conversation(ws_key, &sid);
         }
+        self.preload_recent_conversations(ws_key, was_empty);
         Ok(())
     }
 }

@@ -39,7 +39,11 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let window_width = f32::from(window.viewport_size().width);
-        let docked = self.dock_open && side_pane_fits(window_width, true);
+        // The dock and terminal work on this machine's files; the phone build
+        // only mirrors the desktop's sessions (REMOTE_CONTROL.md, phone scope).
+        let tools = self.desktop_tools(cx);
+        let dock_open = self.dock_open && tools;
+        let docked = dock_open && side_pane_fits(window_width, true);
         let side = if docked {
             SIDE_PANE_WIDTH + PANEL_GAP
         } else {
@@ -145,12 +149,14 @@ impl RootView {
                     )
                     .child(body)
                     // Narrow windows keep the side pane as an overlay.
-                    .when(self.dock_open && !docked, |el| {
-                        el.child(self.dock_pane(false, window, cx))
+                    .when(dock_open && !docked, |el| {
+                        el.child(self.dock_pane(false, cx))
                     }),
             )
             .children(bottom)
-            .when(self.term_open, |el| el.child(self.term_drawer(window, cx)));
+            .when(self.term_open && tools, |el| {
+                el.child(self.term_drawer(window, cx))
+            });
         div()
             .flex_1()
             .min_w_0()
@@ -161,7 +167,7 @@ impl RootView {
             .pr(px(PANEL_GAP))
             .when(compact, |el| el.pl(px(PANEL_GAP)))
             .child(centre)
-            .when(docked, |el| el.child(self.dock_pane(true, window, cx)))
+            .when(docked, |el| el.child(self.dock_pane(true, cx)))
             .into_any_element()
     }
 }

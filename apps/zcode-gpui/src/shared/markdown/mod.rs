@@ -50,6 +50,9 @@ fn render_markdown_with_policy(
     let children = blocks(&events, &mut pos, id_base, &mut block_ix, 0, &mut ids);
 
     div()
+        // Block ids restart at 1 per document; this keeps them (and the
+        // selection state keyed on them) apart between documents.
+        .id(gpui::ElementId::NamedInteger("md".into(), id_base))
         .w_full()
         .flex()
         .flex_col()

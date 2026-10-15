@@ -6,8 +6,7 @@ use crate::composer::input::Composer;
 use crate::conversation::msg_actions::ComposerIntent;
 use crate::shared::theme::ui_size;
 use crate::shared::theme::{
-    ACCENT, AMBER, BORDER, BORDER_HOVER, CARD, CARD_HOVER, DANGER, I_ARROW_UP, I_STOP, INPUT,
-    MUTED, PANEL, TEXT,
+    ACCENT, AMBER, BORDER, BORDER_HOVER, CARD, DANGER, I_ARROW_UP, INPUT, MUTED, PANEL, TEXT,
 };
 use crate::shared::theme_colors::color as rgb;
 use gpui::{
@@ -215,11 +214,18 @@ impl RootView {
             this.state
                 .update(cx, |s, cx| s.submit_composer_with_trigger(trigger, cx));
         }));
-        let stop = round_button("stop-btn", I_STOP, CARD_HOVER, rgb(TEXT))
-            .hover(|s| s.bg(rgb(BORDER)))
-            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+        let stop = crate::app::stop_button::working_stop_button().on_click(cx.listener(
+            |this, _: &ClickEvent, _window, cx| {
                 this.state.update(cx, |s, cx| s.stop(cx));
-            }));
+            },
+        ));
+        // Electron parity: while the agent works an empty draft offers only
+        // Stop; with a draft, Send (which queues or steers) sits beside it.
+        let has_draft = {
+            let c = composer.read(cx);
+            !c.text().trim().is_empty() || !c.attachments().is_empty()
+        };
+        let show_send = !running || has_draft;
 
         let query = crate::composer::references::reference_query(composer.read(cx).text())
             .map(|(kind, _, _)| kind);
@@ -302,15 +308,27 @@ impl RootView {
                             .children(self.composer_activity(cx))
                             .child(div().flex_1())
                             .child(self.composer_selectors(cx))
-                            .when(running, |el| el.child(stop))
-                            .child({
-                                let wrapper = div().child(send);
-                                #[cfg(test)]
-                                let wrapper = crate::app::test_support::track_children(
-                                    wrapper,
-                                    vec!["send-btn".into()],
-                                );
-                                wrapper
+                            .when(running, |el| {
+                                el.child({
+                                    let wrapper = div().child(stop);
+                                    #[cfg(test)]
+                                    let wrapper = crate::app::test_support::track_children(
+                                        wrapper,
+                                        vec!["stop-btn".into()],
+                                    );
+                                    wrapper
+                                })
+                            })
+                            .when(show_send, |el| {
+                                el.child({
+                                    let wrapper = div().child(send);
+                                    #[cfg(test)]
+                                    let wrapper = crate::app::test_support::track_children(
+                                        wrapper,
+                                        vec!["send-btn".into()],
+                                    );
+                                    wrapper
+                                })
                             }),
                     ),
             )

@@ -143,6 +143,12 @@ pub struct WorkspaceHandle {
         HashMap<String, crate::backend::workflow_settings::WorkflowSettingsDraft>,
     pub(crate) workflow_management:
         Option<crate::backend::workflow_management::WorkflowManagementDraft>,
+    /// Phone build: the paired desktop serves this workspace instead of a
+    /// local CLI (REMOTE_CONTROL.md, LAN slice).
+    pub(crate) remote: Option<crate::remote::client::RemoteTarget>,
+    /// `settings` from the model-catalog probe; the desktop answers a
+    /// phone's probe with it.
+    pub(crate) model_settings: Option<Value>,
 }
 
 impl WorkspaceHandle {
@@ -191,7 +197,42 @@ impl WorkspaceHandle {
             workflow_histories: HashMap::new(),
             workflow_artifacts: HashMap::new(),
             workflow_management: None,
+            remote: None,
+            model_settings: None,
         }
+    }
+
+    /// A workspace served by the paired desktop. `key` is the desktop's key
+    /// and is used as-is; it is not a path on this device.
+    pub(crate) fn remote(
+        key: String,
+        display: String,
+        purpose: WorkspacePurpose,
+        target: crate::remote::client::RemoteTarget,
+    ) -> Self {
+        let mut handle = Self::new(PathBuf::from(&key), Vec::new());
+        handle.key = key;
+        handle.display = display;
+        handle.purpose = purpose;
+        handle.remote = Some(target);
+        handle
+    }
+
+    fn adopt(
+        &mut self,
+        conn: crate::backend::conn::Connection,
+        description: String,
+    ) -> futures::channel::mpsc::UnboundedReceiver<ConnEvent> {
+        self.invalidate_connection();
+        self.connection_id = uuid::Uuid::now_v7().to_string();
+        self.status = format!("starting ({description})");
+        self.conn_desc = description;
+        self.process_id = Some(conn.pid);
+        self.inbound = Some(conn.inbound);
+        self.kill = Some(conn.kill);
+        self.backlog = Some(conn.backlog);
+        self.log_backlog = Some(conn.log_backlog);
+        conn.events
     }
 
     /// Cleanly terminate the backend process / job object.
@@ -209,23 +250,18 @@ impl WorkspaceHandle {
     /// receiver for the store's pump task when a process came up; the
     /// connection's backlog counter is stored on the handle.
     pub fn try_spawn(&mut self) -> Option<futures::channel::mpsc::UnboundedReceiver<ConnEvent>> {
+        if let Some(target) = self.remote.clone() {
+            let conn = crate::remote::client::connect(&target, &self.key);
+            return Some(self.adopt(conn, format!("desktop {}", target.host)));
+        }
         let launch = self.candidates.get(self.candidate_idx)?;
         let used = self.candidate_idx;
         self.candidate_idx += 1;
         match spawn_connection(launch, &self.path) {
             Ok(conn) => {
                 let description = launch.describe.clone();
-                self.invalidate_connection();
-                self.connection_id = uuid::Uuid::now_v7().to_string();
-                self.status = format!("starting ({description})");
-                self.conn_desc = description;
                 self.working_candidate = used;
-                self.process_id = Some(conn.pid);
-                self.inbound = Some(conn.inbound);
-                self.kill = Some(conn.kill);
-                self.backlog = Some(conn.backlog);
-                self.log_backlog = Some(conn.log_backlog);
-                Some(conn.events)
+                Some(self.adopt(conn, description))
             }
             Err(e) => {
                 self.status = "spawn failed".into();

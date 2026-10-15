@@ -1,15 +1,29 @@
 # zcode-gpui for Android (unofficial)
 
-The `zcode-gpui` window, built as an Android app. It is planned as a LAN-only
-remote screen for a desktop `zcode-gpui` instance; see
-[`../zcode-gpui/REMOTE_CONTROL.md`](../zcode-gpui/REMOTE_CONTROL.md). It is not
-connected to a desktop yet, and it is not an official ZCode product.
+The `zcode-gpui` window, built as an Android app: a LAN-only remote screen for a
+desktop `zcode-gpui` instance. It runs no agent itself; every workspace is served
+by the paired desktop. See
+[`../zcode-gpui/REMOTE_CONTROL.md`](../zcode-gpui/REMOTE_CONTROL.md) ("LAN slice").
+It is not an official ZCode product.
+
+## Pairing
+
+1. On the desktop `zcode-gpui`, open Settings › Phone and turn on "Allow phone
+   remote control". Allow it through the firewall on private networks if asked.
+2. Click "New pairing link" and scan the QR code with the phone's camera within
+   5 minutes. The link opens this app and pairs it.
+3. Without a camera: "Copy link", then either open it with
+   `adb shell am start -a android.intent.action.VIEW -d '<link>'` or put it on the
+   phone's clipboard and use Settings › Phone › "Pair from clipboard" in the app.
+
+The pairing survives restarts of either side. Revoke it on the desktop, or use
+"Forget desktop" on the phone.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `src/lib.rs` | `android_main`: sets `HOME`/`TMPDIR`, then opens the shared `zcode_gpui::open_window` |
+| `src/lib.rs` | `android_main`: sets `HOME`/`TMPDIR`, then opens the shared `zcode_gpui::open_window` as a remote client; the JNI entry for pairing links |
 | `gpui_android/` | GPUI platform layer for Android (GameActivity, wgpu/Vulkan, touch, IME), vendored from Zdroid, Apache-2.0 |
 | `patches/gpui_platform/` | `gpui_platform` with an Android branch, so `ely-gpui-component` builds |
 | `android/` | Gradle project and Kotlin shell (`dev.zcode.gpui.mobile`): Application, GameActivity, IME host view, JNI bridge |

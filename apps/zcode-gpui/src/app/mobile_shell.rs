@@ -40,6 +40,9 @@ impl RootView {
 
     /// Android's back key: closes the topmost layer. Returns whether anything closed.
     pub(crate) fn handle_back(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if self.close_image_viewer(cx) {
+            return true;
+        }
         if self.quickpick_open {
             self.close_command_center(window, cx);
         } else if self.settings.open {

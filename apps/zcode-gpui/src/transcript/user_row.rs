@@ -147,7 +147,10 @@ impl crate::app::root::RootView {
                         .py_3()
                         .text_size(px(ui_size(14.)))
                         .text_color(rgb(TEXT))
-                        .child(shown.clone()),
+                        .child(crate::shared::selectable::SelectableText::new(
+                            gpui::ElementId::NamedInteger("user-text".into(), v.row_id),
+                            shown.clone(),
+                        )),
                 )
                 .children(attachment_chips(v.attachments))
                 .child(

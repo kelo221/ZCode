@@ -64,6 +64,10 @@ impl AppState {
             ws.subscriptions.clear();
             ws.desired_conversation = None;
         }
+        // Every caller is tearing the CLI down, so phone scopes on it are void,
+        // and nobody waits for its browser commands any more.
+        self.close_phone_sockets_for(ws_key);
+        self.browser.drop_workspace(ws_key);
         for topic in &topics {
             self.route_cursors.remove(topic);
         }

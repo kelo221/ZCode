@@ -11,4 +11,6 @@ object NativeBridge {
     @JvmStatic external fun nativeImePerformEditorAction(windowId: Long, actionId: Int)
     @JvmStatic external fun nativeImeRouteAsKeys(): Boolean
     @JvmStatic external fun nativeSetSoftKeyboardVisible(visible: Boolean)
+    // Defined in apps/zcode-gpui-android/src/lib.rs, not gpui_android.
+    @JvmStatic external fun nativeSubmitPairLink(link: String)
 }

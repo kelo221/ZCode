@@ -51,11 +51,11 @@ impl AppState {
             if !spawned {
                 continue;
             }
-            if Some(&key) == active_ws.as_ref() {
+            if Some(&key) == active_ws.as_ref() || self.phone.has_open(&key) {
                 continue;
             }
-            if !ws.pending.is_empty() {
-                continue; // startup/handshake in flight
+            if !ws.pending.is_empty() || self.browser.has_pending(&key) {
+                continue; // startup/handshake or a browser command in flight
             }
             // The sessions-index phase covers sessions this client never
             // opened (e.g. automations); a waiting interaction also pins the

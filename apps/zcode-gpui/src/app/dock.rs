@@ -1,6 +1,7 @@
-//! Right dock container: tab strip (Review / Files) + the active
+//! Right dock container: tab strip (Review / Files / Workflows) + the active
 //! pane, toggled from the header pill or CmdOrCtrl+Alt+B (PARITY.md M3 "pane
-//! container: dockable right pane + shortcuts").
+//! container: dockable right pane + shortcuts"). Plugins, MCP servers and
+//! usage stats are Settings-only, as on Desktop (`settingsPageConfig.ts`).
 
 use crate::app::layout::HEADER_HEIGHT;
 use crate::app::layout::{PANEL_RADIUS, SIDE_PANE_WIDTH};
@@ -23,23 +24,13 @@ pub enum DockTab {
     Review,
     Files,
     Workflows,
-    Usage,
-    Mcp,
-    Plugins,
 }
 
 /// Desktop `w-80`: the floating status panel is 340px wide.
 pub const DOCK_WIDTH: f32 = 340.;
 /// Desktop `max-h-[min(64dvh,32rem)]`: the panel never exceeds 540px.
 pub const DOCK_MAX_HEIGHT: f32 = 540.;
-const TABS: [DockTab; 6] = [
-    DockTab::Review,
-    DockTab::Files,
-    DockTab::Workflows,
-    DockTab::Usage,
-    DockTab::Mcp,
-    DockTab::Plugins,
-];
+const TABS: [DockTab; 3] = [DockTab::Review, DockTab::Files, DockTab::Workflows];
 
 impl DockTab {
     pub fn label(self) -> &'static str {
@@ -47,9 +38,6 @@ impl DockTab {
             DockTab::Review => "Review",
             DockTab::Files => "Files",
             DockTab::Workflows => "Workflows",
-            DockTab::Usage => "Usage",
-            DockTab::Mcp => "MCP",
-            DockTab::Plugins => "Plugins",
         }
     }
 }
@@ -58,12 +46,7 @@ impl RootView {
     /// The whole dock column, shown when `dock_open`. Docked it is a full-height
     /// side panel beside the centre panel; on narrow windows it floats over the
     /// transcript instead.
-    pub(crate) fn dock_pane(
-        &mut self,
-        docked: bool,
-        window: &mut gpui::Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    pub(crate) fn dock_pane(&mut self, docked: bool, cx: &mut Context<Self>) -> AnyElement {
         self.sync_dock_workspace(cx);
         let active = self.dock_tab;
         div()
@@ -89,7 +72,7 @@ impl RootView {
             .border_color(rgb(BORDER))
             .min_h_0()
             // Tab strip: header height and divider match the workspace header;
-            // tabs scroll horizontally when the overlay is too narrow for all six.
+            // tabs scroll horizontally when the overlay is too narrow for all of them.
             .child(
                 div()
                     .h(px(HEADER_HEIGHT))
@@ -158,35 +141,17 @@ impl RootView {
                         DockTab::Review => self.review_pane(cx),
                         DockTab::Files => self.files_pane(cx),
                         DockTab::Workflows => self.workflows_pane(cx),
-                        DockTab::Usage => self.usage_pane(cx),
-                        DockTab::Mcp => self.mcp_pane(cx),
-                        DockTab::Plugins => self.plugins_pane(window, cx),
                     }),
             )
             .into_any_element()
     }
 
-    /// First-open hooks: fetch git status / load the file tree / queries.
+    /// First-open hooks: fetch git status / load the file tree.
     pub(crate) fn on_dock_tab(&mut self, tab: DockTab, cx: &mut Context<Self>) {
         match tab {
             DockTab::Review => self.sync_git_workspace(cx),
             DockTab::Files => self.ensure_files_loaded(cx),
             DockTab::Workflows => {}
-            DockTab::Usage => {
-                self.state.update(cx, |state, cx| {
-                    state.fetch_usage_stats("7d", cx);
-                });
-            }
-            DockTab::Mcp => {
-                self.state.update(cx, |state, cx| {
-                    state.fetch_mcp_servers(cx);
-                });
-            }
-            DockTab::Plugins => {
-                self.state.update(cx, |state, cx| {
-                    state.fetch_plugins_overview(cx);
-                });
-            }
         }
         cx.notify();
     }
@@ -197,7 +162,7 @@ impl RootView {
         match self.dock_tab {
             DockTab::Review => self.sync_git_workspace(cx),
             DockTab::Files => self.ensure_files_loaded(cx),
-            DockTab::Workflows | DockTab::Usage | DockTab::Mcp | DockTab::Plugins => {}
+            DockTab::Workflows => {}
         }
     }
 }

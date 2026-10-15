@@ -2,6 +2,7 @@
 //! (follow-bottom, history anchoring, middle-click autoscroll).
 
 pub(crate) mod chat;
+pub(crate) mod image_viewer;
 pub(crate) mod list;
 pub(crate) mod message_actions;
 pub(crate) mod reasoning;

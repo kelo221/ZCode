@@ -6,8 +6,8 @@
 //! Spec: PARITY.md M2 "Streaming Markdown renderer".
 
 use gpui::{
-    AnyElement, Font, FontFeatures, FontStyle, FontWeight, Hsla, InteractiveText, IntoElement,
-    StrikethroughStyle, StyledText, TextRun, UnderlineStyle, px,
+    AnyElement, Font, FontFeatures, FontStyle, FontWeight, Hsla, IntoElement, StrikethroughStyle,
+    TextRun, UnderlineStyle, px,
 };
 use pulldown_cmark::{Event, Tag, TagEnd};
 use std::ops::Range;
@@ -253,23 +253,15 @@ fn is_block_end(end: &TagEnd) -> bool {
     )
 }
 
-/// Render the flattened inline content; links become clickable ranges.
+/// Render the flattened inline content as selectable text; links become
+/// clickable ranges.
 pub(crate) fn inline_element(inline: Inline, id: gpui::ElementId) -> AnyElement {
     if inline.text.is_empty() {
         return gpui::div().into_any_element();
     }
-    let styled = StyledText::new(inline.text).with_runs(inline.runs);
-    if inline.links.is_empty() {
-        return styled.into_any_element();
-    }
-    let urls: Vec<String> = inline.links.iter().map(|(_, u)| u.clone()).collect();
-    let ranges: Vec<Range<usize>> = inline.links.into_iter().map(|(r, _)| r).collect();
-    InteractiveText::new(id, styled)
-        .on_click(ranges, move |ix, _window, cx| {
-            if let Some(url) = urls.get(ix) {
-                cx.open_url(url);
-            }
-        })
+    crate::shared::selectable::SelectableText::new(id, inline.text)
+        .runs(inline.runs)
+        .links(inline.links)
         .into_any_element()
 }
 

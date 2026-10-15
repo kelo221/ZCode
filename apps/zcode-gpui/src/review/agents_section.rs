@@ -194,16 +194,20 @@ impl RootView {
 
                 let summary_node = truncate_summary(agent.summary.as_deref(), 160).map(|txt| {
                     div()
-                        .mt_1()
                         .text_size(px(ui_size(11.)))
                         .text_color(rgb(MUTED))
                         .child(txt)
                 });
 
+                // Desktop `SubagentStatusSection`: the title gets its own
+                // line-clamped block and the meta/controls row sits below it,
+                // so a long title can never push Stop / Open out of the card.
                 let item = div()
                     .w_full()
+                    .min_w_0()
                     .flex()
                     .flex_col()
+                    .gap_1()
                     .bg(rgb(CARD))
                     .border_1()
                     .border_color(rgb(BORDER))
@@ -211,49 +215,53 @@ impl RootView {
                     .p_1p5()
                     .child(
                         div()
+                            .min_w_0()
                             .flex()
-                            .items_center()
-                            .justify_between()
-                            .gap_2()
+                            .items_start()
+                            .gap_1p5()
                             .child(
                                 div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_1p5()
-                                    .child(
-                                        div()
-                                            .w(px(6.5))
-                                            .h(px(6.5))
-                                            .rounded_full()
-                                            .bg(rgb(dot_color)),
-                                    )
-                                    .child(
-                                        div()
-                                            .font_family(crate::shared::theme::MONO_FONT)
-                                            .text_size(px(ui_size(11.5)))
-                                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                                            .text_color(rgb(TEXT))
-                                            .child(title.to_string()),
-                                    )
-                                    .when_some(elapsed, |el, dur| {
-                                        el.child(
-                                            div()
-                                                .text_size(px(ui_size(10.5)))
-                                                .text_color(rgb(MUTED))
-                                                .child(format!("({dur})")),
-                                        )
-                                    }),
+                                    .flex_none()
+                                    .mt(px(5.))
+                                    .w(px(6.5))
+                                    .h(px(6.5))
+                                    .rounded_full()
+                                    .bg(rgb(dot_color)),
                             )
                             .child(
                                 div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_1()
-                                    .children(stop_button)
-                                    .children(open_button),
+                                    .flex_1()
+                                    .min_w_0()
+                                    .line_clamp(2)
+                                    .text_ellipsis()
+                                    .font_family(crate::shared::theme::MONO_FONT)
+                                    .text_size(px(ui_size(11.5)))
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(rgb(TEXT))
+                                    .child(title.to_string()),
                             ),
                     )
-                    .children(summary_node);
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex()
+                            .flex_wrap()
+                            .items_center()
+                            .gap_1()
+                            .pl(px(12.5))
+                            .when_some(elapsed, |el, dur| {
+                                el.child(
+                                    div()
+                                        .text_size(px(ui_size(10.5)))
+                                        .text_color(rgb(MUTED))
+                                        .child(dur),
+                                )
+                            })
+                            .child(div().flex_1())
+                            .children(stop_button)
+                            .children(open_button),
+                    )
+                    .children(summary_node.map(|node| node.pl(px(12.5))));
 
                 list = list.child(item);
             }

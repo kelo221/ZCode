@@ -39,7 +39,9 @@ impl SettingsSection {
             Self::Subagents => ("Subagents", "子智能体"),
             Self::Plugins => ("Plugins", "插件"),
             Self::Mcp => ("MCP Servers", "MCP 服务器"),
+            Self::Browser => ("Browser Use", "浏览器使用"),
             Self::Usage => ("Usage stats", "使用统计"),
+            Self::Phone => ("Phone", "手机"),
         }
     }
 
@@ -55,7 +57,9 @@ impl SettingsSection {
             Self::Subagents => IconName::Bot.path(),
             Self::Plugins => BLOCKS_ICON,
             Self::Mcp => CABLE_ICON,
+            Self::Browser => IconName::Globe.path(),
             Self::Usage => IconName::ChartColumn.path(),
+            Self::Phone => IconName::Smartphone.path(),
         }
     }
 
@@ -69,7 +73,9 @@ impl SettingsSection {
             Self::Subagents => "settings-subagents",
             Self::Plugins => "settings-plugins",
             Self::Mcp => "settings-mcp",
+            Self::Browser => "settings-browser",
             Self::Usage => "settings-usage",
+            Self::Phone => "settings-phone",
         }
     }
 }
@@ -93,7 +99,9 @@ pub(crate) fn navigation_sections(query: &str) -> Vec<(SettingsGroup, SettingsSe
         (AgentCapabilities, Subagents),
         (AgentCapabilities, Plugins),
         (AgentCapabilities, Mcp),
+        (AgentCapabilities, Browser),
         (DataAndStats, Usage),
+        (DataAndStats, Phone),
     ]
     .into_iter()
     .filter(|(_, section)| {
@@ -252,7 +260,11 @@ impl RootView {
         let search =
             (!compact).then(|| self.settings_search(SettingsSearch::Navigation, window, cx));
         let mut groups = div().flex().flex_col().gap_4();
-        let sections = navigation_sections(&self.settings.query);
+        let mut sections = navigation_sections(&self.settings.query);
+        // The phone drives the desktop's browser; it has no bridge of its own.
+        if self.state.read(cx).phone_client.enabled {
+            sections.retain(|(_, s)| *s != SettingsSection::Browser);
+        }
         for (index, group) in [
             SettingsGroup::Basics,
             SettingsGroup::AgentCapabilities,

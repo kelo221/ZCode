@@ -1,6 +1,7 @@
 use crate::app::{
-    dock::DockTab,
+    plugin_pane::PluginSegment,
     root::RootView,
+    settings::SettingsSection,
     store::AppState,
     test_support::{RUNTIME_TEST_LOCK, TestTargets},
 };
@@ -34,11 +35,13 @@ fn plugin_details_refresh_and_back_are_pointer_reachable() {
     });
     let mut window = app.open_window(|_, cx| RootView::new(state.clone(), cx));
     window.simulate_resize(size(px(1280.), px(1000.)));
-    window.update(|v, _, cx| {
-        v.dock_open = true;
-        v.dock_tab = DockTab::Plugins;
+    window.update(|v, window, cx| {
+        v.open_settings(window, cx);
+        v.select_settings_section(SettingsSection::Plugins, cx);
+        v.plugin_segment = PluginSegment::Public;
         cx.notify();
     });
+    window.draw();
     window.draw();
     while rx.try_recv().is_ok() {}
     let details = app.update(|cx| cx.global::<TestTargets>().0["plugin-details-p"]);

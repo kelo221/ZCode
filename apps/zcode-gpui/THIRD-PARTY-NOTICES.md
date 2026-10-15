@@ -64,6 +64,15 @@ the Cargo registry (e.g. Zed Industries, Inc. for gpui; trishume for syntect;
 Raphael Cohn and contributors for pulldown-cmark; Wez Furlong for
 portable-pty; the Alacritty Project contributors for alacritty_terminal).
 
+## Browser extension (`apps/zcode-browser-extension`)
+
+The unpacked extension shipped as `browser-extension/` bundles the injected
+script of `playwright-core` 1.59.1 (Apache-2.0, Copyright Microsoft
+Corporation). Its NOTICE and LICENSE texts are written into
+`browser-extension/NOTICE.md` by the extension build. The extension and
+`zcode-browser-host` follow the general design of OpenAI's Codex browser
+extension and native host; that code is proprietary and none of it is copied.
+
 ## Transitive dependencies
 
 Transitive crate dependencies (e.g. vte, unicode-width, parking_lot, regex)

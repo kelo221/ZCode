@@ -4,10 +4,11 @@
 //! when the input is not (yet) valid JSON, e.g. while it is still streaming.
 
 use crate::shared::markdown::render_markdown;
+use crate::shared::selectable::SelectableText;
 use crate::shared::theme::{MONO_FONT, MUTED, SUCCESS, TAG, TEXT, ui_size};
 use crate::shared::theme_colors::color as rgb;
 use crate::transcript::tagged_text::parse_task_output;
-use gpui::{AnyElement, Div, FontWeight, div, prelude::*, px};
+use gpui::{AnyElement, Div, FontWeight, SharedString, div, prelude::*, px};
 use serde_json::Value;
 
 /// MCP-namespaced names (`mcp__server__Tool`) dispatch on their last segment.
@@ -26,15 +27,29 @@ fn muted(text: impl Into<String>) -> Div {
         .child(text.into())
 }
 
-fn body(text: impl Into<String>) -> Div {
-    div()
+/// Selectable text; `slot` must be unique within the tool body.
+pub(crate) fn selectable(
+    slot: impl Into<SharedString>,
+    text: impl Into<SharedString>,
+) -> SelectableText {
+    SelectableText::new(slot.into(), text)
+}
+
+fn body(slot: impl Into<SharedString>, text: impl Into<String>) -> Div {
+    let slot = slot.into();
+    #[cfg(test)]
+    let target = format!("selectable-{slot}");
+    let el = div()
         .w_full()
         .text_size(px(ui_size(13.)))
         .text_color(rgb(TEXT))
-        .child(text.into())
+        .child(selectable(slot, text.into()));
+    #[cfg(test)]
+    let el = crate::app::test_support::track_children(el, vec![target]);
+    el
 }
 
-pub(crate) fn mono(text: &str) -> AnyElement {
+pub(crate) fn mono(slot: impl Into<SharedString>, text: &str) -> AnyElement {
     div()
         .w_full()
         .min_w_0()
@@ -42,7 +57,7 @@ pub(crate) fn mono(text: &str) -> AnyElement {
         .text_size(px(ui_size(11.5)))
         .text_color(rgb(TEXT))
         // gpui does not draw tabs; expand them so `cat -n` columns stay apart.
-        .child(text.replace('\t', "    "))
+        .child(selectable(slot, text.replace('\t', "    ")))
         .into_any_element()
 }
 
@@ -64,7 +79,7 @@ fn str_of<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
 fn ask_user_question(v: &Value) -> Option<AnyElement> {
     let questions = v.get("questions")?.as_array()?;
     let mut col = column().gap_2();
-    for q in questions {
+    for (i, q) in questions.iter().enumerate() {
         let options: Vec<&str> = q
             .get("options")
             .and_then(Value::as_array)
@@ -82,7 +97,10 @@ fn ask_user_question(v: &Value) -> Option<AnyElement> {
                             el.child(muted("multi-select"))
                         }),
                 )
-                .child(body(str_of(q, "question").unwrap_or_default()))
+                .child(body(
+                    format!("question-{i}"),
+                    str_of(q, "question").unwrap_or_default(),
+                ))
                 .when(!options.is_empty(), |el| {
                     el.child(muted(format!("Options: {}", options.join(" · "))))
                 }),
@@ -94,7 +112,7 @@ fn ask_user_question(v: &Value) -> Option<AnyElement> {
 fn todo_list(v: &Value) -> Option<AnyElement> {
     let todos = v.get("todos")?.as_array()?;
     let mut col = column();
-    for t in todos {
+    for (i, t) in todos.iter().enumerate() {
         let status = str_of(t, "status").unwrap_or("pending");
         let (mark, color) = match status {
             "completed" => ("☑", SUCCESS),
@@ -115,7 +133,10 @@ fn todo_list(v: &Value) -> Option<AnyElement> {
                         .min_w_0()
                         .text_color(rgb(if status == "completed" { MUTED } else { TEXT }))
                         .when(status == "completed", |el| el.line_through())
-                        .child(str_of(t, "content").unwrap_or_default().to_string()),
+                        .child(selectable(
+                            format!("todo-{i}"),
+                            str_of(t, "content").unwrap_or_default().to_string(),
+                        )),
                 ),
         );
     }
@@ -133,10 +154,9 @@ fn agent_task(v: &Value, id_base: u64) -> Option<AnyElement> {
                     .gap_2()
                     .items_center()
                     .children(str_of(v, "subagent_type").map(badge))
-                    .children(
-                        str_of(v, "description")
-                            .map(|d| body(d.to_string()).font_weight(FontWeight::MEDIUM)),
-                    ),
+                    .children(str_of(v, "description").map(|d| {
+                        body("description", d.to_string()).font_weight(FontWeight::MEDIUM)
+                    })),
             )
             .child(render_markdown(prompt, id_base, false))
             .into_any_element(),
@@ -148,11 +168,12 @@ fn key_values(v: &Value) -> Option<AnyElement> {
     let obj = v.as_object()?;
     let mut col = column().gap_2();
     for (k, val) in obj {
+        let slot = format!("field-{k}");
         let value: AnyElement = match val {
-            Value::String(s) => body(s.clone()).into_any_element(),
+            Value::String(s) => body(slot, s.clone()).into_any_element(),
             Value::Null => continue,
-            Value::Bool(_) | Value::Number(_) => body(val.to_string()).into_any_element(),
-            _ => mono(&serde_json::to_string_pretty(val).unwrap_or_default()),
+            Value::Bool(_) | Value::Number(_) => body(slot, val.to_string()).into_any_element(),
+            _ => mono(slot, &serde_json::to_string_pretty(val).unwrap_or_default()),
         };
         col = col.child(column().gap_0p5().child(muted(k.clone())).child(value));
     }
@@ -167,7 +188,7 @@ pub(crate) fn generic_input_view(
     id_base: u64,
 ) -> AnyElement {
     let Some(v) = input else {
-        return mono(raw);
+        return mono("raw-input", raw);
     };
     let view = match canonical_tool(tool) {
         "AskUserQuestion" => ask_user_question(v),
@@ -176,7 +197,8 @@ pub(crate) fn generic_input_view(
         "Agent" | "Task" => agent_task(v, id_base),
         _ => None,
     };
-    view.or_else(|| key_values(v)).unwrap_or_else(|| mono(raw))
+    view.or_else(|| key_values(v))
+        .unwrap_or_else(|| mono("raw-input", raw))
 }
 
 /// TaskOutput body: status line plus output, from the row's `task_output`
@@ -205,7 +227,11 @@ pub(crate) fn task_output_view(display: Option<&Value>, output_text: &str) -> An
     column()
         .gap_2()
         .when(!state.is_empty(), |el| el.child(muted(state)))
-        .children(output.filter(|o| !o.trim().is_empty()).map(|o| mono(&o)))
+        .children(
+            output
+                .filter(|o| !o.trim().is_empty())
+                .map(|o| mono("task-output", &o)),
+        )
         .when(truncated, |el| el.child(muted("Output truncated")))
         .into_any_element()
 }

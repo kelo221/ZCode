@@ -35,6 +35,16 @@ fn oversized_blocks_skip_highlighting() {
 }
 
 #[test]
+fn block_text_joins_lines_and_runs_cover_every_byte() {
+    let lines = highlight("fn a() {}\n\nlet b = 1;\n", "rust");
+    let (text, runs) = code_text(&lines);
+    assert_eq!(text, "fn a() {}\n\nlet b = 1;");
+    assert_eq!(runs.iter().map(|r| r.len).sum::<usize>(), text.len());
+    let (blank, runs) = code_text(&highlight("", "rust"));
+    assert_eq!((blank.as_str(), runs.len()), (" ", 1));
+}
+
+#[test]
 fn empty_code_yields_one_blank_line() {
     let lines = highlight("", "rust");
     assert_eq!(lines.len(), 1);

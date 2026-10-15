@@ -212,9 +212,10 @@ impl RootView {
             && state
                 .active_conversation()
                 .is_some_and(|c| c.log_epoch.is_some() && c.subscribed);
-        let content = self
-            .transcript_row(&row, row_actions, cx)
-            .unwrap_or_else(|| div().into_any_element());
+        // 无内容的行（空思考块、已配对的子代理行等）不能套 py_2，否则留下空白间隙。
+        let Some(content) = self.transcript_row(&row, row_actions, cx) else {
+            return div().into_any_element();
+        };
         div()
             .w_full()
             .flex()

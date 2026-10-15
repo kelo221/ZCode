@@ -29,7 +29,7 @@ fn settings_shell_replaces_workspace_sidebar_and_back_restores_same_state() {
     });
     let mut window = app.open_window(|_, cx| RootView::new(state.clone(), cx));
     window.update(|view, _, _| {
-        view.ws_collapsed.insert("collapsed-project".into());
+        view.folders.collapsed.insert("collapsed-project".into());
         view.session_limit_step.insert("project".into(), 2);
         view.dock_open = true;
         view.term_open = true;
@@ -71,7 +71,7 @@ fn settings_shell_replaces_workspace_sidebar_and_back_restores_same_state() {
         });
         window.read(|view, cx| {
             assert!(!view.settings.open);
-            assert!(view.ws_collapsed.contains("collapsed-project"));
+            assert!(view.folders.collapsed.contains("collapsed-project"));
             assert_eq!(view.session_limit_step["project"], 2);
             assert!(view.dock_open);
             assert!(view.term_open);

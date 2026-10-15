@@ -262,7 +262,16 @@ impl ConversationState {
                 "row.appended" | "row.upserted" => {
                     if let Some(r) = d.get("row") {
                         let id = r.get("rowId").and_then(Value::as_u64).unwrap_or(0);
-                        self.rows.insert(id, Row::from_value(r));
+                        let row = Row::from_value(r);
+                        if let Row::Reasoning {
+                            duration_ms: Some(ms),
+                            ..
+                        } = row
+                        {
+                            self.throughput
+                                .on_reasoning(id, ms, std::time::Instant::now());
+                        }
+                        self.rows.insert(id, row);
                     }
                 }
                 "row.removed" => {

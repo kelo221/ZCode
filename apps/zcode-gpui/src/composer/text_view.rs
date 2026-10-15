@@ -184,7 +184,11 @@ impl Render for Composer {
                                 }
                             },
                         )
+                        // 缺少 top/left 时绝对定位元素落在静态位置，即占位文字的下一行；
+                        // 空输入的光标取 canvas 原点，因此会画在占位文字下方而非其起点。
                         .absolute()
+                        .top_0()
+                        .left_0()
                         .size_full(),
                     ),
             )

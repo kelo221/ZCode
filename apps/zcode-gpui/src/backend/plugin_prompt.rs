@@ -131,6 +131,7 @@ impl AppState {
             c.caret = c.text().len();
             cx.notify();
         });
+        self.plugin_prompt_applied += 1;
         cx.notify();
     }
 }

@@ -79,6 +79,7 @@ mod saved_workflow_controls_tests;
 pub(crate) mod saved_workflow_form;
 pub(crate) mod saved_workflows_pane;
 pub(crate) mod settings;
+mod settings_browser;
 #[cfg(test)]
 mod settings_language_tests;
 #[cfg(test)]
@@ -87,6 +88,7 @@ mod settings_models;
 mod settings_navigation;
 #[cfg(test)]
 mod settings_navigation_tests;
+mod settings_phone;
 mod settings_rows;
 #[cfg(test)]
 mod settings_shell_tests;
@@ -97,6 +99,7 @@ pub(crate) mod settings_shortcuts;
 mod settings_tests;
 #[cfg(test)]
 mod slash_catalog_controls_tests;
+mod stop_button;
 pub(crate) mod store;
 pub(crate) mod subagent_profiles;
 #[cfg(test)]

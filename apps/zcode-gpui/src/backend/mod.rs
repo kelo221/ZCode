@@ -45,6 +45,7 @@ mod plugin_prompt_tests;
 pub(crate) mod plugin_source_cmds;
 #[cfg(test)]
 mod plugin_source_tests;
+pub(crate) mod preload;
 pub(crate) mod query_cmds;
 pub(crate) mod reference_cmds;
 pub(crate) mod responses;

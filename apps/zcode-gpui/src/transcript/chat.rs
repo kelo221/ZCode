@@ -101,7 +101,8 @@ impl crate::app::root::RootView {
                 row_id,
                 text,
                 duration_ms,
-            } => Some(self.render_reasoning(*row_id, text, *duration_ms, cx)),
+            } => crate::transcript::reasoning::has_reasoning_text(text)
+                .then(|| self.render_reasoning(*row_id, text, *duration_ms, cx)),
             Row::ToolCall {
                 row_id,
                 label,

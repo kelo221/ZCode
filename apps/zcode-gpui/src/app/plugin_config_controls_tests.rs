@@ -1,7 +1,7 @@
 use crate::app::{
-    dock::DockTab,
     plugin_pane::PluginSegment,
     root::RootView,
+    settings::SettingsSection,
     store::AppState,
     test_support::{RUNTIME_TEST_LOCK, TestTargets},
 };
@@ -44,8 +44,8 @@ fn plugin_config_masked_input_save_reload_and_reset_are_pointer_reachable() {
     window.simulate_resize(size(px(1280.), px(1000.)));
     window.update(|v, window, cx| {
         window.bounds_changed(cx);
-        v.dock_open = true;
-        v.dock_tab = DockTab::Plugins;
+        v.open_settings(window, cx);
+        v.select_settings_section(SettingsSection::Plugins, cx);
         v.plugin_segment = PluginSegment::ManageInstalled;
         cx.notify();
     });

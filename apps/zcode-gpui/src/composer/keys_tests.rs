@@ -94,3 +94,21 @@ fn long_text_renders_without_panicking_and_keeps_caret_at_end() {
         );
     });
 }
+
+#[test]
+fn empty_composer_caret_sits_on_the_placeholder_line() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = TestApp::with_text_system_and_assets(
+        Arc::new(gpui::NoopTextSystem::new()),
+        Arc::new(ely_gpui_component::Assets),
+    );
+    let mut window = composer_window(&mut app);
+    let empty = window.read(|c, _| c.view.caret_bounds.get().expect("caret painted"));
+    window.simulate_input("a");
+    window.draw();
+    let typed = window.read(|c, _| c.view.caret_bounds.get().expect("caret painted"));
+    assert_eq!(
+        empty.origin.y, typed.origin.y,
+        "the empty caret overlays the placeholder instead of a line below it"
+    );
+}

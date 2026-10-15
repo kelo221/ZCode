@@ -148,6 +148,9 @@ impl AppState {
             cx.notify();
             return true;
         }
+        if ws.remote.is_some() {
+            return self.handle_remote_exit(ws_key, cx);
+        }
         if !ws.started {
             // Candidate failed before storage startup: next candidate,
             // otherwise give up on this workspace.
@@ -255,12 +258,20 @@ impl AppState {
             self.push_log(format!("dropped oversized line ({} bytes)", line.len()));
             return true;
         }
+        // Phone-owned responses and frames never reach the desktop's own
+        // correlation or frame assembler.
+        if self.route_cli_line_to_phone(ws_key, &line) {
+            return true;
+        }
         let Some(incoming) = crate::backend::wire::parse_line(&line) else {
             self.push_log(format!("unparsable stdout line: {line:.120}"));
             return true;
         };
         match incoming {
             crate::backend::wire::Incoming::AgentRequest { id, method, params } => {
+                if self.route_browser_rpc(ws_key, &id, &method, &params) {
+                    return true;
+                }
                 // 未提交或失败的偏好不能影响运行时；仅从唯一 owner 的已提交快照读取。
                 let memory_enabled = cx
                     .try_global::<crate::shared::preferences::PreferenceOwner>()
@@ -305,6 +316,7 @@ impl AppState {
                                 if let Some(sid) = desired {
                                     self.subscribe_conversation(ws_key, &sid);
                                 }
+                                self.phone_workspace_ready(ws_key);
                             }
                         }
                     }

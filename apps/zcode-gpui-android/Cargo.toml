@@ -34,6 +34,7 @@ zcode-gpui = { path = "../zcode-gpui" }
 gpui_android = { path = "gpui_android" }
 android-activity = { version = "0.6", features = ["game-activity"] }
 android_logger = "0.13"
+jni = "0.21"
 log.workspace = true
 # Debug builds would otherwise read embedded assets from the build machine's disk.
 rust-embed = { version = "8.12", features = ["debug-embed"] }
