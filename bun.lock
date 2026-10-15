@@ -444,6 +444,18 @@
       "name": "@zcode/typescript",
       "version": "0.1.0",
     },
+    "packages/browser-commands": {
+      "name": "@zcode/browser-commands",
+      "dependencies": {
+        "@zcode/shared": "workspace:*",
+        "playwright-core": "1.59.1",
+      },
+      "devDependencies": {
+        "@types/node": "^25.5.0",
+        "typescript": "^6.0.2",
+        "vitest": "^4.1.1",
+      },
+    },
     "packages/client": {
       "name": "@zcode/client",
       "dependencies": {
@@ -473,6 +485,7 @@
         "@opentelemetry/resources": "2.6.1",
         "@opentelemetry/sdk-metrics": "2.6.1",
         "@opentelemetry/sdk-trace-base": "2.6.1",
+        "@zcode/browser-commands": "workspace:*",
         "@zcode/client": "workspace:*",
         "@zcode/e2e-report": "workspace:*",
         "@zcode/provider": "workspace:*",
@@ -2304,6 +2317,8 @@
     "@zcode/android-emulator-plugin": ["@zcode/android-emulator-plugin@workspace:apps/zcode-cli/packages/android-emulator-plugin"],
 
     "@zcode/bootstrap": ["@zcode/bootstrap@workspace:apps/zcode-cli/packages/bootstrap"],
+
+    "@zcode/browser-commands": ["@zcode/browser-commands@workspace:packages/browser-commands"],
 
     "@zcode/browser-use-plugin": ["@zcode/browser-use-plugin@workspace:apps/zcode-cli/packages/browser-use-plugin"],
 

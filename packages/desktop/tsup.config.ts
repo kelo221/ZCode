@@ -273,6 +273,7 @@ export default defineConfig([
       // electron-builder 又会排除 node_modules/@zcode，导致安装包启动即 ERR_MODULE_NOT_FOUND。
       // producer 的 JS broker 必须跟随 services 一起内联，原生 addon 仍只存在于独立 Helper。
       "@zcode/zcode-cua",
+      "@zcode/browser-commands",
     ],
     define: createMainDefines(),
     // 修复原因：main/host 同时 watch 且共享 out 根目录时，默认 chunk 命名会互相覆盖，

@@ -71,6 +71,10 @@ describe("desktop tsup chunk isolation", () => {
     }
   });
 
+  it("main 应内联浏览器命令 workspace 包，Electron 不能直接加载 TypeScript 源码", () => {
+    expect(getNoExternal("main")).toContain("@zcode/browser-commands");
+  });
+
   it("main/host/scheduler 应内联 Provider workspace 包，Electron 不能直接加载 TypeScript 源码", () => {
     for (const configName of ["main", "host", "scheduler"]) {
       expect(getNoExternal(configName)).toContain("@zcode/provider");

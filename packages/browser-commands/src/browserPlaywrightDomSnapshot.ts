@@ -1,5 +1,5 @@
 import type { ControlledView, ControlledViewCdp } from "./browserCommandTypes.js";
-import { getPlaywrightInjectedScriptSource } from "./playwrightInjectedScriptSource.js";
+import { getPlaywrightInjectedScriptSource } from "./browserCommandRuntime.js";
 
 const PLAYWRIGHT_WORLD_NAME = "zcode-playwright-dom-snapshot";
 const PLAYWRIGHT_GLOBAL = "__zcodePlaywrightInjected";

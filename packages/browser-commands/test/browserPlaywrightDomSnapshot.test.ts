@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   captureBrowserDomSnapshot,
   normalizeBrowserDomSnapshot,
-} from "../src/main/browserView/browserPlaywrightDomSnapshot.js";
-import type { ControlledView } from "../src/main/browserView/browserCommandExecutor.js";
-import { getPlaywrightInjectedScriptSource } from "../src/main/browserView/playwrightInjectedScriptSource.js";
+} from "../src/browserPlaywrightDomSnapshot.js";
+import type { ControlledView } from "../src/browserCommandExecutor.js";
+import { getPlaywrightInjectedScriptSource } from "../src/node/playwrightInjectedScriptSource.js";
+import { configureBrowserCommandRuntime } from "../src/browserCommandRuntime.js";
+
+configureBrowserCommandRuntime({ playwrightInjectedScriptSource: getPlaywrightInjectedScriptSource });
 
 function viewWithCdp(send: ControlledView["cdp"]["send"]): ControlledView {
   return {

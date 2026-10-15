@@ -1,0 +1,23 @@
+{
+  "name": "@zcode/browser-commands",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --root ../.. packages/browser-commands",
+    "lint": "oxlint"
+  },
+  "dependencies": {
+    "@zcode/shared": "workspace:*",
+    "playwright-core": "1.59.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.1"
+  }
+}

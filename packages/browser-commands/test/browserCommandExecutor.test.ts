@@ -4,8 +4,12 @@ import {
   executeBrowserCommandOnView,
   isAllowedBrowserUrl,
   type ControlledView,
-} from "../src/main/browserView/browserCommandExecutor.js";
-import { normalizePlaywrightTimeout } from "../src/main/browserView/browserPlaywrightTimeout.js";
+} from "../src/browserCommandExecutor.js";
+import { normalizePlaywrightTimeout } from "../src/browserPlaywrightTimeout.js";
+import { configureBrowserCommandRuntime } from "../src/browserCommandRuntime.js";
+import { readPlaywrightInjectedScriptSource } from "../src/node/index.js";
+
+configureBrowserCommandRuntime({ playwrightInjectedScriptSource: readPlaywrightInjectedScriptSource });
 
 function makeView(
   overrides: Partial<{

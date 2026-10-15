@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    // 页面内执行的函数以源码字符串注入，但写成 TS 函数时需要 DOM 类型；node/ 适配层另需 Node 类型。
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["src"],
+  "references": [{ "path": "../shared" }]
+}

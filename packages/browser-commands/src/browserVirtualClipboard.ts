@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { ControlledView } from "./browserCommandTypes.js";
 import {
   IAB_INPUT_TARGET_TOKEN_PROPERTY,
@@ -239,7 +238,7 @@ function shouldIncludeRichText(url: string): boolean {
 }
 
 export function createInputTargetToken(): string {
-  return randomUUID();
+  return globalThis.crypto.randomUUID();
 }
 
 export async function assertFocusedInputTarget(

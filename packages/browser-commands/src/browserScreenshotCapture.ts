@@ -1,3 +1,4 @@
+import { decodeBase64 } from "./browserCommandRuntime.js";
 import type { ControlledView } from "./browserCommandTypes.js";
 
 interface ScreenshotCaptureResult {
@@ -20,16 +21,17 @@ const MAX_SCREENSHOT_RASTER_PIXELS = 16_777_216;
 function readPngDimensions(data: string): ScreenshotDimensions | null {
   try {
     // PNG 的 signature + IHDR 尺寸只占前 24 bytes，避免为了读宽高复制整张大图。
-    const header = Buffer.from(data.slice(0, 64), "base64");
+    const header = decodeBase64(data.slice(0, 64));
     if (
       header.byteLength < 24 ||
       PNG_SIGNATURE.some((byte, index) => header[index] !== byte) ||
-      header.toString("ascii", 12, 16) !== "IHDR"
+      String.fromCharCode(...header.subarray(12, 16)) !== "IHDR"
     ) {
       return null;
     }
-    const width = header.readUInt32BE(16);
-    const height = header.readUInt32BE(20);
+    const view = new DataView(header.buffer, header.byteOffset, header.byteLength);
+    const width = view.getUint32(16);
+    const height = view.getUint32(20);
     return width > 0 && height > 0 ? { width, height } : null;
   } catch {
     return null;

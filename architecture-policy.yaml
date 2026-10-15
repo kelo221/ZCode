@@ -67,6 +67,21 @@ modules:
     roots: [apps/zcode-gpui/src]
     managed: false
 
+  # 浏览器命令执行层：Desktop 内置浏览器与 GPUI 浏览器扩展共用，宿主只提供 ControlledView。
+  - id: browser-commands
+    roots: [packages/browser-commands/src]
+    managed: true
+    requires: [shared]
+    publicEntrypoints:
+      [
+        packages/browser-commands/src/index.ts,
+        packages/browser-commands/src/contract.ts,
+        packages/browser-commands/src/node/index.ts,
+      ]
+    layers: { app: ".", adapters: node }
+    layerOrder: [app, adapters]
+    owner: browser-use
+
   - id: gen-ui-protocol
     roots: [packages/shared/src/gen-ui]
     managed: true
@@ -198,3 +213,19 @@ exceptions:
     rule: disable-count
     paths: [packages/desktop/src/renderer/src/plugin-sandbox/genUiTweakRuntime.js]
     reason: Allow the control-character validation regex and the single-file parameter-control runtime.
+  - id: browser-commands-moved-size
+    rule: max-file-lines
+    paths:
+      [
+        packages/browser-commands/src/browserPlaywrightLocatorExecutor.ts,
+        packages/browser-commands/src/browserPlaywrightDomSnapshot.ts,
+      ]
+    reason: Moved unchanged from packages/desktop/src/main/browserView; the locator executor keeps isolated-world, frame target and trusted-input state in one session object.
+  - id: browser-commands-moved-lint
+    rule: disable-count
+    paths:
+      [
+        packages/browser-commands/src/browserPlaywrightLocatorExecutor.ts,
+        packages/browser-commands/src/browserPlaywrightExecutor.ts,
+      ]
+    reason: File-level disables moved unchanged from Desktop; browserPlaywrightExecutor serializes page-side functions that must stay loosely typed.

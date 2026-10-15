@@ -1,6 +1,9 @@
 import type { BrowserKeyModifier, BrowserMouseButton } from "@zcode/shared";
 import { RESOLVE_SCRIPT } from "./browserCommandScripts.js";
 import type { BrowserPoint, ControlledView } from "./browserCommandTypes.js";
+import { isMacPlatform } from "./browserCommandRuntime.js";
+
+const IS_MAC = isMacPlatform();
 
 /**
  * 键盘修饰键 → CDP modifiers 位掩码（Alt=1, Control=2, Meta=4, Shift=8）。
@@ -9,7 +12,7 @@ import type { BrowserPoint, ControlledView } from "./browserCommandTypes.js";
 const MODIFIER_BITS: Record<BrowserKeyModifier, number> = {
   Alt: 1,
   Control: 2,
-  ControlOrMeta: process.platform === "darwin" ? 4 : 2,
+  ControlOrMeta: IS_MAC ? 4 : 2,
   Meta: 4,
   Shift: 8,
 };
@@ -37,10 +40,9 @@ const MODIFIER_KEY_MAP: Record<
 > = {
   Alt: { code: "AltLeft", windowsVirtualKeyCode: 18 },
   Control: { code: "ControlLeft", windowsVirtualKeyCode: 17 },
-  ControlOrMeta:
-    process.platform === "darwin"
-      ? { code: "MetaLeft", windowsVirtualKeyCode: 91 }
-      : { code: "ControlLeft", windowsVirtualKeyCode: 17 },
+  ControlOrMeta: IS_MAC
+    ? { code: "MetaLeft", windowsVirtualKeyCode: 91 }
+    : { code: "ControlLeft", windowsVirtualKeyCode: 17 },
   Meta: { code: "MetaLeft", windowsVirtualKeyCode: 91 },
   Shift: { code: "ShiftLeft", windowsVirtualKeyCode: 16 },
 };
@@ -52,7 +54,7 @@ function normalizeCuaKey(raw: string): string {
     option: "Alt",
     control: "Control",
     ctrl: "Control",
-    controlormeta: process.platform === "darwin" ? "Meta" : "Control",
+    controlormeta: IS_MAC ? "Meta" : "Control",
     cmd: "Meta",
     meta: "Meta",
     super: "Meta",

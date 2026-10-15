@@ -24,10 +24,16 @@ import {
   type BrowserViewRestoredTabShell,
   type BrowserViewportSize,
 } from "@zcode/shared";
-import { executeBrowserCommandOnView, type ControlledView } from "./browserCommandExecutor.js";
-import { executeIabPlaywrightLocator } from "./browserPlaywrightLocatorExecutor.js";
+import {
+  configureBrowserCommandRuntime,
+  executeBrowserCommandOnView,
+  executeIabPlaywrightLocator,
+  normalizePlaywrightTimeout,
+  type ControlledView,
+} from "@zcode/browser-commands";
+import { readPlaywrightInjectedScriptSource } from "@zcode/browser-commands/node";
+import { logger } from "../logger.js";
 import { recordBrowserVideo, type BrowserWebmRecorderFactory } from "./browserVideoRecorder.js";
-import { normalizePlaywrightTimeout } from "./browserPlaywrightTimeout.js";
 import type {
   BrowserScreenshotSurfaceCoordinator,
   BrowserScreenshotSurfaceLease,
@@ -47,6 +53,11 @@ import type {
   BrowserTabRecoveryStore,
   BrowserTabShellRecord,
 } from "./browserTabRecoveryStore.js";
+
+configureBrowserCommandRuntime({
+  playwrightInjectedScriptSource: readPlaywrightInjectedScriptSource,
+  logger,
+});
 
 interface GuestWebContents {
   readonly id: number;
