@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "types": ["node"]
+  },
+  "include": ["src", "test"],
+  "references": [{ "path": "../../packages/shared" }, { "path": "../../packages/browser-commands" }]
+}

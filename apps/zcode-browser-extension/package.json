@@ -1,0 +1,13 @@
+{
+  "name": "@zcode/browser-extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@zcode/browser-commands": "workspace:*",
+    "@zcode/shared": "workspace:*"
+  }
+}

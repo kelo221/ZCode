@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "ZCode Browser Use",
+  "description": "Lets the ZCode GPUI app's agent use this browser: open tabs in a ZCode group, read pages, click and type.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "125",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0jXNkNkV6Fe71+asqXVMbhszxAGpQ3th69HVblZ8sH5p9KZznCwVqF1d/fVH+5i1+U6uXOm0t5OAaILVWq/NTh6+Hcct+rE/ApPhry1zs+Ehy7dx6WkLqFT2ZlqCCYWzhFv7BdMT8SYe8+tIs5g+sweRLXajtOjmm7aYu8DVdpQ2FigQ1lZxZxbBPOWR4GE7dhU4oYsqlSbxGtPi8waUBTpLVbOBliwQVKtSUZzm+QJALe/obNjWGr1zWz7VkBN6+Bo3MlM2yt/ASUt/kpGyzhVIc7/+QDtgWdcJ0MUzBnazNPpNsDVE6o6xzwXfavWUM3Cx5t1nJ4PSdNSAIa6ykQIDAQAB",
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["nativeMessaging", "debugger", "tabs", "tabGroups", "storage", "alarms"]
+}
