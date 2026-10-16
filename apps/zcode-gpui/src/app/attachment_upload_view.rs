@@ -33,7 +33,7 @@ impl RootView {
                     upload.id.clone(),
                     upload.receipt.workspace.clone(),
                     matches!(upload.state, UploadState::Failed),
-                    upload.format.extension(),
+                    upload.kind.file_name(),
                 )
             })
             .collect();
@@ -50,7 +50,7 @@ impl RootView {
                 .children(
                     uploads
                         .into_iter()
-                        .map(|(id, workspace, failed, extension)| {
+                        .map(|(id, workspace, failed, file_name)| {
                             let cancel_id = id.clone();
                             let cancel_workspace = workspace.clone();
                             div()
@@ -60,7 +60,7 @@ impl RootView {
                                 .text_size(px(ui_size(12.)))
                                 .text_color(rgb(MUTED))
                                 .child(format!(
-                                    "clipboard.{extension}: {}",
+                                    "{file_name}: {}",
                                     if failed {
                                         crate::shared::i18n::label("Upload failed", "上传失败")
                                     } else {

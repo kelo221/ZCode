@@ -54,11 +54,17 @@ impl Composer {
             self.select_all(cx);
             return;
         }
-        if !ev.modifiers.shift {
-            self.anchor = None;
-        }
-        self.move_to(ix, true, cx);
+        self.press_at(ix, ev.modifiers.shift, cx);
         self.view.dragging = true;
+    }
+
+    /// Pointer press at byte `ix`: Shift extends from the current caret,
+    /// otherwise the caret moves there and the selection collapses.
+    pub(crate) fn press_at(&mut self, ix: usize, shift: bool, cx: &mut Context<Self>) {
+        // 原实现先清空 anchor 再以 extend=true 移动，get_or_insert 会把旧光标位置当作锚点，
+        // 普通单击因此选中了“旧光标→点击处”，光标看起来没有移到新位置。
+        // 非 Shift 按下应只移动光标；拖动时再以按下位置为锚点扩展选区。
+        self.move_to(ix, shift, cx);
     }
 
     fn on_mouse_move(&mut self, ev: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {

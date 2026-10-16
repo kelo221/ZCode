@@ -36,11 +36,34 @@ pub(crate) struct PreparedImage {
     pub checksum: String,
 }
 
+/// What a clipboard upload carries: an image, or long pasted text.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum UploadKind {
+    Image(gpui::ImageFormat),
+    PastedText { file_name: String, lines: usize },
+}
+
+impl UploadKind {
+    pub(crate) fn file_name(&self) -> String {
+        match self {
+            Self::Image(format) => format!("clipboard.{}", format.extension()),
+            Self::PastedText { file_name, .. } => file_name.clone(),
+        }
+    }
+
+    pub(crate) fn mime(&self) -> &'static str {
+        match self {
+            Self::Image(format) => format.mime_type(),
+            Self::PastedText { .. } => crate::composer::pasted_text::PASTED_TEXT_MIME,
+        }
+    }
+}
+
 pub(crate) struct ImageUpload {
     pub id: String,
     pub receipt: UploadReceipt,
     pub bytes: Arc<Vec<u8>>,
-    pub format: gpui::ImageFormat,
+    pub kind: UploadKind,
     pub prepared: Option<PreparedImage>,
     pub state: UploadState,
     pub began: bool,
@@ -129,8 +152,8 @@ impl ImageUpload {
     pub(crate) fn attachment(&self, reference: String) -> AttachmentRef {
         AttachmentRef {
             reference,
-            file_name: format!("clipboard.{}", self.format.extension()),
-            mime: self.format.mime_type().into(),
+            file_name: self.kind.file_name(),
+            mime: self.kind.mime().into(),
             bytes: self.bytes.len() as u64,
             preview_ref: None,
         }
@@ -211,38 +234,95 @@ impl AppState {
             cx.notify();
             return;
         }
-        let Some(session) = self.active.clone() else {
+        match self.paste_target(replacement, "Connect this chat before pasting an image", cx) {
+            Some(Some(receipt)) => {
+                self.insert_image_upload(receipt, Arc::new(bytes), UploadKind::Image(format), cx)
+            }
+            Some(None) => self
+                .composer
+                .update(cx, |composer, cx| composer.paste_image(bytes, format, cx)),
+            None => {}
+        }
+    }
+
+    /// Long pasted text (`composer::pasted_text`): an uploaded `text/plain`
+    /// attachment in a session, an owned temp file in a new-task draft, and
+    /// plain inline text while editing or renaming.
+    pub(crate) fn start_text_paste(
+        &mut self,
+        text: String,
+        replacement: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if self.composer.read(cx).replacement_generation != replacement || self.is_read_only_view()
+        {
+            return;
+        }
+        if self.composer_intent != crate::conversation::msg_actions::ComposerIntent::Send {
             self.composer
-                .update(cx, |composer, cx| composer.paste_image(bytes, format, cx));
+                .update(cx, |composer, cx| composer.insert_at_caret(&text, cx));
             return;
-        };
-        let Some(workspace) = self.active_ws_key() else {
+        }
+        if text.len() > attachment::ATTACHMENT_MAX_BYTES {
+            self.push_error("Pasted text must be at most 20 MiB".into());
+            cx.notify();
             return;
+        }
+        match self.paste_target(
+            replacement,
+            "Connect this chat before pasting long text",
+            cx,
+        ) {
+            Some(Some(receipt)) => {
+                let kind = UploadKind::PastedText {
+                    file_name: crate::composer::pasted_text::file_name_now(),
+                    lines: crate::composer::pasted_text::count_lines(&text),
+                };
+                self.insert_image_upload(receipt, Arc::new(text.into_bytes()), kind, cx)
+            }
+            Some(None) => self
+                .composer
+                .update(cx, |composer, cx| composer.paste_text_file(text, cx)),
+            None => {}
+        }
+    }
+
+    /// Where a clipboard paste goes: `Some(Some(receipt))` uploads to the
+    /// active session, `Some(None)` is a new-task draft (local temp file),
+    /// `None` drops it (no workspace, or the chat is not connected).
+    fn paste_target(
+        &mut self,
+        replacement: u64,
+        not_connected: &str,
+        cx: &mut Context<Self>,
+    ) -> Option<Option<UploadReceipt>> {
+        let Some(session) = self.active.clone() else {
+            return Some(None);
         };
+        let workspace = self.active_ws_key()?;
         let Some(ws) = self
             .ws(&workspace)
             .filter(|ws| ws.started && ws.inbound.is_some())
         else {
-            self.push_error("Connect this chat before pasting an image".into());
+            self.push_error(not_connected.into());
             cx.notify();
-            return;
+            return None;
         };
-        let receipt = UploadReceipt {
+        Some(Some(UploadReceipt {
             workspace,
             session,
             connection: ws.connection_id.clone(),
             process: ws.generation,
             navigation: self.navigation_generation,
             replacement,
-        };
-        self.insert_image_upload(receipt, Arc::new(bytes), format, cx);
+        }))
     }
 
     pub(crate) fn insert_image_upload(
         &mut self,
         receipt: UploadReceipt,
         bytes: Arc<Vec<u8>>,
-        format: gpui::ImageFormat,
+        kind: UploadKind,
         cx: &mut Context<Self>,
     ) {
         self.retire_stale_uploads(cx);
@@ -266,7 +346,7 @@ impl AppState {
                 id: id.clone(),
                 receipt: receipt.clone(),
                 bytes: bytes.clone(),
-                format,
+                kind,
                 prepared: None,
                 state: UploadState::Preparing,
                 began: false,

@@ -5,6 +5,41 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## Long paste, composer caret, tok/s and phone touch slice (2026-10-16)
+
+- **Long paste becomes an attachment.** As in Desktop (`shouldCreateClipboardTextAttachment`),
+  pasting text of at least 15 × 1024 UTF-16 units into the main composer does not insert it.
+  It becomes a `text/plain` attachment named `pasted-text-YYYYMMDD-HHMMSS.txt` (local time).
+  The chip reads "Pasted text" with "N lines" (`\n`, `\r\n` and `\r` each end a line). In a
+  session the text uploads through the same `v4/attachment/*` transaction as clipboard images
+  (Uploading / Retry / Cancel). In a new-task draft it is written to an owned paste temp file,
+  like a draft image. Shorter text, single-line inputs (rename, commit message) and edit or
+  rename intents insert the text as before.
+- **Click moves the caret.** A plain click in the composer places the caret and clears the
+  selection. Before, it extended a selection from the old caret to the click. Drag selects from
+  the click point, and Shift+click extends from the existing caret.
+- **Phone keyboard.** On the phone build the soft keyboard appears only when the user taps
+  the composer. Startup, closing Settings, the command center or a subagent view no longer
+  focus the composer there. A touch outside the composer block (input, tray, footer buttons
+  and the autocomplete popup) while it is focused removes the focus, which hides the keyboard. The platform layer re-shows a dismissed
+  keyboard only after a real tap (click count ≥ 1), not after a scroll.
+- **tok/s times the whole model call.** The exact rate is a call's output tokens over the
+  time from the request being sent to its usage event. The request counts as sent at the
+  latest of: the turn starting (`turnHeader` or `userInput` row appended), the previous
+  call's usage event, and a tool call reaching `success`, `error` or `cancelled` before
+  this call's first output. Tool runtime (a long bash command, a subagent) therefore stays out
+  of the window, and tool results finishing while the model still streams don't shorten it.
+  Before, the window opened at the first output row. Proxied Claude models stay silent for
+  6–16 s and then send the answer in about a second, so the old window showed 200–1200 tok/s
+  for calls that really ran at 40–90 tok/s (`model_usage` first-token and completion times).
+  The live `~` estimate uses the same start. A usage patch with unchanged output tokens (model
+  or context-window change) is not a call boundary. The first usage after load is only a
+  baseline and opens no window, because a call may already be in flight.
+- **Scrolling doesn't click.** When a touch turns into a scroll, a long press or a
+  multi-finger gesture, `gpui_android` sends the cancelling left-button release off-window.
+  gpui fires `on_click` for any release over the pressed element whatever its click count, so
+  a scroll that started on a project folder toggled that folder.
+
 ## Context ring and tok/s meter (2026-10-15)
 
 - **Context ring.** As in Desktop's model controls, the composer footer starts with a 14px

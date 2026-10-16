@@ -270,10 +270,12 @@ impl ConversationState {
                 "row.appended" | "row.upserted" => {
                     if let Some(r) = d.get("row") {
                         let id = r.get("rowId").and_then(Value::as_u64).unwrap_or(0);
-                        if d.get("op").and_then(Value::as_str) == Some("row.appended")
-                            && crate::conversation::throughput::is_model_output_row(r)
-                        {
-                            self.throughput.on_model_row(std::time::Instant::now());
+                        let appended = d.get("op").and_then(Value::as_str) == Some("row.appended");
+                        if crate::conversation::throughput::is_call_boundary_row(appended, r) {
+                            self.throughput.on_call_boundary(std::time::Instant::now());
+                        }
+                        if appended && crate::conversation::throughput::is_model_output_row(r) {
+                            self.throughput.on_model_row();
                         }
                         self.rows.insert(id, Row::from_value(r));
                     }

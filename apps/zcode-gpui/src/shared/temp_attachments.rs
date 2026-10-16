@@ -1,4 +1,5 @@
-//! Lifecycle owner for temp files created from pasted clipboard images.
+//! Lifecycle owner for temp files created from pasted clipboard images
+//! and long pasted text.
 //!
 //! The composer used to write timestamp-named files into the global temp dir
 //! with no ownership tracking, so every paste leaked a file (2026-10-05 audit
@@ -53,6 +54,11 @@ pub(crate) fn write_temp_image(bytes: &[u8], ext: &str) -> std::io::Result<PathB
         f.write_all(bytes)?;
     }
     Ok(path)
+}
+
+/// Long pasted text in a new-task draft; same ownership as a pasted image.
+pub(crate) fn write_temp_text(text: &str) -> std::io::Result<PathBuf> {
+    write_temp_image(text.as_bytes(), "txt")
 }
 
 /// True when `reference` points at a temp file this app created (owned

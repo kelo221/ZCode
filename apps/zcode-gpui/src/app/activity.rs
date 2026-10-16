@@ -226,8 +226,7 @@ impl RootView {
 
     pub(crate) fn close_child_conversation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.state.update(cx, |state, cx| state.close_subagent(cx));
-        let focus = self.state.read(cx).composer.read(cx).focus.clone();
-        window.focus(&focus, cx);
+        self.return_focus_to_composer(window, cx);
         cx.notify();
     }
 }

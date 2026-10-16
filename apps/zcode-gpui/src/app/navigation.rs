@@ -15,13 +15,34 @@ impl RootView {
 
     pub(crate) fn close_command_center(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.quickpick_open = false;
-        let focus = if self.settings.open {
+        if self.settings.open {
+            window.focus(&self.settings.focus, cx);
+        } else {
+            self.return_focus_to_composer(window, cx);
+        }
+        cx.notify();
+    }
+
+    /// Hand keyboard focus back to the chat after an overlay closes. On the
+    /// phone build a focused composer raises the soft keyboard, so focus
+    /// goes to the neutral handle and only a tap on the composer focuses it.
+    pub(crate) fn return_focus_to_composer(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let state = self.state.read(cx);
+        let focus = if state.phone_client.enabled {
             self.settings.focus.clone()
         } else {
-            self.state.read(cx).composer.read(cx).focus.clone()
+            state.composer.read(cx).focus.clone()
         };
         window.focus(&focus, cx);
-        cx.notify();
+    }
+
+    /// Phone build: a touch outside the composer block drops its focus so
+    /// the soft keyboard hides, as in native chat apps.
+    pub(crate) fn release_phone_composer_focus(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let state = self.state.read(cx);
+        if state.phone_client.enabled && state.composer.read(cx).focus.is_focused(window) {
+            window.focus(&self.settings.focus, cx);
+        }
     }
 
     pub(crate) fn restore_settings_focus(&self, window: &mut Window, cx: &mut Context<Self>) {

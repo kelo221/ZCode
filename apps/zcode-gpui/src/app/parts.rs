@@ -258,6 +258,9 @@ impl RootView {
             .min_w_0()
             .flex()
             .flex_col()
+            .on_mouse_down_out(
+                cx.listener(|this, _, window, cx| this.release_phone_composer_focus(window, cx)),
+            )
             .children(held_confirmation)
             .children(self.image_upload_feedback(cx))
             .children(self.reference_feedback(cx))

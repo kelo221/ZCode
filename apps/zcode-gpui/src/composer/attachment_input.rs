@@ -83,6 +83,7 @@ impl Composer {
             return;
         }
         let removed = self.attachments.remove(index);
+        self.pasted_lines.remove(&removed.reference);
         let path = PathBuf::from(removed.reference);
         // 队列或拒绝恢复的路径可能沿用 paste 名称；只有 producer 显式转交的所有权允许删除。
         if let Some(index) = self.temp_owned.iter().position(|p| p == &path) {

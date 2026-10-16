@@ -93,8 +93,7 @@ impl RootView {
         self.settings.open = false;
         self.subagents.form = None;
         self.state.update(cx, |s, cx| s.close_profiles(cx));
-        let focus = self.state.read(cx).composer.read(cx).focus.clone();
-        window.focus(&focus, cx);
+        self.return_focus_to_composer(window, cx);
         cx.notify();
     }
 

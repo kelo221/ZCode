@@ -245,7 +245,8 @@ pub fn open_window(cx: &mut App, startup: Startup) {
                 root
             });
             let focus = root.read(cx).state.read(cx).composer.read(cx).focus.clone();
-            if settings_section.is_none() {
+            // 手机端 composer 获得焦点就会弹出软键盘；启动时不抢焦点，只在用户点按输入框时弹出。
+            if settings_section.is_none() && !remote_client {
                 window.focus(&focus, cx);
             }
             root

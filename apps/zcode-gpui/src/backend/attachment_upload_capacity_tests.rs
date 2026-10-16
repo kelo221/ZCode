@@ -1,5 +1,5 @@
 use crate::app::store::AppState;
-use crate::backend::attachment_upload::{ImageUpload, UploadReceipt, UploadState};
+use crate::backend::attachment_upload::{ImageUpload, UploadKind, UploadReceipt, UploadState};
 use gpui::{AppContext, ImageFormat, TestAppContext};
 use std::sync::Arc;
 
@@ -31,14 +31,19 @@ fn image_upload_capacity_and_stale_retry_keep_the_current_owner_bounded(cx: &mut
                     id,
                     receipt: receipt.clone(),
                     bytes: Arc::new(vec![1]),
-                    format: ImageFormat::Png,
+                    kind: UploadKind::Image(ImageFormat::Png),
                     prepared: None,
                     state: UploadState::Failed,
                     began: false,
                 },
             );
         }
-        s.insert_image_upload(receipt.clone(), Arc::new(vec![2]), ImageFormat::Png, cx);
+        s.insert_image_upload(
+            receipt.clone(),
+            Arc::new(vec![2]),
+            UploadKind::Image(ImageFormat::Png),
+            cx,
+        );
         assert_eq!(s.ws(&key).unwrap().image_uploads.len(), 16);
         s.ws_mut(&key).unwrap().image_uploads.clear();
         let bytes = Arc::new(vec![0; 16 * 1024 * 1024]);
@@ -50,14 +55,19 @@ fn image_upload_capacity_and_stale_retry_keep_the_current_owner_bounded(cx: &mut
                     id,
                     receipt: receipt.clone(),
                     bytes: bytes.clone(),
-                    format: ImageFormat::Png,
+                    kind: UploadKind::Image(ImageFormat::Png),
                     prepared: None,
                     state: UploadState::Failed,
                     began: false,
                 },
             );
         }
-        s.insert_image_upload(receipt, Arc::new(vec![2]), ImageFormat::Png, cx);
+        s.insert_image_upload(
+            receipt,
+            Arc::new(vec![2]),
+            UploadKind::Image(ImageFormat::Png),
+            cx,
+        );
         assert_eq!(s.ws(&key).unwrap().image_uploads.len(), 4);
         s.active = Some("other-parent".into());
         s.retry_image_upload(&key, "upload-large-0", cx);

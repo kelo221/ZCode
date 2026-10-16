@@ -15,6 +15,11 @@ pub enum ComposerEvent {
         format: gpui::ImageFormat,
         replacement: u64,
     },
+    /// Long text routed to an attachment (`composer::pasted_text`).
+    TextPasted {
+        text: String,
+        replacement: u64,
+    },
 }
 
 pub struct Composer {
@@ -32,6 +37,8 @@ pub struct Composer {
     pub(crate) attachments: Vec<AttachmentRef>,
     pub(crate) temp_owned: Vec<PathBuf>,
     pub(crate) chips: ChipTable,
+    /// Line counts of long-paste attachments, by attachment ref.
+    pub(crate) pasted_lines: std::collections::HashMap<String, usize>,
     pub(crate) view: crate::composer::text_view::TextViewState,
 }
 
@@ -50,6 +57,7 @@ impl Composer {
             attachments: Vec::new(),
             temp_owned: Vec::new(),
             chips: ChipTable::default(),
+            pasted_lines: Default::default(),
             view: Default::default(),
         }
     }
@@ -195,6 +203,11 @@ impl crate::app::root::RootView {
                 } => this.state.update(cx, |s, cx| {
                     s.start_image_upload(bytes.clone(), *format, *replacement, cx)
                 }),
+                ComposerEvent::TextPasted { text, replacement } => {
+                    this.state.update(cx, |s, cx| {
+                        s.start_text_paste(text.clone(), *replacement, cx)
+                    })
+                }
             },
         )
         .detach();

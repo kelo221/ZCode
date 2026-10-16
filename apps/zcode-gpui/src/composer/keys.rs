@@ -185,7 +185,15 @@ impl Composer {
         }
         if !has_image {
             self.marked_utf16 = None;
-            self.insert_at_caret(&item.text().unwrap_or_default(), cx);
+            let text = item.text().unwrap_or_default();
+            if !self.single_line && crate::composer::pasted_text::is_long_paste(&text) {
+                cx.emit(ComposerEvent::TextPasted {
+                    text,
+                    replacement: self.replacement_generation,
+                });
+            } else {
+                self.insert_at_caret(&text, cx);
+            }
         }
     }
 }

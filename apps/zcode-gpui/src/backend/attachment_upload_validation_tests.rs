@@ -1,6 +1,6 @@
 use crate::app::store::AppState;
 use crate::backend::attachment_upload::{
-    ImageUpload, PreparedImage, UploadReceipt, UploadState, UploadStep,
+    ImageUpload, PreparedImage, UploadKind, UploadReceipt, UploadState, UploadStep,
 };
 use crate::composer::attachment::ATTACHMENT_MAX_BYTES;
 use gpui::{AppContext, ImageFormat, TestAppContext};
@@ -19,7 +19,7 @@ fn upload() -> ImageUpload {
             replacement: 0,
         },
         bytes: Arc::new(vec![1]),
-        format: ImageFormat::Png,
+        kind: UploadKind::Image(ImageFormat::Png),
         prepared: Some(PreparedImage {
             chunks: vec!["AQ==".into()],
             checksum: "checksum".into(),

@@ -68,6 +68,18 @@ fn offset_secs() -> i64 {
     *OFFSET.get_or_init(system_offset_secs)
 }
 
+pub fn local_offset_secs() -> i64 {
+    offset_secs()
+}
+
+/// `(year, month, day, hour, minute, second)` of `ms` shifted by `offset_secs`.
+pub fn civil_time(ms: u64, offset_secs: i64) -> (i64, u32, u32, i64, i64, i64) {
+    let secs = (ms / 1000) as i64 + offset_secs;
+    let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
+    let tod = secs.rem_euclid(86_400);
+    (y, m, d, tod / 3600, (tod % 3600) / 60, tod % 60)
+}
+
 pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

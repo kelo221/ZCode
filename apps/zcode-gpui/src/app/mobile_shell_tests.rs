@@ -133,3 +133,60 @@ fn phone_build_hides_the_desktop_dock_and_terminal() {
     resize(&mut window, 411.);
     window.draw();
 }
+
+#[test]
+fn phone_build_focuses_the_composer_only_on_a_tap() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = app();
+    let state = app.new_entity(AppState::for_test);
+    app.update(|cx| state.update(cx, |s, _| s.phone_client.enabled = true));
+    let mut window = app.open_window(|_, cx| RootView::new(state.clone(), cx));
+    resize(&mut window, 411.);
+    window.update(|view, _, _| view.show_chat_page());
+    window.draw();
+    let focused = |window: &mut gpui::TestAppWindow<RootView>| {
+        window.update(|view, window, cx| {
+            view.state
+                .read(cx)
+                .composer
+                .read(cx)
+                .focus
+                .is_focused(window)
+        })
+    };
+    // Closing an overlay must not raise the soft keyboard.
+    window.update(|view, window, cx| view.close_settings(window, cx));
+    assert!(!focused(&mut window));
+    window.update(|view, window, cx| view.close_command_center(window, cx));
+    assert!(!focused(&mut window));
+    // A touch outside the composer block releases a focused composer.
+    window.update(|view, window, cx| {
+        let focus = view.state.read(cx).composer.read(cx).focus.clone();
+        window.focus(&focus, cx);
+    });
+    window.draw();
+    assert!(focused(&mut window));
+    window.simulate_click(gpui::point(px(200.), px(4.)), MouseButton::Left);
+    window.draw();
+    assert!(!focused(&mut window));
+}
+
+#[test]
+fn desktop_build_still_returns_focus_to_the_composer() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = app();
+    let state = app.new_entity(AppState::for_test);
+    let mut window = app.open_window(|_, cx| RootView::new(state.clone(), cx));
+    window.draw();
+    window.update(|view, window, cx| {
+        view.close_settings(window, cx);
+        assert!(
+            view.state
+                .read(cx)
+                .composer
+                .read(cx)
+                .focus
+                .is_focused(window)
+        );
+    });
+}

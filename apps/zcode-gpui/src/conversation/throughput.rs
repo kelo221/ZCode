@@ -4,14 +4,14 @@
 //! (`state.updated` `usage.cumulative.outputTokens` on ModelComplete), so
 //! while a response streams the rate is estimated from streamed characters
 //! (~4 per token). At completion the exact output-token delta over the
-//! generation time replaces the estimate.
+//! call's duration replaces the estimate.
 //!
-//! 修复原因：输出 token 包含不流出文本的思考（Claude 只发签名）与工具参数。旧窗口从第一个
-//! 可见增量（常是调用末尾的工具参数）或推理行的 `durationMs` 起算，而 CLI 从不下发
-//! `durationMs`，几秒的调用被当成零点几秒（界面显示 1473 tok/s，同一会话 model-io 日志里
-//! 真实速率为 52–125 tok/s）。现在窗口从本次调用第一个模型输出行出现时起算：CLI 在
-//! `reasoning_start` 就追加 streaming 推理行（即使没有文本），在 `tool_input_start` 追加
-//! `inputStreaming` 工具行，在 `text_start` 追加 streaming 正文行。
+//! 修复原因：窗口曾从本次调用第一个模型输出行起算。经代理的 Claude 模型常先静默 6–16 s
+//! （隐藏思考或代理缓冲），再在约 1 s 内吐出整段回答，界面因此显示 200–1200 tok/s，而
+//! `model_usage` 表中同一调用按整次请求计时只有 40–90 tok/s。协议没有“请求已发出”事件，
+//! 所以起点取以下最晚者：turn 开始（追加 turnHeader/userInput 行）、上一次调用的 usage
+//! 事件、以及本次调用首个输出之前结束的工具调用。工具执行时间（长 bash、子代理）因此
+//! 不计入窗口；模型仍在流式输出时提前完成的工具也不会把起点后移。
 
 use serde_json::Value;
 use std::time::Instant;
@@ -29,11 +29,14 @@ pub struct Rate {
 
 #[derive(Debug, Default)]
 pub struct Throughput {
+    /// When the current call's request went out (see module docs). `None`
+    /// until a boundary was observed, e.g. right after load.
+    call_start: Option<Instant>,
+    /// The current call produced output; later tool completions belong to
+    /// it and no longer move `call_start`.
+    output_seen: bool,
     stream_start: Option<Instant>,
     streamed_chars: usize,
-    /// Start of the exact-rate window: the first model output of the current
-    /// call. `None` until one appeared.
-    window_start: Option<Instant>,
     cumulative_output: Option<u64>,
     last: Option<Rate>,
 }
@@ -50,16 +53,37 @@ pub fn is_model_output_row(row: &Value) -> bool {
     }
 }
 
-/// Whether a `row.delta` path carries this session's model output. Subagent
-/// summaries (`summaryText`) stream child output the parent's usage omits.
+/// Whether a row event means the next model request is about to be sent:
+/// a new turn, or a tool call finishing (its result goes into that request).
+pub fn is_call_boundary_row(appended: bool, row: &Value) -> bool {
+    match row.get("kind").and_then(Value::as_str) {
+        Some("turnHeader" | "userInput") => appended,
+        Some("toolCall") => matches!(
+            row.get("status").and_then(Value::as_str),
+            Some("success" | "error" | "cancelled")
+        ),
+        _ => false,
+    }
+}
+
+/// Whether a `row.delta` path carries this session's model output. Tool
+/// output (`output.text`, e.g. a bash command's stdout) and subagent
+/// summaries (`summaryText`) are not the parent model writing.
 pub fn is_model_output_path(path: &str) -> bool {
     matches!(path, "text" | "inputText")
 }
 
 impl Throughput {
+    /// See [`is_call_boundary_row`].
+    pub fn on_call_boundary(&mut self, now: Instant) {
+        if !self.output_seen {
+            self.call_start = Some(now);
+        }
+    }
+
     /// A model output row was appended (see [`is_model_output_row`]).
-    pub fn on_model_row(&mut self, now: Instant) {
-        self.window_start.get_or_insert(now);
+    pub fn on_model_row(&mut self) {
+        self.output_seen = true;
     }
 
     /// A model output `row.delta` append arrived.
@@ -67,8 +91,8 @@ impl Throughput {
         if appended.is_empty() {
             return;
         }
+        self.output_seen = true;
         self.stream_start.get_or_insert(now);
-        self.window_start.get_or_insert(now);
         self.streamed_chars += appended.chars().count();
     }
 
@@ -81,7 +105,17 @@ impl Throughput {
         else {
             return;
         };
-        if let (Some(prev), Some(start)) = (self.cumulative_output, self.window_start) {
+        let Some(prev) = self.cumulative_output else {
+            // Baseline from a snapshot: a call may already be running, so its
+            // start is unknown and no window opens until the next boundary.
+            self.cumulative_output = Some(total);
+            return;
+        };
+        if total == prev {
+            // Model or context-window change, not the end of a call.
+            return;
+        }
+        if let Some(start) = self.call_start {
             let secs = now.duration_since(start).as_secs_f32();
             let tokens = total.saturating_sub(prev);
             if secs >= MIN_WINDOW_SECS && tokens > 0 {
@@ -92,14 +126,17 @@ impl Throughput {
             }
         }
         self.cumulative_output = Some(total);
+        // The next call is sent right after this one, unless tools run first.
+        self.call_start = Some(now);
+        self.output_seen = false;
         self.stream_start = None;
-        self.window_start = None;
         self.streamed_chars = 0;
     }
 
     /// Live estimate while streaming, else the last completed response's rate.
     pub fn rate(&self, now: Instant) -> Option<Rate> {
-        if let Some(start) = self.stream_start {
+        if let Some(streaming) = self.stream_start {
+            let start = self.call_start.unwrap_or(streaming);
             let secs = now.duration_since(start).as_secs_f32();
             if secs >= MIN_WINDOW_SECS {
                 return Some(Rate {
@@ -118,100 +155,5 @@ pub fn format_rate(rate: Rate) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-    use std::time::Duration;
-
-    fn usage(out: u64) -> Value {
-        json!({ "cumulative": { "inputTokens": 0, "outputTokens": out,
-                                "cacheReadTokens": 0, "cacheWriteTokens": 0 } })
-    }
-
-    #[test]
-    fn estimate_while_streaming_then_exact_on_completion() {
-        let t0 = Instant::now();
-        let mut t = Throughput::default();
-        t.on_usage(&usage(1000), t0);
-        assert_eq!(t.rate(t0), None, "baseline only");
-
-        t.on_stream(&"x".repeat(400), t0);
-        let live = t.rate(t0 + Duration::from_secs(2)).unwrap();
-        assert!(!live.exact);
-        assert_eq!(live.tokens_per_sec, 50.);
-        assert_eq!(format_rate(live), "~50 tok/s");
-
-        t.on_usage(&usage(1300), t0 + Duration::from_secs(3));
-        let done = t.rate(t0 + Duration::from_secs(10)).unwrap();
-        assert!(done.exact);
-        assert_eq!(done.tokens_per_sec, 100.);
-        assert_eq!(format_rate(done), "100 tok/s");
-    }
-
-    #[test]
-    fn hidden_thinking_and_tool_input_use_the_whole_call() {
-        // The pattern from this session's model-io log: 6 s of signature-only
-        // thinking, then 400 tokens of tool input in the last 0.3 s. Timed
-        // from the first tool-input delta it read as ~1300 tok/s.
-        let t0 = Instant::now();
-        let mut t = Throughput::default();
-        t.on_usage(&usage(0), t0);
-        t.on_model_row(t0); // streaming reasoning row, no text
-        let tool = t0 + Duration::from_millis(5_700);
-        t.on_model_row(tool); // inputStreaming tool row
-        t.on_stream(&"x".repeat(1_200), tool);
-        t.on_usage(&usage(400), t0 + Duration::from_secs(6));
-        let done = t.rate(t0 + Duration::from_secs(7)).unwrap();
-        assert!(done.exact);
-        assert!((done.tokens_per_sec - 400. / 6.).abs() < 0.01);
-
-        // The tool runs between calls; the next call's window starts at its
-        // own first output row, not at the previous usage event.
-        let next = t0 + Duration::from_secs(30);
-        t.on_model_row(next);
-        t.on_usage(&usage(500), next + Duration::from_secs(2));
-        assert_eq!(
-            t.rate(next + Duration::from_secs(2))
-                .unwrap()
-                .tokens_per_sec,
-            50.
-        );
-    }
-
-    #[test]
-    fn model_output_rows_and_paths() {
-        for row in [
-            json!({ "kind": "reasoning", "state": "streaming", "text": "" }),
-            json!({ "kind": "toolCall", "status": "inputStreaming" }),
-            json!({ "kind": "assistantText", "state": "streaming" }),
-        ] {
-            assert!(is_model_output_row(&row), "{row}");
-        }
-        for row in [
-            json!({ "kind": "reasoning", "state": "complete" }),
-            json!({ "kind": "toolCall", "status": "running" }),
-            json!({ "kind": "subagent" }),
-            json!({ "kind": "userInput" }),
-        ] {
-            assert!(!is_model_output_row(&row), "{row}");
-        }
-        assert!(is_model_output_path("text"));
-        assert!(is_model_output_path("inputText"));
-        assert!(!is_model_output_path("summaryText"));
-    }
-
-    #[test]
-    fn usage_without_streaming_keeps_previous_rate() {
-        let t0 = Instant::now();
-        let mut t = Throughput::default();
-        t.on_usage(&usage(10), t0);
-        t.on_usage(&usage(50), t0 + Duration::from_secs(1));
-        assert_eq!(t.rate(t0 + Duration::from_secs(1)), None);
-        t.on_stream("", t0);
-        assert_eq!(
-            t.rate(t0 + Duration::from_secs(5)),
-            None,
-            "empty append ignored"
-        );
-    }
-}
+#[path = "throughput_tests.rs"]
+mod tests;

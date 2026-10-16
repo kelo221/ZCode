@@ -19,7 +19,13 @@ impl RootView {
         composer: &gpui::Entity<crate::composer::input::Composer>,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let attachments = composer.read(cx).attachments().to_vec();
+        let attachments: Vec<_> = {
+            let c = composer.read(cx);
+            c.attachments()
+                .iter()
+                .map(|a| (a.clone(), c.pasted_text_lines(a)))
+                .collect()
+        };
         if attachments.is_empty() {
             return None;
         }
@@ -34,61 +40,77 @@ impl RootView {
                 .gap_1p5()
                 .w_full()
                 .pb_1()
-                .children(attachments.into_iter().enumerate().map(|(idx, att)| {
-                    let name = att.file_name;
-                    let size_str = format_bytes(att.bytes);
-                    let comp = comp_entity.clone();
+                .children(
+                    attachments
+                        .into_iter()
+                        .enumerate()
+                        .map(|(idx, (att, lines))| {
+                            // Desktop's clipboard-text chip: "Pasted text" + "N lines".
+                            let (name, detail) = match lines {
+                                Some(lines) => (
+                                    crate::shared::i18n::label("Pasted text", "粘贴文本")
+                                        .to_string(),
+                                    crate::shared::i18n::label(
+                                        &format!("{lines} lines"),
+                                        &format!("{lines} 行"),
+                                    )
+                                    .to_string(),
+                                ),
+                                None => (att.file_name, format_bytes(att.bytes)),
+                            };
+                            let comp = comp_entity.clone();
 
-                    div()
-                        .id(SharedString::from(format!("att-chip-{idx}")))
-                        .flex()
-                        .items_center()
-                        .gap_1p5()
-                        .px_2()
-                        .py_0p5()
-                        .rounded_md()
-                        .bg(rgb(BORDER))
-                        .border_1()
-                        .border_color(rgb(BORDER))
-                        .hover(|s| s.bg(rgb(CARD_HOVER)))
-                        .child(
                             div()
-                                .text_size(px(ui_size(11.)))
-                                .text_color(rgb(ACCENT))
-                                .child("📎"),
-                        )
-                        .child(
-                            div()
-                                .max_w(px(160.))
-                                .truncate()
-                                .text_size(px(ui_size(11.5)))
-                                .text_color(rgb(TEXT))
-                                .child(name),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(ui_size(10.)))
-                                .text_color(rgb(MUTED))
-                                .child(format!("({size_str})")),
-                        )
-                        .child(
-                            div()
-                                .id(SharedString::from(format!("att-del-{idx}")))
-                                .cursor(CursorStyle::PointingHand)
-                                .text_size(px(ui_size(11.)))
-                                .text_color(rgb(MUTED))
-                                .hover(|s| s.text_color(rgb(DANGER)))
-                                .child("✕")
-                                .on_click(cx.listener(
-                                    move |_this, _: &ClickEvent, _window, cx| {
-                                        cx.stop_propagation();
-                                        comp.update(cx, |c, cx| {
-                                            c.remove_attachment(idx, cx);
-                                        });
-                                    },
-                                )),
-                        )
-                }))
+                                .id(SharedString::from(format!("att-chip-{idx}")))
+                                .flex()
+                                .items_center()
+                                .gap_1p5()
+                                .px_2()
+                                .py_0p5()
+                                .rounded_md()
+                                .bg(rgb(BORDER))
+                                .border_1()
+                                .border_color(rgb(BORDER))
+                                .hover(|s| s.bg(rgb(CARD_HOVER)))
+                                .child(
+                                    div()
+                                        .text_size(px(ui_size(11.)))
+                                        .text_color(rgb(ACCENT))
+                                        .child("📎"),
+                                )
+                                .child(
+                                    div()
+                                        .max_w(px(160.))
+                                        .truncate()
+                                        .text_size(px(ui_size(11.5)))
+                                        .text_color(rgb(TEXT))
+                                        .child(name),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(ui_size(10.)))
+                                        .text_color(rgb(MUTED))
+                                        .child(format!("({detail})")),
+                                )
+                                .child(
+                                    div()
+                                        .id(SharedString::from(format!("att-del-{idx}")))
+                                        .cursor(CursorStyle::PointingHand)
+                                        .text_size(px(ui_size(11.)))
+                                        .text_color(rgb(MUTED))
+                                        .hover(|s| s.text_color(rgb(DANGER)))
+                                        .child("✕")
+                                        .on_click(cx.listener(
+                                            move |_this, _: &ClickEvent, _window, cx| {
+                                                cx.stop_propagation();
+                                                comp.update(cx, |c, cx| {
+                                                    c.remove_attachment(idx, cx);
+                                                });
+                                            },
+                                        )),
+                                )
+                        }),
+                )
                 .into_any_element(),
         )
     }

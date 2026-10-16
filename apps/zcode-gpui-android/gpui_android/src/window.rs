@@ -437,7 +437,9 @@ impl AndroidWindowStatePtr {
         if let Some(mut callback) = callback {
             let result = callback(input.clone());
             self.callbacks.borrow_mut().input = Some(callback);
-            if matches!(input, PlatformInput::MouseUp(_)) {
+            // 滚动、长按和多指手势结束时 touch.rs 会发 click_count=0 的取消 MouseUp；
+            // 原先任何 MouseUp 都会重新弹出键盘，用户每次滚动列表键盘都会冒出来。只有真实点按才重新弹出。
+            if matches!(&input, PlatformInput::MouseUp(up) if up.click_count >= 1) {
                 self.reshow_keyboard_after_tap();
             }
             if !result.propagate {

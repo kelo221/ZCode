@@ -1,6 +1,6 @@
 use crate::app::store::AppState;
 use crate::backend::attachment_upload::{
-    ImageUpload, PreparedImage, UPLOAD_ERROR, UploadState, UploadStep,
+    ImageUpload, PreparedImage, UPLOAD_ERROR, UploadKind, UploadState, UploadStep,
 };
 use crate::backend::workspace::Pending;
 use crate::composer::attachment;
@@ -94,8 +94,8 @@ impl AppState {
                     &receipt.connection,
                     &receipt.session,
                     id,
-                    &format!("clipboard.{}", upload.format.extension()),
-                    upload.format.mime_type(),
+                    &upload.kind.file_name(),
+                    upload.kind.mime(),
                     upload.bytes.len(),
                     prepared.chunks.len(),
                     &prepared.checksum,
@@ -164,8 +164,12 @@ impl AppState {
                     .remove(id)
                     .unwrap();
                 // artifact URI 由 CLI 持有；不能按本地 paste 路径登记删除所有权。
-                self.composer.update(cx, |composer, cx| {
-                    composer.add_attachment(upload.attachment(reference), cx)
+                let attachment = upload.attachment(reference);
+                self.composer.update(cx, |composer, cx| match upload.kind {
+                    UploadKind::PastedText { lines, .. } => {
+                        composer.add_pasted_text(attachment, lines, cx)
+                    }
+                    UploadKind::Image(_) => composer.add_attachment(attachment, cx),
                 });
             }
             Ok(None) => {
@@ -253,9 +257,9 @@ impl AppState {
         }
         let receipt = upload.receipt.clone();
         let bytes = upload.bytes.clone();
-        let format = upload.format;
+        let kind = upload.kind.clone();
         self.cancel_image_upload(workspace, id, cx);
-        self.insert_image_upload(receipt, bytes, format, cx);
+        self.insert_image_upload(receipt, bytes, kind, cx);
     }
 
     pub(crate) fn retire_stale_uploads(&mut self, cx: &mut Context<Self>) {

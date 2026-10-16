@@ -332,6 +332,23 @@ fn centroid(pointers: &[TouchPointer]) -> Point<Pixels> {
     point(sx / n as f32, sy / n as f32)
 }
 
+/// Release that cancels the pending `MouseDown(Left)` when a touch turns
+/// into a scroll, long press or multi-finger gesture.
+///
+/// gpui fires `on_click` for any left release over the element that took
+/// the press, whatever the click count. The cancel used to land on the
+/// press anchor, so a scroll that started on a sidebar folder toggled it.
+/// Releasing off-window drops the pending press without a click; the next
+/// event (scroll, long-press down) moves the pointer back.
+fn cancel_left(modifiers: gpui::Modifiers) -> PlatformInput {
+    PlatformInput::MouseUp(MouseUpEvent {
+        button: MouseButton::Left,
+        position: point(px(-10_000.), px(-10_000.)),
+        modifiers,
+        click_count: 0,
+    })
+}
+
 impl TouchState {
     /// `drag_capture` is the snapshot of `AndroidWindowState::drag_active`
     /// at dispatch time. When set, the SM treats single-finger motion
@@ -444,18 +461,16 @@ impl TouchState {
                     // the context-menu emission. The pending
                     // `MouseDown(Left, count=2)` was emitted at
                     // long-press fire; emit its matching `Up` here.
-                    let cancel_count =
-                        if matches!(self.phase, GesturePhase::LongPressSelection) {
-                            2
-                        } else {
-                            0
-                        };
-                    out.push(PlatformInput::MouseUp(MouseUpEvent {
-                        button: MouseButton::Left,
-                        position: anchor,
-                        modifiers,
-                        click_count: cancel_count,
-                    }));
+                    if matches!(self.phase, GesturePhase::LongPressSelection) {
+                        out.push(PlatformInput::MouseUp(MouseUpEvent {
+                            button: MouseButton::Left,
+                            position: anchor,
+                            modifiers,
+                            click_count: 2,
+                        }));
+                    } else {
+                        out.push(cancel_left(modifiers));
+                    }
                     out.push(PlatformInput::MouseDown(MouseDownEvent {
                         button: MouseButton::Right,
                         position: anchor,
@@ -477,12 +492,7 @@ impl TouchState {
                 // original DOWN so the editor doesn't see a stuck button
                 // while we proceed into scroll classification.
                 if matches!(self.phase, GesturePhase::SingleFingerDown) {
-                    out.push(PlatformInput::MouseUp(MouseUpEvent {
-                        button: MouseButton::Left,
-                        position: primary_pos,
-                        modifiers,
-                        click_count: 0,
-                    }));
+                    out.push(cancel_left(modifiers));
                 }
                 if matches!(
                     self.phase,
@@ -629,12 +639,7 @@ impl TouchState {
                         // a pane boundary (editor↔terminal split, etc.).
                         let anchor = pstate.down_pos;
                         self.phase = GesturePhase::SingleFingerScroll;
-                        out.push(PlatformInput::MouseUp(MouseUpEvent {
-                            button: MouseButton::Left,
-                            position: anchor,
-                            modifiers,
-                            click_count: 0,
-                        }));
+                        out.push(cancel_left(modifiers));
                         if delta.magnitude() > 0.0 {
                             out.push(PlatformInput::ScrollWheel(ScrollWheelEvent {
                                 position: anchor,
@@ -659,12 +664,7 @@ impl TouchState {
                         // `TouchAction::Up`.
                         let anchor = pstate.down_pos;
                         self.phase = GesturePhase::LongPressSelection;
-                        out.push(PlatformInput::MouseUp(MouseUpEvent {
-                            button: MouseButton::Left,
-                            position: primary_pos,
-                            modifiers,
-                            click_count: 0,
-                        }));
+                        out.push(cancel_left(modifiers));
                         out.push(PlatformInput::MouseDown(MouseDownEvent {
                             button: MouseButton::Left,
                             position: anchor,
@@ -743,29 +743,27 @@ impl TouchState {
             }
 
             TouchAction::Cancel => {
-                let position = event
-                    .pointers
-                    .first()
-                    .map(|p| p.pos)
-                    .unwrap_or(Point::default());
                 // If we have an outstanding `Left` press (plain tap
                 // pending, long-press selection, or drag-passthrough),
                 // emit a `count=0` cancel `Up` so the editor doesn't
                 // see a stuck button.
+                // A drag-passthrough release stays where the finger is so
+                // the dragging element still sees it.
+                let drag = matches!(self.phase, GesturePhase::DragPassthrough);
                 let cancel = matches!(
                     self.phase,
-                    GesturePhase::SingleFingerDown
-                        | GesturePhase::LongPressSelection
-                        | GesturePhase::DragPassthrough
+                    GesturePhase::SingleFingerDown | GesturePhase::LongPressSelection
                 );
                 self.reset();
-                if cancel {
+                if drag {
                     out.push(PlatformInput::MouseUp(MouseUpEvent {
                         button: MouseButton::Left,
-                        position,
+                        position: event.pointers[0].pos,
                         modifiers,
                         click_count: 0,
                     }));
+                } else if cancel {
+                    out.push(cancel_left(modifiers));
                 }
             }
         }

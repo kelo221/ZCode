@@ -76,6 +76,29 @@ fn word_delete_select_all_and_selection_replace() {
 }
 
 #[test]
+fn plain_click_moves_the_caret_and_shift_click_extends() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = TestApp::with_text_system_and_assets(
+        Arc::new(gpui::NoopTextSystem::new()),
+        Arc::new(ely_gpui_component::Assets),
+    );
+    let mut window = composer_window(&mut app);
+    window.simulate_input("hello world");
+    window.update(|c, _, cx| c.press_at(3, false, cx));
+    window.read(|c, _| {
+        assert_eq!(c.caret, 3, "the caret moves to the click");
+        assert_eq!(c.selection(), None, "a plain click selects nothing");
+    });
+    window.update(|c, _, cx| c.press_at(8, true, cx));
+    window.read(|c, _| assert_eq!(c.selection(), Some(3..8)));
+    window.update(|c, _, cx| c.press_at(1, false, cx));
+    window.read(|c, _| {
+        assert_eq!(c.caret, 1);
+        assert_eq!(c.selection(), None, "a new click drops the old highlight");
+    });
+}
+
+#[test]
 fn long_text_renders_without_panicking_and_keeps_caret_at_end() {
     let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut app = TestApp::with_text_system_and_assets(
