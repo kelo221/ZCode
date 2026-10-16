@@ -2078,11 +2078,40 @@ export const zcodeSessionRuntimePreferencesResultSchema = z
     modelContextBudgetStrategy: zcodeModelContextBudgetStrategySchema.default(
       DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
     ),
+    // GPUI-only voice: only `true` gives the main session the Speak tool. Hosts
+    // that omit it (Electron, older hosts) never enable the tool.
+    voiceEnabled: z.boolean().optional(),
   })
   .strict();
 export type ZCodeSessionRuntimePreferencesResult = z.infer<
   typeof zcodeSessionRuntimePreferencesResultSchema
 >;
+
+export const ZCODE_SPEAK_MESSAGE_MAX_CHARS = 300;
+export const ZCODE_SPEAK_REQUEST_TIMEOUT_MS = 5_000;
+export const zcodeSpeakKindSchema = z.enum(["attention", "done", "planReady", "info"]);
+export type ZCodeSpeakKind = z.infer<typeof zcodeSpeakKindSchema>;
+
+/** `interaction/speak`: the agent asks the client to say a short sentence aloud. */
+export const zcodeSpeakParamsSchema = z
+  .object({
+    sessionId: nonEmptyString,
+    message: z.string().trim().min(1).max(ZCODE_SPEAK_MESSAGE_MAX_CHARS),
+    kind: zcodeSpeakKindSchema,
+  })
+  .strict();
+export type ZCodeSpeakParams = z.infer<typeof zcodeSpeakParamsSchema>;
+
+export const zcodeSpeakRejectReasonSchema = z.enum(["disabled", "unfocusedOnly", "unavailable"]);
+export type ZCodeSpeakRejectReason = z.infer<typeof zcodeSpeakRejectReasonSchema>;
+
+export const zcodeSpeakResultSchema = z
+  .object({
+    accepted: z.boolean(),
+    reason: zcodeSpeakRejectReasonSchema.optional(),
+  })
+  .strict();
+export type ZCodeSpeakResult = z.infer<typeof zcodeSpeakResultSchema>;
 
 /**
  * App 在提交 prompt 前只读采集的 IAB 可见状态。该字段只用于 provider-visible
@@ -4203,6 +4232,8 @@ export const zcodeProtocolMethods = {
   // browser-use 反向请求由 agent 发起，host 转给 main 中的 CDP executor。
   interactionBrowserList: "interaction/browserList",
   interactionBrowserExecute: "interaction/browserExecute",
+  // GPUI-only: the agent's Speak tool asks the desktop client to speak aloud.
+  interactionSpeak: "interaction/speak",
 } as const;
 
 export type ZCodeProtocolMethod = (typeof zcodeProtocolMethods)[keyof typeof zcodeProtocolMethods];
@@ -4295,6 +4326,10 @@ export const zcodeProtocolSessionMethodContracts = {
   [zcodeProtocolMethods.interactionBrowserExecute]: {
     params: zcodeBrowserExecuteParamsSchema,
     result: zcodeBrowserExecuteResultSchema,
+  },
+  [zcodeProtocolMethods.interactionSpeak]: {
+    params: zcodeSpeakParamsSchema,
+    result: zcodeSpeakResultSchema,
   },
 } as const satisfies Partial<
   Record<ZCodeProtocolMethod, { params: z.ZodTypeAny; result: z.ZodTypeAny }>

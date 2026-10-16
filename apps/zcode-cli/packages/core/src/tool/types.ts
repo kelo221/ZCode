@@ -23,6 +23,7 @@ import type {
   ModelMessageContent,
   ModelToolSideEffectScope,
   OffPeakPort,
+  VoicePort,
   TopicResourcePort,
   PdfDocumentPort,
   PermissionBrokerReasonSource,
@@ -172,6 +173,7 @@ export interface ToolExecutionContext {
   artifactStore?: ToolArtifactStorePort;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
+  voicePort?: VoicePort;
   topicResourcePort?: TopicResourcePort;
   sessionStore?: SessionStorePort;
   sessionModePort?: SessionModePort;

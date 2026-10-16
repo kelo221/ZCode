@@ -33,6 +33,7 @@ pub(crate) mod theme;
 pub(crate) mod theme_colors;
 pub(crate) mod theme_palette;
 pub(crate) mod usage_stats;
+pub(crate) mod voice_settings;
 pub(crate) mod window_state;
 pub(crate) mod workflow_artifact_content;
 pub(crate) mod workflow_artifacts;

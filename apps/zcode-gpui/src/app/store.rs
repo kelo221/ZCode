@@ -81,6 +81,8 @@ pub struct AppState {
     pub(crate) browser: crate::browser_bridge::BrowserBridge,
     /// Phone build: the paired desktop that serves every workspace.
     pub(crate) phone_client: crate::remote::phone_state::PhoneClient,
+    /// Desktop only (`None` on the phone): spoken output, see VOICE.md.
+    pub(crate) voice: Option<crate::voice::VoiceService>,
 }
 
 impl AppState {
@@ -110,6 +112,7 @@ impl AppState {
             ),
             phone_client: Default::default(),
             browser: Default::default(),
+            voice: None,
             workspaces: workspace_paths
                 .into_iter()
                 .map(|p| WorkspaceHandle::new(p, candidates.clone()))
@@ -171,6 +174,7 @@ impl AppState {
             }
             state.init_phone_gateway(cx);
             state.init_browser_bridge(cx);
+            state.voice = Some(crate::voice::VoiceService::new());
         }
         state.start_maintenance(cx);
         crate::backend::flow_cmds::start_tail_poll(cx);
@@ -212,6 +216,9 @@ impl AppState {
     pub fn shutdown_all_workspaces(&mut self) {
         self.profiles.shutdown();
         self.browser.shutdown(std::time::Instant::now());
+        if let Some(voice) = &mut self.voice {
+            voice.shutdown();
+        }
         for w in &mut self.workspaces {
             w.shutdown();
         }
@@ -352,36 +359,6 @@ impl AppState {
         while self.log.len() > 200 {
             self.log.pop_front();
         }
-    }
-
-    pub(crate) fn register_conversation_workspace(
-        &mut self,
-        candidates: Vec<crate::backend::launcher::BackendLaunch>,
-    ) {
-        use crate::backend::workspace::{
-            canonical_workspace_string, ensure_conversation_workspace_dir,
-        };
-        let p = ensure_conversation_workspace_dir();
-        let key = canonical_workspace_string(&p);
-        let mut h = WorkspaceHandle::new(p, candidates);
-        h.purpose = WorkspacePurpose::Conversation;
-        h.display = "Tasks".into();
-        match self.workspaces.iter_mut().find(|w| w.key == key) {
-            Some(ws) => *ws = h,
-            None => self.workspaces.insert(0, h),
-        }
-    }
-
-    pub fn conversation_workspace_key(&self) -> Option<String> {
-        self.workspaces
-            .iter()
-            .find(|w| w.purpose == WorkspacePurpose::Conversation)
-            .map(|w| w.key.clone())
-    }
-
-    pub fn is_conversation_workspace(&self, ws_key: &str) -> bool {
-        self.ws(ws_key)
-            .is_some_and(|w| w.purpose == WorkspacePurpose::Conversation)
     }
 
     pub(crate) fn status_error(&mut self, ws_key: &str, msg: &str) {

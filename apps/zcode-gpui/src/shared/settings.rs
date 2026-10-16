@@ -113,6 +113,8 @@ pub struct AppSettings {
         rename = "dataBaseDir"
     )]
     pub data_base_dir: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "gpuiVoice")]
+    pub gpui_voice: Option<crate::shared::voice_settings::VoiceSettings>,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }

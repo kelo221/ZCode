@@ -2,7 +2,7 @@
 
 > **Unofficial.** This is a community GPUI client for the ZCode CLI backend. It is not an official ZCode product and is not supported by the ZCode team.
 
-Native Rust/GPUI frontend for the existing ZCode CLI app-server. Chat, project/session navigation, model and mode selection, basic review/files/terminal panes, a first Settings slice, and Browser Use through your own Helium/Chrome are implemented. This is **not complete Electron parity**: provider/capability configuration, parts of plugin/workflow management, host-owned task metadata, and native lifecycle/distribution remain incomplete. See [PARITY.md](PARITY.md) and [SETTINGS.md](SETTINGS.md).
+Native Rust/GPUI frontend for the existing ZCode CLI app-server. Chat, project/session navigation, model and mode selection, basic review/files/terminal panes, a first Settings slice, Browser Use through your own Helium/Chrome, and agents that speak to you on the PC are implemented. This is **not complete Electron parity**: provider/capability configuration, parts of plugin/workflow management, host-owned task metadata, and native lifecycle/distribution remain incomplete. See [PARITY.md](PARITY.md) and [SETTINGS.md](SETTINGS.md).
 
 ## Running
 
@@ -21,6 +21,7 @@ GPUI and `gpui_platform` are git-pinned to Zed revision `1a28cff4b409169bac058bc
 - **Tool panes:** Basic Git review with stage/commit/push and diffs, a lazy file tree with text/Markdown and bounded static PNG/JPEG/GIF/WebP/BMP/ICO previews, and a local PTY terminal with scrollback drag selection and Ctrl/Cmd+C copy (Ctrl+C without selection still interrupts). Usage, MCP status listing/Open authorization, plugins, workflows, and subagent views also exist; OAuth opening is owner/connection/query guarded and uses a secret-safe native adapter, not MCP configuration CRUD. The presence of a pane does not imply every management action is implemented.
 - **Plugins and workflows:** Workspace-scoped install/update/enable/uninstall/restore/source management uses checked results and shared pending guards. Personal Source plugin cards expose draft-safe Example Prompt prefill with canonical enabled references; an existing target draft blocks prefill rather than being overwritten. Saved project/global workflows have typed arguments, Run in new chat, definition inspection, saved-run history/Open chat, eligible-run model/concurrency settings, metadata editing, and confirmed Delete/global-to-project Move. Writes preflight the inspected definition and preserve newer edits; existing move destinations are never overwritten. Definitions and scheduling stay backend-owned; unknown outcomes require Reload, not automatic replay or deletion. Read-only plugin Details/Refresh and typed user/workspace configuration are reachable, with masked secret drafts, explicit per-option Clear and confirmed scope-correct Reset. Scoped writes preflight current CLI values, preserve unspecified/newer edits and refresh only their origin. Projected Open run/Open successor and All runs are reachable; a focused amendment follows its exact returned run/tool-call pair only after the authoritative stream contains it. Focused run details show journal-owned artifact metadata with explicit Refresh and distinct loading/empty/unavailable/error states. Markdown deliverables offer bounded latest-version View/Retry/Close through the authorized CLI read, with passive links/images and strict complete-response validation. Store paths are never opened. Other artifact formats, version navigation, cross-project run detail and native lifecycle evidence remain incomplete.
 - **Browser Use:** The agent's browser tool drives tabs in your own Helium or Google Chrome through the ZCode extension (`apps/zcode-browser-extension`) and a small native host (`zcode-browser-host`) that relays to a token-protected loopback bridge in GPUI. Agent tabs open in the background inside a "ZCode" tab group; the agent can also claim and hand back your own tabs. Settings › Browser Use shows the connection, registers the native host (Windows only for now) and opens the extension folder. Recording, downloads and file uploads are not supported yet. See [BROWSER_BRIDGE.md](BROWSER_BRIDGE.md).
+- **Voice:** With Settings › Voice › Let agents speak on, the main agent gets a `Speak` tool and says one short sentence on this PC when it needs you, finishes a task or has a plan ready. GPUI says "Permission needed", "Question waiting" or "Plan ready" itself when such a prompt appears and the agent hasn't spoken that turn. Speech is generated locally by the separate `zcode-voice` program (Kokoro through kokoro-tiny), which downloads its ~350 MB model to `~/.zcode/v2/voice` on first use and unloads after 10 idle minutes. Voice, speed, volume and "only when ZCode isn't focused" are configurable; Test voice works while it is off. Turning it on applies to new or resumed sessions. The phone never speaks and never receives speak requests. See [VOICE.md](VOICE.md).
 - **Settings:** The sidebar gear, command center, and `CmdOrCtrl+,` open the same per-window destination. General has System/English/Chinese language; Appearance has System/light/dark theme and 12–20 px interface font size; Shortcuts supports the commands listed below. Memory persists `memoryEnabled` (default off) and supplies its committed value to CLI runtime-preference requests; it permits configured memory for newly materialized/resumed runtimes, not an active-runtime reset. Back/Escape preserve the workspace, session, and composer. Streams continue while Settings is open. Localization outside Settings and selected primary surfaces is still partial.
 
 ### Settings persistence and paths
@@ -76,6 +77,7 @@ Desktop live delivery (`desktop-continuous`) and recovery delivery (`web-remote-
 | `shared/`                        | Preferences, path resolution, theme/i18n, platform adapters and render utilities          |
 | `browser_bridge/`, `bin/`        | Browser Use bridge, host registration and the `zcode-browser-host` native host            |
 | `remote/`                        | Phone remote control (LAN gateway and phone client)                                       |
+| `voice/`                         | Voice service: `interaction/speak`, fallback lines and the `zcode-voice` sidecar process  |
 
 Slices extend `RootView` and `AppState`. Rust source/test files are capped at 400 lines by `tests/source_limits.rs`. The root TypeScript architecture policy marks this app unmanaged; its successful check is not a Rust ownership audit.
 
@@ -134,6 +136,16 @@ bun run package:gpui                                                # stages hos
 
 Load the extension unpacked from `chrome://extensions` (Developer mode on), then click Register in Settings › Browser Use. GPUI finds the extension in `browser-extension/` next to the executable, or in the checkout's `apps/zcode-browser-extension/dist`. Pass `--skip-extension` to the packager to package without bun.
 
+### Voice setup
+
+```sh
+# Needs cmake and libclang (LLVM, or `pip install libclang` and point LIBCLANG_PATH at its `clang/native` dir).
+CMAKE_POLICY_VERSION_MINIMUM=3.5 cargo build --release --manifest-path apps/zcode-voice/Cargo.toml
+bun run package:gpui                  # stages zcode-voice.exe, DirectML.dll and espeak-ng-data/ into dist/zcode-gpui/
+```
+
+GPUI finds `zcode-voice` through `ZCODE_GPUI_VOICE_PROGRAM`, next to its executable, or in the checkout's `apps/zcode-voice/target/{release,debug}`. A dev build reads eSpeak NG data from its own cargo build output, so no system eSpeak install is needed. Pass `--skip-voice` to the packager to package without it; a failed voice build only warns. Packaging currently stages voice on Windows only. See [apps/zcode-voice/README.md](../zcode-voice/README.md).
+
 ## Validation
 
 ```sh
@@ -141,6 +153,7 @@ cargo fmt --manifest-path apps/zcode-gpui/Cargo.toml --check
 cargo clippy --manifest-path apps/zcode-gpui/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path apps/zcode-gpui/Cargo.toml
 bun apps/zcode-gpui/scripts/backend_smoke.ts
+cargo test --manifest-path apps/zcode-voice/Cargo.toml   # needs the voice build environment above
 # Browser command layer and extension (vitest needs Node, not the Bun runtime):
 node node_modules/vitest/vitest.mjs run packages/browser-commands apps/zcode-browser-extension
 ```
@@ -155,4 +168,9 @@ GPUI test windows exercise Settings keyboard/QuickPick entry, measured-bound poi
 - `model_request_failed`: Configure/select an API-key provider through the existing primary application. Native provider configuration is not yet implemented.
 - Preference refusal while Electron is running: Change settings there, or close it before using GPUI's preference writer.
 - The browser tool lists no browsers: check Settings › Browser Use. The bridge must be listening (only one GPUI instance owns it; scratch instances never start it), the host must be registered for this copy, and the extension must be loaded and enabled. It reconnects within a minute, or right away after you reload it.
+- Settings › Voice says "Voice engine not found": build `apps/zcode-voice` (see Voice setup) or put `zcode-voice.exe` next to GPUI. An eSpeak error means `espeak-ng-data` is missing next to it. The agent only gets the `Speak` tool in sessions started or resumed after turning voice on.
 - `ZCODE_GPUI_LOG_STDOUT=1`: Emits frontend diagnostic logs to stderr. Diagnostics must remain redacted.
+
+## License
+
+zcode-gpui is Apache-2.0, like the rest of this repository; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for its dependencies. The optional voice program `apps/zcode-voice` is a separate GPL-3.0-or-later executable because it statically links eSpeak NG; GPUI only starts it and talks to it over stdin/stdout.

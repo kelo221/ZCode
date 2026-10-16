@@ -74,6 +74,7 @@ import type {
   ExecutionShellSelection,
   AutomationPort,
   OffPeakPort,
+  VoicePort,
   TopicResourcePort,
   FileSystemPort,
   HttpClientPort,
@@ -384,6 +385,7 @@ export interface AgentRuntimeDeps {
   artifactStore?: ToolArtifactStorePort;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
+  voicePort?: VoicePort;
   topicResourcePort?: TopicResourcePort;
   contextSourcePort?: ContextSourcePort;
   eventSink?: SessionEventSink;

@@ -16,7 +16,7 @@ fn grouped_navigation_is_complete_unique_and_searchable() {
     );
     assert_eq!(SettingsSection::parse("not-a-section"), None);
     let sections = navigation_sections("");
-    assert_eq!(sections.len(), 11);
+    assert_eq!(sections.len(), 12);
     assert_eq!(
         sections[0],
         (SettingsGroup::Basics, SettingsSection::General)
@@ -35,10 +35,14 @@ fn grouped_navigation_is_complete_unique_and_searchable() {
     );
     assert_eq!(
         sections[9],
-        (SettingsGroup::DataAndStats, SettingsSection::Usage)
+        (SettingsGroup::AgentCapabilities, SettingsSection::Voice)
     );
     assert_eq!(
         sections[10],
+        (SettingsGroup::DataAndStats, SettingsSection::Usage)
+    );
+    assert_eq!(
+        sections[11],
         (SettingsGroup::DataAndStats, SettingsSection::Phone)
     );
     for (_, section) in &sections {
@@ -58,6 +62,7 @@ fn grouped_navigation_is_complete_unique_and_searchable() {
         navigation_sections("子智能体")[0].1,
         SettingsSection::Subagents
     );
+    assert_eq!(navigation_sections("语音")[0].1, SettingsSection::Voice);
     assert!(navigation_sections("missing section").is_empty());
     assert!(!settings_layout(1280.).compact);
     assert!(settings_layout(700.).compact);
@@ -238,5 +243,35 @@ fn measured_search_and_narrow_navigation_keep_models_read_only() {
         assert!(state.workspaces[0].pending.is_empty());
         assert!(state.composer.read(cx).text().is_empty());
     });
+    assert!(!dir.exists());
+}
+
+#[test]
+fn voice_section_renders_on_desktop_and_is_hidden_on_the_phone() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("gpui-settings-voice-{}", uuid::Uuid::now_v7()));
+    let mut app = app(dir.join("setting.json"));
+    let state = app.new_entity(AppState::for_test);
+    let mut window = app.open_window(|_, cx| RootView::new(state.clone(), cx));
+    window.simulate_resize(size(px(1280.), px(820.)));
+    window
+        .update(|view, window, cx| view.open_settings_section(SettingsSection::Voice, window, cx));
+    window.draw();
+    let targets = |app: &mut TestApp| -> Vec<String> {
+        app.read(|cx| cx.global::<TestTargets>().0.keys().cloned().collect())
+    };
+    let desktop = targets(&mut app);
+    assert!(desktop.contains(&"settings-voice".to_string()));
+    assert!(desktop.contains(&"settings-voice-engine".to_string()));
+    app.update(|cx| {
+        cx.set_global(TestTargets::default());
+        state.update(cx, |s, _| s.phone_client.enabled = true);
+    });
+    window.update(|view, window, cx| view.open_settings(window, cx));
+    window.draw();
+    let phone = targets(&mut app);
+    assert!(phone.contains(&"settings-general".to_string()));
+    assert!(!phone.contains(&"settings-voice".to_string()));
+    assert!(!phone.contains(&"settings-browser".to_string()));
     assert!(!dir.exists());
 }

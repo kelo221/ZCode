@@ -326,6 +326,24 @@ Memory reply for real runtime materialization and user execution. This protocol 
 is separate from GPUI pointer/owner tests and is not memory-tool execution evidence.
 Native visual/executable restart and actual memory-tool execution remain evidence gaps.
 
+## Voice (desktop only)
+
+Settings › Voice sits under Agent capabilities after Browser Use and is hidden on the phone build,
+like Browser Use. Its values live in one GPUI-only `gpuiVoice` object in `setting.json`
+(`enabled`, `voice`, `speed`, `volume`, `onlyWhenUnfocused`; defaults off, `af_sky`, 1.0, 0.8,
+off), written through the same PreferenceOwner and validated before the write. The
+runtime-preference reply carries `voiceEnabled: true` only when the desktop has a voice service
+and the committed setting is on, so, like Memory, turning it on applies to newly materialized or
+resumed sessions. Turning it off applies at once: Speak calls get `disabled` and current speech
+stops. The Test voice button and the engine status line read the voice service, not the
+preference. Product rules, protocol and the sidecar are specified in [VOICE.md](VOICE.md).
+
+Acceptance tests: grouped navigation includes Voice and hides it on the phone; the pane renders
+on desktop; `gpuiVoice` round-trips with partial-object defaults; the speak handler answers
+`disabled`, `unfocusedOnly` and `unavailable` and never sends a blank line to the engine; the
+runtime-preference reply includes `voiceEnabled`. Real speech through the GPUI executable is a
+manual check.
+
 ## Pending MCP OAuth authorization
 
 MCP Settings and the workspace MCP pane expose Open authorization only when the current

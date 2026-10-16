@@ -97,10 +97,12 @@ mod settings_shortcut_bindings_tests;
 pub(crate) mod settings_shortcuts;
 #[cfg(test)]
 mod settings_tests;
+mod settings_voice;
 #[cfg(test)]
 mod slash_catalog_controls_tests;
 mod stop_button;
 pub(crate) mod store;
+mod store_workspaces;
 pub(crate) mod subagent_profiles;
 #[cfg(test)]
 mod subagents_controls_tests;

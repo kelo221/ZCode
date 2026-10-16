@@ -69,7 +69,7 @@ fn current_cli_reverse_rpc_calls_have_explicit_gpui_responses() {
             &serde_json::json!(1),
             method,
             &serde_json::json!({}),
-            false,
+            reverse_rpc::HostPrefs::default(),
         ) {
             reverse_rpc::ReverseRpcAction::Raced => {}
             reverse_rpc::ReverseRpcAction::Respond(line) => {

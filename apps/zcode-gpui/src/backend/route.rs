@@ -61,6 +61,7 @@ impl AppState {
                 return;
             }
             FrameDecision::Apply => {
+                let voice_before = self.voice_before_frame(&frame.topic);
                 // The cursor advances only after a successful, complete
                 // application (review finding 3).
                 if let Err(e) = self.apply_payload(&frame, &kind) {
@@ -71,6 +72,7 @@ impl AppState {
                     return;
                 }
                 self.advance_cursor(&frame, &kind);
+                self.voice_after_frame(voice_before, cx);
                 if let Some(sid) = frame.topic.strip_prefix("conversation/")
                     && let Some(key) = self.ws_for_topic(&frame.topic)
                 {

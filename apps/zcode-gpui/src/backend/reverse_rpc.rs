@@ -62,12 +62,20 @@ fn is_host_channel_method(method: &str) -> bool {
     method.starts_with("bot/") || method.starts_with("topic/resource/")
 }
 
+/// Committed host preferences that answer `session/requestRuntimePreferences`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HostPrefs {
+    pub memory_enabled: bool,
+    /// Desktop with Settings › Voice on: the main session gets the Speak tool.
+    pub voice_enabled: bool,
+}
+
 /// Dispatches an agent-to-client request based on the method name.
 pub fn dispatch_reverse_rpc(
     id: &Value,
     method: &str,
     _params: &Value,
-    memory_enabled: bool,
+    prefs: HostPrefs,
 ) -> ReverseRpcAction {
     match method {
         "interaction/requestPermission" | "interaction/requestUserInput" => ReverseRpcAction::Raced,
@@ -90,9 +98,16 @@ pub fn dispatch_reverse_rpc(
             json!({
                 "askUserQuestionAutoResolutionEnabled": true,
                 "nativeSearchEnhancementsEnabled": true,
-                "memoryEnabled": memory_enabled
+                "memoryEnabled": prefs.memory_enabled,
+                "voiceEnabled": prefs.voice_enabled
             }),
         ),
+
+        // The desktop's VoiceService answers first (events.rs); reaching here
+        // means no voice output (phone build or no service).
+        "interaction/speak" => {
+            respond_result(id, json!({ "accepted": false, "reason": "unavailable" }))
+        }
 
         // No embedded browser: discovery reports none, execution fails with
         // the schema's `backend_unavailable` code instead of hanging.

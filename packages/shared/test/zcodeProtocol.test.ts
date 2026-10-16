@@ -24,6 +24,9 @@ import {
   zcodeSessionSetModelParamsSchema,
   zcodeSessionSetThoughtLevelParamsSchema,
   zcodeSessionRuntimePreferencesResultSchema,
+  ZCODE_SPEAK_MESSAGE_MAX_CHARS,
+  zcodeSpeakParamsSchema,
+  zcodeSpeakResultSchema,
   zcodeSessionSettingsStateSchema,
   zcodeSessionStateSnapshotSchema,
   zcodeStateUpdatedNotificationSchema,
@@ -2739,6 +2742,16 @@ describe("ZCode Protocol", () => {
       modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
     });
     expect(
+      zcodeSessionRuntimePreferencesResultSchema.parse({ nativeSearchEnhancementsEnabled: true })
+        .voiceEnabled,
+    ).toBeUndefined();
+    expect(
+      zcodeSessionRuntimePreferencesResultSchema.parse({
+        nativeSearchEnhancementsEnabled: true,
+        voiceEnabled: true,
+      }).voiceEnabled,
+    ).toBe(true);
+    expect(
       zcodeSessionRuntimePreferencesResultSchema.parse({
         nativeSearchEnhancementsEnabled: true,
         askUserQuestionAutoResolutionEnabled: false,
@@ -2751,6 +2764,35 @@ describe("ZCode Protocol", () => {
         modelContextBudgetStrategy: "unknown",
       }),
     ).toThrow();
+  });
+
+  it("validates interaction/speak params and results strictly", () => {
+    expect(zcodeProtocolMethods.interactionSpeak).toBe("interaction/speak");
+    expect(
+      zcodeSpeakParamsSchema.parse({
+        sessionId: "sess_1",
+        message: " Plan ready ",
+        kind: "planReady",
+      }),
+    ).toEqual({ sessionId: "sess_1", message: "Plan ready", kind: "planReady" });
+    expect(() =>
+      zcodeSpeakParamsSchema.parse({ sessionId: "sess_1", message: "   ", kind: "done" }),
+    ).toThrow();
+    expect(() =>
+      zcodeSpeakParamsSchema.parse({
+        sessionId: "sess_1",
+        message: "a".repeat(ZCODE_SPEAK_MESSAGE_MAX_CHARS + 1),
+        kind: "done",
+      }),
+    ).toThrow();
+    expect(() =>
+      zcodeSpeakParamsSchema.parse({ sessionId: "sess_1", message: "hi", kind: "shout" }),
+    ).toThrow();
+    expect(zcodeSpeakResultSchema.parse({ accepted: false, reason: "disabled" })).toEqual({
+      accepted: false,
+      reason: "disabled",
+    });
+    expect(() => zcodeSpeakResultSchema.parse({ accepted: true, extra: 1 })).toThrow();
   });
 
   it("accepts turn.completed cache stats and history round count from runtime events", () => {

@@ -114,6 +114,7 @@ import { buildAppUsageSnapshot, resolveTzOffsetMs } from "./usage-stats-builder.
 import { createProtocolInteractionBroker } from "./interaction-broker.js";
 import { createProtocolAutomationPort } from "./automation-port.js";
 import { createProtocolOffPeakPort } from "./offpeak-port.js";
+import { createProtocolVoicePort } from "./voice-port.js";
 import { createProtocolTopicResourcePort } from "./topic-resource-port.js";
 import { createProtocolBrowserControlBroker } from "./browser-control-broker.js";
 import { mapComputerUseOperationEvent } from "./computer-use-operation-event.js";
@@ -160,6 +161,8 @@ interface SessionStartupPreferences {
   memoryEnabled: boolean;
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
   nativeSearchEnhancementsEnabled: boolean;
+  // GPUI 桌面语音：主会话才注入 VoicePort（Speak 工具）；继承来源（子会话）恒为 false。
+  voiceEnabled: boolean;
   resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
 }
 
@@ -3255,6 +3258,7 @@ async function requestSessionRuntimePreferences(
         memoryEnabled: false,
         modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
         nativeSearchEnhancementsEnabled: true,
+        voiceEnabled: false,
       };
     }
     throw error;
@@ -3274,6 +3278,7 @@ async function resolveSessionStartupPreferences(
       subagentRuntimeConfigEnabled: source.parent.subagentRuntimeConfigEnabled,
       modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
       nativeSearchEnhancementsEnabled: source.parent.nativeSearchEnhancementsEnabled,
+      voiceEnabled: false,
       resolveInitialBashShellSelection: async () => inheritedShellSelection,
     };
   }
@@ -3293,6 +3298,7 @@ async function resolveSessionStartupPreferences(
     memoryEnabled: runtimePreferences.memoryEnabled,
     modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
     nativeSearchEnhancementsEnabled: runtimePreferences.nativeSearchEnhancementsEnabled,
+    voiceEnabled: runtimePreferences.voiceEnabled === true,
     resolveInitialBashShellSelection: async () => {
       const executionPreferences = await requestSessionRuntimePreferences(
         context,
@@ -3418,6 +3424,9 @@ async function createRecord(
     ...(("offPeakToolEnabled" in params && params.offPeakToolEnabled === true) ||
     context.appRuntimePreferences.offPeakToolEnabled === true
       ? { offPeakPort: createProtocolOffPeakPort(context, () => ownSessionRecord) }
+      : {}),
+    ...(startupPreferences.voiceEnabled
+      ? { voicePort: createProtocolVoicePort(context, sessionId) }
       : {}),
     resolveInitialBashShellSelection: startupPreferences.resolveInitialBashShellSelection,
     ...(startupPreferences.subagentRuntimeConfigEnabled &&

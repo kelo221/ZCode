@@ -2,6 +2,7 @@
 name = "zcode-gpui"
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
 description = "Minimal native GPUI frontend for the ZCode agent backend"
 # src/bin/zcode-browser-host.rs is a second binary; `cargo run` means the app.
 default-run = "zcode-gpui"

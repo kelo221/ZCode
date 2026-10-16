@@ -21,6 +21,7 @@ pub(crate) enum PreferenceChange {
     Theme(ThemeMode),
     FontSize(f32),
     MemoryEnabled(bool),
+    Voice(crate::shared::voice_settings::VoiceSettings),
     Shortcut(String, Option<Vec<String>>),
     RecentProject(String),
 }
@@ -35,6 +36,7 @@ impl PreferenceChange {
             Self::Theme(mode) => settings.theme_preference = Some(mode.as_str().into()),
             Self::FontSize(size) => settings.ui_font_size = Some(*size),
             Self::MemoryEnabled(enabled) => settings.memory_enabled = Some(*enabled),
+            Self::Voice(voice) => settings.gpui_voice = Some(voice.clone()),
             Self::Shortcut(id, bindings) => {
                 let overrides = settings.shortcut_bindings.get_or_insert_with(HashMap::new);
                 if let Some(bindings) = bindings {
@@ -58,6 +60,7 @@ impl PreferenceChange {
             Self::FontSize(size) if !size.is_finite() || !(12.0..=20.0).contains(size) => {
                 Err("Interface font size must be between 12 and 20".into())
             }
+            Self::Voice(voice) => voice.validate(),
             Self::Shortcut(_, _) => {
                 let mut candidate = settings.clone();
                 self.apply(&mut candidate);

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -72,6 +72,13 @@ async function main() {
     }
   }
 
+  // Voice (apps/zcode-gpui/VOICE.md): the GPL-3.0 sidecar is a separate
+  // program next to GPUI. A failed voice build only warns; GPUI then reports
+  // "Voice engine not found" in Settings › Voice.
+  if (platform === "windows" && !process.argv.includes("--skip-voice")) {
+    await packageVoice();
+  }
+
   // Optional: the compiled CLI backend (about 150 MiB) beside the binary, which GPUI
   // prefers over a repository checkout or the installed Desktop runtime. Needs bun.
   if (process.argv.includes("--with-backend")) {
@@ -121,6 +128,49 @@ async function main() {
 
   console.log(`Release package ready at: ${defaultOutDir}`);
   console.log(`SHA-256: ${hash}`);
+}
+
+async function packageVoice() {
+  const voiceDir = resolve(root, "apps", "zcode-voice");
+  const release = join(voiceDir, "target", "release");
+  if (!process.argv.includes("--skip-build")) {
+    console.log("Building zcode-voice (needs cmake and LIBCLANG_PATH for espeak-ng)...");
+    const res = spawnSync(
+      "cargo",
+      ["build", "--release", "--manifest-path", join(voiceDir, "Cargo.toml")],
+      {
+        stdio: "inherit",
+        cwd: voiceDir,
+        env: { CMAKE_POLICY_VERSION_MINIMUM: "3.5", ...process.env },
+      },
+    );
+    if (res.status !== 0) {
+      console.warn("WARNING: zcode-voice build failed; packaging without voice.");
+      return;
+    }
+  }
+  try {
+    // espeak-ng-data must match the espeak-ng version compiled into the sidecar.
+    const buildDir = join(release, "build");
+    const candidates = (await readdir(buildDir)).filter((d) => d.startsWith("espeak-rs-sys-"));
+    let espeakData;
+    for (const dir of candidates) {
+      const data = join(buildDir, dir, "out", "share", "espeak-ng-data");
+      const info = await stat(join(data, "phontab")).catch(() => undefined);
+      if (info && (!espeakData || info.mtimeMs > espeakData.mtimeMs)) {
+        espeakData = { path: data, mtimeMs: info.mtimeMs };
+      }
+    }
+    if (!espeakData) throw new Error("espeak-ng-data not found under target/release/build");
+    for (const file of ["zcode-voice.exe", "DirectML.dll"]) {
+      await cp(join(release, file), join(defaultOutDir, file));
+    }
+    await cp(espeakData.path, join(defaultOutDir, "espeak-ng-data"), { recursive: true });
+    await cp(join(voiceDir, "NOTICE.md"), join(defaultOutDir, "zcode-voice-NOTICE.md"));
+    console.log("Copied zcode-voice, DirectML.dll and espeak-ng-data.");
+  } catch (err) {
+    console.warn(`WARNING: packaging without voice: ${err.message}`);
+  }
 }
 
 main().catch((err) => {

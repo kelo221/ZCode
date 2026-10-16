@@ -75,6 +75,7 @@ impl AppState {
             phone: crate::remote::gateway::PhoneGateway::new(None),
             phone_client: Default::default(),
             browser: Default::default(),
+            voice: None,
         }
     }
 }

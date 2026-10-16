@@ -73,6 +73,15 @@ Corporation). Its NOTICE and LICENSE texts are written into
 `zcode-browser-host` follow the general design of OpenAI's Codex browser
 extension and native host; that code is proprietary and none of it is copied.
 
+## Voice sidecar (zcode-voice, GPL-3.0-or-later)
+
+Agent voice (`VOICE.md`) runs in the separate program `zcode-voice`, built from
+`apps/zcode-voice`. It statically links eSpeak NG (GPL-3.0-or-later) and
+uses kokoro-tiny, ONNX Runtime and DirectML. zcode-gpui does not link it; it
+only starts the process and exchanges newline-delimited JSON over stdin/stdout.
+Its license and dependency list ship as `zcode-voice-NOTICE.md`
+(`apps/zcode-voice/NOTICE.md`).
+
 ## Transitive dependencies
 
 Transitive crate dependencies (e.g. vte, unicode-width, parking_lot, regex)

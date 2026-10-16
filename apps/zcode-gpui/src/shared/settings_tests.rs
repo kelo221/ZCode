@@ -116,3 +116,27 @@ fn missing_file_is_created() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn voice_settings_round_trip_under_one_gpui_key() {
+    let settings = AppSettings {
+        gpui_voice: Some(crate::shared::voice_settings::VoiceSettings {
+            enabled: true,
+            voice: "bm_george".into(),
+            speed: 1.2,
+            volume: 0.5,
+            only_when_unfocused: true,
+        }),
+        ..Default::default()
+    };
+    let raw = serde_json::to_value(&settings).unwrap();
+    assert_eq!(raw["gpuiVoice"]["onlyWhenUnfocused"], true);
+    assert_eq!(raw["gpuiVoice"]["voice"], "bm_george");
+    let back: AppSettings = serde_json::from_value(raw).unwrap();
+    assert_eq!(back.gpui_voice, settings.gpui_voice);
+    let partial: AppSettings =
+        serde_json::from_value(serde_json::json!({ "gpuiVoice": { "enabled": true } })).unwrap();
+    let voice = partial.gpui_voice.unwrap();
+    assert!(voice.enabled && !voice.only_when_unfocused);
+    assert_eq!(voice.voice, "af_sky");
+}

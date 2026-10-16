@@ -15,6 +15,7 @@ import {
   RESOLVE_WORKFLOW_QUESTION_TOOL_NAME,
   RESUME_WORKFLOW_RUN_TOOL_NAME,
   SAVE_WORKFLOW_TOOL_NAME,
+  SPEAK_TOOL_NAME,
   SUBMIT_RESULT_TOOL_NAME,
   type JsonSchema,
 } from "@zcode/contracts";
@@ -65,6 +66,7 @@ import { createWorkflowToolEntry } from "./create-workflow.js";
 import { saveWorkflowToolEntry } from "./save-workflow.js";
 import { listSavedWorkflowsToolEntry } from "./list-saved-workflows.js";
 import { listModelsToolEntry } from "./list-models.js";
+import { speakToolEntry } from "./speak.js";
 import { evalWorkflowSnippetToolEntry } from "./eval-workflow-snippet.js";
 import { listWorkflowRunsToolEntry } from "./list-workflow-runs.js";
 import { getWorkflowRunToolEntry } from "./get-workflow-run.js";
@@ -140,6 +142,8 @@ export const builtInTools: ToolEntry[] = [
   // `subagent_model`。不进 WORKFLOW_CHILD_DISALLOWED_TOOLS
   // ——那条禁令的理由是 alwaysAsk 在 child 里无窗可弹，只读查询不适用。
   listModelsToolEntry,
+  // GPUI 桌面语音：端口在场（Host 开启 voice 的主会话）才注册。
+  speakToolEntry,
   // workflowToolEntry,
 ];
 
@@ -188,6 +192,8 @@ interface RegisterBuiltInToolsOptions {
   includeAutomation?: boolean;
   /** Off-Peak 会话内创建工具面；由 host 的 offPeakToolEnabled flag（灰度/远程门）驱动。 */
   includeOffPeak?: boolean;
+  /** Speak（GPUI 桌面语音）；注入了 VoicePort 的主会话才注册。 */
+  includeSpeak?: boolean;
   /**
    * 动态工作流灰度门。**只有显式 false
    * 才下架** DYNAMIC_WORKFLOW_TOOL_NAMES：缺席代表调用方不参与灰度（TUI、headless、
@@ -264,6 +270,9 @@ export function registerBuiltInTools(
       (entry.metadata.name === "OffPeakCreate" || entry.metadata.name === "OffPeakList") &&
       options.includeOffPeak !== true
     ) {
+      continue;
+    }
+    if (entry.metadata.name === SPEAK_TOOL_NAME && options.includeSpeak !== true) {
       continue;
     }
     if (

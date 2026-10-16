@@ -24,6 +24,7 @@ mod sessions;
 mod shared;
 mod terminal;
 mod transcript;
+mod voice;
 
 use app::root::RootView;
 use app::store::AppState;
@@ -244,6 +245,17 @@ pub fn open_window(cx: &mut App, startup: Startup) {
                 }
                 root
             });
+            if !remote_client {
+                // Voice's "only when unfocused" rule needs the window's activation.
+                let state = root.read(cx).state.clone();
+                root.update(cx, |_, cx| {
+                    cx.observe_window_activation(window, move |_, window, cx| {
+                        let active = window.is_window_active();
+                        state.update(cx, |s, _| s.set_voice_window_active(active));
+                    })
+                    .detach();
+                });
+            }
             let focus = root.read(cx).state.read(cx).composer.read(cx).focus.clone();
             // 手机端 composer 获得焦点就会弹出软键盘；启动时不抢焦点，只在用户点按输入框时弹出。
             if settings_section.is_none() && !remote_client {

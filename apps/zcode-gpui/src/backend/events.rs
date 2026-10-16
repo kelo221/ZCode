@@ -269,19 +269,21 @@ impl AppState {
         };
         match incoming {
             crate::backend::wire::Incoming::AgentRequest { id, method, params } => {
-                if self.route_browser_rpc(ws_key, &id, &method, &params) {
+                if self.route_browser_rpc(ws_key, &id, &method, &params)
+                    || self.route_voice_rpc(ws_key, &id, &method, &params, cx)
+                {
                     return true;
                 }
                 // 未提交或失败的偏好不能影响运行时；仅从唯一 owner 的已提交快照读取。
                 let memory_enabled = cx
                     .try_global::<crate::shared::preferences::PreferenceOwner>()
                     .is_some_and(|owner| owner.0.read(cx).snapshot.memory_enabled.unwrap_or(false));
-                let action = crate::backend::reverse_rpc::dispatch_reverse_rpc(
-                    &id,
-                    &method,
-                    &params,
+                let prefs = crate::backend::reverse_rpc::HostPrefs {
                     memory_enabled,
-                );
+                    voice_enabled: self.voice.is_some() && crate::voice::settings(cx).enabled,
+                };
+                let action =
+                    crate::backend::reverse_rpc::dispatch_reverse_rpc(&id, &method, &params, prefs);
                 match action {
                     crate::backend::reverse_rpc::ReverseRpcAction::Raced => true,
                     crate::backend::reverse_rpc::ReverseRpcAction::Respond(resp) => {

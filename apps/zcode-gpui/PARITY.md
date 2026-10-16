@@ -5,6 +5,13 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## Voice slice (2026-10-16, GPUI-only)
+
+- New GPUI-only feature with no Electron counterpart: a `Speak` tool lets the main agent talk
+  to the user aloud on the PC (Kokoro TTS in the `apps/zcode-voice` sidecar), plus fallback
+  lines for permission, question and plan-approval prompts. Settings › Voice is desktop-only.
+  The full spec is [VOICE.md](VOICE.md).
+
 ## Long paste, composer caret, tok/s and phone touch slice (2026-10-16)
 
 - **Long paste becomes an attachment.** As in Desktop (`shouldCreateClipboardTextAttachment`),

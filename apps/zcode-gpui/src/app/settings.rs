@@ -32,6 +32,7 @@ pub(crate) enum SettingsSection {
     Plugins,
     Mcp,
     Browser,
+    Voice,
     Usage,
     Phone,
 }
@@ -48,6 +49,7 @@ impl SettingsSection {
             "plugins" => Self::Plugins,
             "mcp" => Self::Mcp,
             "browser" => Self::Browser,
+            "voice" => Self::Voice,
             "usage" => Self::Usage,
             "phone" => Self::Phone,
             _ => return None,
@@ -266,6 +268,7 @@ impl RootView {
             SettingsSection::Plugins => self.plugins_pane(window, cx),
             SettingsSection::Mcp => self.mcp_pane(cx),
             SettingsSection::Browser => self.browser_pane(cx),
+            SettingsSection::Voice => self.voice_pane(&settings, blocked, cx),
             SettingsSection::Usage => self.usage_pane(cx),
             SettingsSection::Phone => self.phone_pane(cx),
         };
