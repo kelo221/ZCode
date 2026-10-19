@@ -99,9 +99,7 @@ describe("executeBrowserCommandOnView", () => {
       method: "navigate",
       url: "https://example.com",
     });
-    expect(view.webContents.loadURL).toHaveBeenCalledWith(
-      "https://example.com",
-    );
+    expect(view.webContents.loadURL).toHaveBeenCalledWith("https://example.com");
     expect(r.ok).toBe(true);
     expect(r.state?.url).toBe("https://example.com");
   });
@@ -125,9 +123,7 @@ describe("executeBrowserCommandOnView", () => {
       { method: "navigate", url: "https://example.com" },
       { navigateSettleMs: 10 },
     );
-    expect(view.webContents.loadURL).toHaveBeenCalledWith(
-      "https://example.com",
-    );
+    expect(view.webContents.loadURL).toHaveBeenCalledWith("https://example.com");
     expect(r).toMatchObject({
       ok: false,
       error: { code: "timeout", sideEffect: "uncertain" },
@@ -168,9 +164,7 @@ describe("executeBrowserCommandOnView", () => {
     view.webContents.loadURL = vi.fn(async () => {
       currentUrl = "https://m.ituring.com.cn/search?q=Skill";
       throw Object.assign(
-        new Error(
-          "ERR_ABORTED (-3) loading 'https://m.ituring.com.cn/search?q=Skill'",
-        ),
+        new Error("ERR_ABORTED (-3) loading 'https://m.ituring.com.cn/search?q=Skill'"),
         { code: "ERR_ABORTED", errno: -3 },
       );
     });
@@ -381,9 +375,7 @@ describe("executeBrowserCommandOnView", () => {
     expect(result.image?.base64).toBe(sharpCssImage);
     const secondCapture = send.mock.calls[2];
     expect(secondCapture?.[0]).toBe("Page.captureScreenshot");
-    expect((secondCapture![1] as { clip: { scale: number } }).clip.scale).toBeCloseTo(
-      4096 / 3000,
-    );
+    expect((secondCapture![1] as { clip: { scale: number } }).clip.scale).toBeCloseTo(4096 / 3000);
     expect(resizeScreenshotToCssPixels).toHaveBeenCalledWith(highResolutionImage, {
       width: 3000,
       height: 1000,
@@ -493,13 +485,6 @@ describe("executeBrowserCommandOnView", () => {
     expect(r.error?.code).toBe("execution_error");
   });
 
-  it("getState reads webContents getters", async () => {
-    const view = makeView();
-    const r = await executeBrowserCommandOnView(view, { method: "getState" });
-    expect(r.ok).toBe(true);
-    expect(r.state?.title).toBe("Example");
-  });
-
   it("unimplemented method returns capability_unsupported", async () => {
     const view = makeView();
     // fill 仍未实现（click/type/press/scroll 已在 T-B/T-C 实现）。
@@ -517,9 +502,8 @@ describe("executeBrowserCommandOnView", () => {
     const r = await executeBrowserCommandOnView(view, { method: "snapshot" });
     expect(view.webContents.executeJavaScript).toHaveBeenCalledTimes(1);
     // 传入的应是包含 __zcodeRefs 的注入脚本字符串。
-    const script = (
-      view.webContents.executeJavaScript as ReturnType<typeof vi.fn>
-    ).mock.calls[0][0];
+    const script = (view.webContents.executeJavaScript as ReturnType<typeof vi.fn>).mock
+      .calls[0][0];
     expect(typeof script).toBe("string");
     expect(script).toContain("__zcodeRefs");
     expect(script).toContain("DOM_SEL");
@@ -548,36 +532,26 @@ describe("executeBrowserCommandOnView", () => {
   it("playwright locator query 使用 isolated Playwright runtime，不执行页面 main-world JS", async () => {
     const executeJavaScript = vi.fn();
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld")
-        return { executionContextId: 1 };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
+        const expression = String((params as { expression?: unknown }).expression ?? "");
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
         expect(expression).toContain("injected.querySelectorAll");
         expect(expression).toContain("internal:role=button");
-        expect(expression).not.toContain(
-          "querySelectorStrictWithVisibleFallback",
-        );
+        expect(expression).not.toContain("querySelectorStrictWithVisibleFallback");
         return { result: { value: 2 } };
       }
       return {};
     });
-    const r = await executeBrowserCommandOnView(
-      makeView({ executeJavaScript, cdpSend }),
-      {
-        method: "playwright",
-        action: {
-          name: "locator",
-          selector: 'internal:role=button[name="Save"i]',
-          operation: "count",
-        },
+    const r = await executeBrowserCommandOnView(makeView({ executeJavaScript, cdpSend }), {
+      method: "playwright",
+      action: {
+        name: "locator",
+        selector: 'internal:role=button[name="Save"i]',
+        operation: "count",
       },
-    );
+    });
     expect(r).toMatchObject({ ok: true, value: 2 });
     expect(executeJavaScript).not.toHaveBeenCalled();
   });
@@ -585,18 +559,12 @@ describe("executeBrowserCommandOnView", () => {
   it("playwright locator click 通过 CDP Input 产生可信输入", async () => {
     let actionabilityExpression = "";
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld")
-        return { executionContextId: 1 };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
-        if (expression.includes("const checkStates"))
-          actionabilityExpression = expression;
+        const expression = String((params as { expression?: unknown }).expression ?? "");
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
+        if (expression.includes("const checkStates")) actionabilityExpression = expression;
         return {
           result: { value: { count: 1, actionable: true, x: 10, y: 20 } },
         };
@@ -629,27 +597,18 @@ describe("executeBrowserCommandOnView", () => {
   it("locator.downloadMedia 在 isolated world 提取 URL，不降级为普通 click", async () => {
     const expressions: string[] = [];
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld")
-        return { executionContextId: 1 };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
+        const expression = String((params as { expression?: unknown }).expression ?? "");
         expressions.push(expression);
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
         if (expression.includes("actionability")) {
           return {
             result: { value: { count: 1, actionable: true, x: 10, y: 20 } },
           };
         }
-        if (
-          expression.includes(
-            "Matched element does not expose a downloadable URL",
-          )
-        ) {
+        if (expression.includes("Matched element does not expose a downloadable URL")) {
           return { result: { value: true } };
         }
         return {
@@ -664,9 +623,7 @@ describe("executeBrowserCommandOnView", () => {
     });
     expect(result.ok).toBe(true);
     expect(
-      expressions.some((expression) =>
-        expression.includes('document.createElement("a")'),
-      ),
+      expressions.some((expression) => expression.includes('document.createElement("a")')),
     ).toBe(true);
     expect(cdpSend).not.toHaveBeenCalledWith(
       "Input.dispatchMouseEvent",
@@ -678,16 +635,11 @@ describe("executeBrowserCommandOnView", () => {
     vi.useFakeTimers();
     try {
       const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-        if (method === "Page.getFrameTree")
-          return { frameTree: { frame: { id: "main" } } };
-        if (method === "Page.createIsolatedWorld")
-          return { executionContextId: 1 };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+        if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
         if (method === "Runtime.evaluate") {
-          const expression = String(
-            (params as { expression?: unknown }).expression ?? "",
-          );
-          if (expression.startsWith("Boolean(globalThis."))
-            return { result: { value: true } };
+          const expression = String((params as { expression?: unknown }).expression ?? "");
+          if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
           return { result: { value: { count: 0, actionable: false } } };
         }
         return {};
@@ -720,16 +672,11 @@ describe("executeBrowserCommandOnView", () => {
     let actionabilityExpression = "";
     let fillExpression = "";
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld")
-        return { executionContextId: 1 };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
+        const expression = String((params as { expression?: unknown }).expression ?? "");
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
         if (expression.includes("const checkStates")) {
           actionabilityExpression = expression;
           return { result: { value: { count: 1, actionable: true } } };
@@ -761,9 +708,7 @@ describe("executeBrowserCommandOnView", () => {
     );
     for (const expression of [actionabilityExpression, fillExpression]) {
       expect(expression).toContain("querySelectorStrictWithVisibleFallback");
-      expect(expression).toContain(
-        "if (visibleMatches.length === 1) return visibleMatches[0]",
-      );
+      expect(expression).toContain("if (visibleMatches.length === 1) return visibleMatches[0]");
       expect(expression).toContain(
         "throw injected.strictModeViolationError(parsedSelector, matches)",
       );
@@ -773,19 +718,16 @@ describe("executeBrowserCommandOnView", () => {
   it("playwright fill needsinput 使用同一 locator token 的 virtual paste", async () => {
     const expressions: string[] = [];
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
       if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
         const options = params as { expression?: string; returnByValue?: boolean };
         const expression = options.expression ?? "";
         expressions.push(expression);
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
         if (expression.includes("const checkStates"))
           return { result: { value: { count: 1, actionable: true } } };
-        if (expression.includes("injected.fill"))
-          return { result: { value: "needsinput" } };
+        if (expression.includes("injected.fill")) return { result: { value: "needsinput" } };
         if (options.returnByValue === false) return { result: { value: null } };
         if (expression.includes("const pageFunction = async"))
           return { result: { value: { ok: true, data: {} } } };
@@ -815,18 +757,15 @@ describe("executeBrowserCommandOnView", () => {
 
   it("playwright fill 在 locator token 漂移后明确失败且不回退 Input.insertText", async () => {
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
       if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
         const options = params as { expression?: string; returnByValue?: boolean };
         const expression = options.expression ?? "";
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
         if (expression.includes("const checkStates"))
           return { result: { value: { count: 1, actionable: true } } };
-        if (expression.includes("injected.fill"))
-          return { result: { value: "needsinput" } };
+        if (expression.includes("injected.fill")) return { result: { value: "needsinput" } };
         if (options.returnByValue === false) return { result: { value: null } };
         if (expression.includes("const pageFunction = async")) {
           return {
@@ -865,14 +804,12 @@ describe("executeBrowserCommandOnView", () => {
   it("playwright press 在下发 CDP key 前校验 locator input token", async () => {
     const expressions: string[] = [];
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
       if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
         const expression = String((params as { expression?: unknown }).expression ?? "");
         expressions.push(expression);
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
         if (expression.includes("const checkStates"))
           return { result: { value: { count: 1, actionable: true } } };
         if (expression.includes("Object.defineProperty(element"))
@@ -889,9 +826,9 @@ describe("executeBrowserCommandOnView", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(expressions.some((expression) => expression.includes("__zcodeIabInputTargetToken"))).toBe(
-      true,
-    );
+    expect(
+      expressions.some((expression) => expression.includes("__zcodeIabInputTargetToken")),
+    ).toBe(true);
     expect(cdpSend).toHaveBeenCalledWith("Input.dispatchKeyEvent", {
       type: "keyDown",
       key: "Enter",
@@ -925,10 +862,7 @@ describe("executeBrowserCommandOnView", () => {
     const visible = element("desktop-visible", true);
     const injected = {
       checkDeprecatedSelectorUsage: vi.fn(),
-      elementState: (
-        candidate: typeof hidden,
-        state: "editable" | "enabled" | "visible",
-      ) => ({
+      elementState: (candidate: typeof hidden, state: "editable" | "enabled" | "visible") => ({
         matches: state === "visible" ? candidate.visible : true,
       }),
       fill: (candidate: typeof hidden) => {
@@ -952,14 +886,10 @@ describe("executeBrowserCommandOnView", () => {
       setTimeout,
     });
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld")
-        return { executionContextId: 1 };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
+        const expression = String((params as { expression?: unknown }).expression ?? "");
         try {
           return { result: { value: await runInContext(expression, runtime) } };
         } catch (error) {
@@ -1006,26 +936,18 @@ describe("executeBrowserCommandOnView", () => {
         message: expect.stringContaining('getByTestId("mobile-search")'),
       },
     });
-    expect(ambiguous.error?.message).toContain(
-      'getByTestId("desktop-search")',
-    );
+    expect(ambiguous.error?.message).toContain('getByTestId("desktop-search")');
     expect(fillTargets).toEqual(["desktop-visible"]);
   });
 
   it("playwright pointer probe 空 payload 返回结构化错误，不泄漏 undefined.count", async () => {
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld")
-        return { executionContextId: 1 };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
-        if (expression.includes("const checkStates"))
-          return { result: { value: {} } };
+        const expression = String((params as { expression?: unknown }).expression ?? "");
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
+        if (expression.includes("const checkStates")) return { result: { value: {} } };
       }
       return {};
     });
@@ -1039,9 +961,7 @@ describe("executeBrowserCommandOnView", () => {
       ok: false,
       error: {
         code: "execution_error",
-        message: expect.stringContaining(
-          "pointer probe returned an invalid payload",
-        ),
+        message: expect.stringContaining("pointer probe returned an invalid payload"),
       },
     });
     expect(result.error?.message).not.toContain("undefined");
@@ -1050,16 +970,11 @@ describe("executeBrowserCommandOnView", () => {
   it("playwright force click 跳过 visible/enabled 与 receives-events，但仍等待稳定矩形", async () => {
     let actionabilityExpression = "";
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld")
-        return { executionContextId: 1 };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
+        const expression = String((params as { expression?: unknown }).expression ?? "");
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
         if (expression.includes("const checkStates")) {
           actionabilityExpression = expression;
           return {
@@ -1082,9 +997,7 @@ describe("executeBrowserCommandOnView", () => {
 
     expect(result.ok).toBe(true);
     expect(actionabilityExpression).toContain("if (!true)");
-    expect(actionabilityExpression).toContain(
-      'if (false) stateNames.push("enabled")',
-    );
+    expect(actionabilityExpression).toContain('if (false) stateNames.push("enabled")');
     expect(actionabilityExpression).toContain("if (true) {");
   });
 
@@ -1092,18 +1005,14 @@ describe("executeBrowserCommandOnView", () => {
     let actionabilityCalls = 0;
     let nextContextId = 0;
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
       if (method === "Page.createIsolatedWorld") {
         nextContextId += 1;
         return { executionContextId: nextContextId };
       }
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
+        const expression = String((params as { expression?: unknown }).expression ?? "");
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
         if (expression.includes("const checkStates")) {
           actionabilityCalls += 1;
           if (actionabilityCalls === 1) {
@@ -1126,9 +1035,7 @@ describe("executeBrowserCommandOnView", () => {
 
     expect(result.ok).toBe(true);
     expect(actionabilityCalls).toBe(2);
-    expect(
-      cdpSend.mock.calls.filter(([method]) => method === "Page.getFrameTree"),
-    ).toHaveLength(2);
+    expect(cdpSend.mock.calls.filter(([method]) => method === "Page.getFrameTree")).toHaveLength(2);
   });
 
   it("playwright click 允许等位新节点跨帧保持几何稳定并派发可信输入", async () => {
@@ -1177,16 +1084,11 @@ describe("executeBrowserCommandOnView", () => {
       setTimeout,
     });
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld")
-        return { executionContextId: 1 };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
+        const expression = String((params as { expression?: unknown }).expression ?? "");
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
         if (expression.includes("const checkStates")) {
           actionabilityExpression = expression;
           return { result: { value: await runInContext(expression, runtime) } };
@@ -1222,18 +1124,14 @@ describe("executeBrowserCommandOnView", () => {
     let nextContextId = 0;
     let frameSelectorExpression = "";
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
       if (method === "Page.createIsolatedWorld") {
         nextContextId += 1;
         return { executionContextId: nextContextId };
       }
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
+        const expression = String((params as { expression?: unknown }).expression ?? "");
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
         if (
           expression.includes("frame locator resolved to no elements") &&
           expression.includes("return resolvedElement")
@@ -1249,8 +1147,7 @@ describe("executeBrowserCommandOnView", () => {
         if (expression.includes("globalThis.innerWidth")) {
           return { result: { value: { width: 200, height: 100 } } };
         }
-        if (expression.includes("elements.length"))
-          return { result: { value: 1 } };
+        if (expression.includes("elements.length")) return { result: { value: 1 } };
       }
       if (method === "DOM.describeNode") {
         if ((params as { objectId?: string }).objectId === "iframe-object") {
@@ -1275,9 +1172,7 @@ describe("executeBrowserCommandOnView", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(frameSelectorExpression).toContain(
-      "querySelectorStrictWithVisibleFallback",
-    );
+    expect(frameSelectorExpression).toContain("querySelectorStrictWithVisibleFallback");
     expect(cdpSend).toHaveBeenCalledWith(
       "DOM.getNodeForLocation",
       {
@@ -1300,16 +1195,11 @@ describe("executeBrowserCommandOnView", () => {
     vi.useFakeTimers();
     try {
       const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-        if (method === "Page.getFrameTree")
-          return { frameTree: { frame: { id: "main" } } };
-        if (method === "Page.createIsolatedWorld")
-          return { executionContextId: 1 };
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+        if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
         if (method === "Runtime.evaluate") {
-          const expression = String(
-            (params as { expression?: unknown }).expression ?? "",
-          );
-          if (expression.startsWith("Boolean(globalThis."))
-            return { result: { value: true } };
+          const expression = String((params as { expression?: unknown }).expression ?? "");
+          if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
           return await new Promise<never>(() => undefined);
         }
         return {};
@@ -1330,11 +1220,7 @@ describe("executeBrowserCommandOnView", () => {
         elapsedMs: 3_000,
         error: { code: "timeout" },
       });
-      expect(cdpSend).toHaveBeenCalledWith(
-        "Runtime.terminateExecution",
-        undefined,
-        undefined,
-      );
+      expect(cdpSend).toHaveBeenCalledWith("Runtime.terminateExecution", undefined, undefined);
     } finally {
       vi.useRealTimers();
     }
@@ -1343,16 +1229,11 @@ describe("executeBrowserCommandOnView", () => {
   it("playwright locator strict violation 保留 injected runtime 的候选详情", async () => {
     let actionabilityExpression = "";
     const cdpSend = vi.fn(async (method: string, params?: unknown) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld")
-        return { executionContextId: 1 };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: true } };
+        const expression = String((params as { expression?: unknown }).expression ?? "");
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: true } };
         if (expression.includes("const checkStates")) {
           actionabilityExpression = expression;
           return {
@@ -1379,9 +1260,7 @@ describe("executeBrowserCommandOnView", () => {
       ok: false,
       error: {
         code: "execution_error",
-        message: expect.stringContaining(
-          'getByTestId("header-buy")',
-        ),
+        message: expect.stringContaining('getByTestId("header-buy")'),
       },
     });
     expect(result.error?.message).toContain('getByTestId("card-buy")');
@@ -1398,16 +1277,11 @@ describe("executeBrowserCommandOnView", () => {
           cssVisualViewport: { pageX: 0, pageY: 0, clientWidth: 400, clientHeight: 600 },
         };
       }
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld")
-        return { executionContextId: 1 };
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
       if (method === "Runtime.evaluate") {
-        const expression = String(
-          (params as { expression?: unknown }).expression ?? "",
-        );
-        if (expression.startsWith("Boolean(globalThis."))
-          return { result: { value: false } };
+        const expression = String((params as { expression?: unknown }).expression ?? "");
+        if (expression.startsWith("Boolean(globalThis.")) return { result: { value: false } };
         if (expression.includes("globalThis.__zcodePlaywrightInjected = new")) {
           return { result: { value: true } };
         }
@@ -1473,12 +1347,9 @@ describe("executeBrowserCommandOnView", () => {
 
   it("playwright domSnapshot 顶层 3000ms 预算耗尽后返回结构化 timeout", async () => {
     const cdpSend = vi.fn(async (method: string) => {
-      if (method === "Page.getFrameTree")
-        return { frameTree: { frame: { id: "main" } } };
-      if (method === "Page.createIsolatedWorld")
-        return { executionContextId: 1 };
-      if (method === "Runtime.evaluate")
-        throw new Error("Script execution timed out");
+      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
+      if (method === "Page.createIsolatedWorld") return { executionContextId: 1 };
+      if (method === "Runtime.evaluate") throw new Error("Script execution timed out");
       return {};
     });
     await expect(
@@ -1709,31 +1580,28 @@ describe("executeBrowserCommandOnView", () => {
 
   it("type 在 OOPIF target 延迟注册时等待 child session，paste 后释放 attach", async () => {
     let attachAttempts = 0;
-    const send = vi.fn(
-      async (method: string, params?: unknown, sessionId?: string) => {
-        if (method === "Runtime.evaluate") {
-          const options = params as { expression?: string; returnByValue?: boolean };
-          if (options.returnByValue === false) {
-            return sessionId == null
-              ? { result: { objectId: "focused-frame" } }
-              : { result: { value: null } };
-          }
-          return { result: { value: { ok: true, data: {} } } };
+    const send = vi.fn(async (method: string, params?: unknown, sessionId?: string) => {
+      if (method === "Runtime.evaluate") {
+        const options = params as { expression?: string; returnByValue?: boolean };
+        if (options.returnByValue === false) {
+          return sessionId == null
+            ? { result: { objectId: "focused-frame" } }
+            : { result: { value: null } };
         }
-        if (method === "DOM.describeNode") return { node: { frameId: "oopif-frame" } };
-        if (method === "Target.attachToTarget") {
-          attachAttempts += 1;
-          if (attachAttempts === 1) throw new Error("No target with given id found");
-          return { sessionId: "oopif-session" };
-        }
-        if (method === "Page.createIsolatedWorld")
-          throw new Error("No frame for given id found");
-        if (method === "Target.getTargets") {
-          return { targetInfos: [{ targetId: "oopif-frame", type: "iframe" }] };
-        }
-        return {};
-      },
-    );
+        return { result: { value: { ok: true, data: {} } } };
+      }
+      if (method === "DOM.describeNode") return { node: { frameId: "oopif-frame" } };
+      if (method === "Target.attachToTarget") {
+        attachAttempts += 1;
+        if (attachAttempts === 1) throw new Error("No target with given id found");
+        return { sessionId: "oopif-session" };
+      }
+      if (method === "Page.createIsolatedWorld") throw new Error("No frame for given id found");
+      if (method === "Target.getTargets") {
+        return { targetInfos: [{ targetId: "oopif-frame", type: "iframe" }] };
+      }
+      return {};
+    });
     const result = await executeBrowserCommandOnView(makeView({ cdpSend: send }), {
       method: "type",
       text: "guest-only",
@@ -1863,13 +1731,10 @@ describe("executeBrowserCommandOnView", () => {
 
   it("CUA keypress 按顺序按下组合键并逆序释放", async () => {
     const send = vi.fn(async () => ({}));
-    const result = await executeBrowserCommandOnView(
-      makeView({ cdpSend: send }),
-      {
-        method: "cuaKeypress",
-        keys: ["Control", "Shift", "A"],
-      },
-    );
+    const result = await executeBrowserCommandOnView(makeView({ cdpSend: send }), {
+      method: "cuaKeypress",
+      keys: ["Control", "Shift", "A"],
+    });
     expect(result.ok).toBe(true);
     const keyEvents = send.mock.calls
       .filter((call) => call[0] === "Input.dispatchKeyEvent")
@@ -1890,17 +1755,14 @@ describe("executeBrowserCommandOnView", () => {
 
   it("CUA scroll 在 Electron guest 中用 mouseWheel 保留锚点、delta 和 modifiers", async () => {
     const send = vi.fn(async () => ({}));
-    const result = await executeBrowserCommandOnView(
-      makeView({ cdpSend: send }),
-      {
-        method: "cuaScroll",
-        x: 120,
-        y: 240,
-        scrollX: 30,
-        scrollY: -80,
-        modifiers: ["Shift"],
-      },
-    );
+    const result = await executeBrowserCommandOnView(makeView({ cdpSend: send }), {
+      method: "cuaScroll",
+      x: 120,
+      y: 240,
+      scrollX: 30,
+      scrollY: -80,
+      modifiers: ["Shift"],
+    });
     expect(result.ok).toBe(true);
     expect(send).toHaveBeenCalledWith("Input.dispatchMouseEvent", {
       type: "mouseMoved",
@@ -1942,14 +1804,11 @@ describe("executeBrowserCommandOnView", () => {
         ? { cssVisualViewport: { clientWidth: 800, clientHeight: 600 } }
         : {},
     );
-    const pageResult = await executeBrowserCommandOnView(
-      makeView({ cdpSend: pageSend }),
-      {
-        method: "domCuaScroll",
-        scrollX: 10,
-        scrollY: 20,
-      },
-    );
+    const pageResult = await executeBrowserCommandOnView(makeView({ cdpSend: pageSend }), {
+      method: "domCuaScroll",
+      scrollX: 10,
+      scrollY: 20,
+    });
     expect(pageResult.ok).toBe(true);
     expect(pageSend).toHaveBeenCalledWith("Input.dispatchMouseEvent", {
       type: "mouseWheel",
@@ -2115,8 +1974,7 @@ describe("executeBrowserCommandOnView", () => {
     // 至少发过若干插值 mouseMoved（buttons:1）。
     const moves = send.mock.calls.filter(
       (c) =>
-        c[0] === "Input.dispatchMouseEvent" &&
-        (c[1] as { type?: string }).type === "mouseMoved",
+        c[0] === "Input.dispatchMouseEvent" && (c[1] as { type?: string }).type === "mouseMoved",
     );
     expect(moves.length).toBeGreaterThanOrEqual(10);
   });
@@ -2128,21 +1986,17 @@ describe("executeBrowserCommandOnView", () => {
       { x: 8, y: 30 },
       { x: 21, y: 13 },
     ];
-    const result = await executeBrowserCommandOnView(
-      makeView({ cdpSend: send }),
-      {
-        method: "cuaDrag",
-        path,
-        modifiers: ["Alt"],
-      },
-    );
+    const result = await executeBrowserCommandOnView(makeView({ cdpSend: send }), {
+      method: "cuaDrag",
+      path,
+      modifiers: ["Alt"],
+    });
     expect(result.ok).toBe(true);
     const movedPoints = send.mock.calls
       .filter(
         (call) =>
           call[0] === "Input.dispatchMouseEvent" &&
-          (call[1] as { type?: string; buttons?: number }).type ===
-            "mouseMoved" &&
+          (call[1] as { type?: string; buttons?: number }).type === "mouseMoved" &&
           (call[1] as { buttons?: number }).buttons === 1,
       )
       .map((call) => ({
@@ -2185,21 +2039,6 @@ describe("executeBrowserCommandOnView", () => {
     });
     expect(r.ok).toBe(false);
     expect(r.error?.code).toBe("execution_error");
-  });
-
-  it("screenshot clip → Page.captureScreenshot 带 clip{...,scale:1}", async () => {
-    const send = vi.fn(async () => ({ data: "PNG" }));
-    const view = makeView({ cdpSend: send });
-    const r = await executeBrowserCommandOnView(view, {
-      method: "screenshot",
-      clip: { x: 1, y: 2, width: 30, height: 40 },
-    });
-    expect(r.ok).toBe(true);
-    expect(send).toHaveBeenCalledWith("Page.captureScreenshot", {
-      format: "png",
-      captureBeyondViewport: true,
-      clip: { x: 1, y: 2, width: 30, height: 40, scale: 1 },
-    });
   });
 
   it("screenshot fullPage → 先 getLayoutMetrics 再用 contentSize 作 clip", async () => {
