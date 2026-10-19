@@ -78,7 +78,10 @@ Separate Cargo project (GPL-3.0: it statically links espeak-ng through kokoro-ti
 GPUI finds `zcode-voice(.exe)` at `ZCODE_GPUI_VOICE_PROGRAM`, next to its own executable,
 or in `apps/zcode-voice/target/{release,debug}` for dev builds, and starts it with
 `--model-dir ~/.zcode/v2/voice`. It is assigned to GPUI's kill-on-close job object and
-stopped after 10 idle minutes.
+stopped 30 seconds after its last line finished: GPUI counts lines sent but not yet
+`spoken`, `dropped` or failed, and never stops it while that count is non-zero (which also
+covers the first-run model download). A restart reloads the model from the OS file cache in
+about 0.6 s, so keeping the ~450 MB process resident between lines buys little.
 
 - stdin commands (NDJSON): `{"op":"speak","id","text","voice","speed","volume"}`,
   `{"op":"stop"}`, `{"op":"status"}`. Closing stdin stops speech and exits.

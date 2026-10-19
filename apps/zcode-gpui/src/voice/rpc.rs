@@ -12,7 +12,7 @@ use gpui::Context;
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
-const IDLE_CHECK: Duration = Duration::from_secs(60);
+const IDLE_CHECK: Duration = Duration::from_secs(5);
 
 /// Conversation state captured before a frame applies.
 pub(crate) struct VoiceBefore {
@@ -100,6 +100,7 @@ impl AppState {
             voice.shutdown();
             return Err(RejectReason::Unavailable);
         }
+        voice.pending += 1;
         if was_failed {
             return Err(RejectReason::Unavailable);
         }

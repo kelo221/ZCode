@@ -3,7 +3,7 @@
 Local text-to-speech sidecar for zcode-gpui's agent voice ([VOICE.md](../zcode-gpui/VOICE.md)).
 It wraps [kokoro-tiny](https://github.com/8b-is/kokoro-tiny) (Kokoro-82M on ONNX Runtime,
 phonemes from eSpeak NG) and plays speech on the system default audio device. zcode-gpui
-starts it on first use and stops it after 10 idle minutes. Desktop only; the Android build
+starts it when a line is spoken and stops it 30 seconds after the last line finishes. Desktop only; the Android build
 never contains it.
 
 Licensed **GPL-3.0-or-later** because it statically links eSpeak NG. It is a separate program
