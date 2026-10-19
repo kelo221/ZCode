@@ -31,6 +31,8 @@ pub struct RootView {
     pub(crate) last_first_row_id: u64,
     pub(crate) expanded_reasonings: HashSet<u64>,
     pub(crate) expanded_tools: HashSet<u64>,
+    /// Expanded noise-free fold runs, keyed by the run's first row id.
+    pub(crate) expanded_folds: HashSet<u64>,
     pub(crate) plan_expanded: bool,
     pub(crate) agents_expanded: bool,
     /// Destructive action awaiting a second click ("del:<sid>", "undo:<rowId>").
@@ -105,6 +107,7 @@ impl RootView {
             last_first_row_id: 0,
             expanded_reasonings: HashSet::new(),
             expanded_tools: HashSet::new(),
+            expanded_folds: HashSet::new(),
             plan_expanded: false,
             agents_expanded: true,
             confirm: None,

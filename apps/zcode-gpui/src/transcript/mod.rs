@@ -5,6 +5,7 @@ pub(crate) mod chat;
 pub(crate) mod image_viewer;
 pub(crate) mod list;
 pub(crate) mod message_actions;
+pub(crate) mod noise_free;
 pub(crate) mod reasoning;
 pub(crate) mod scroll;
 #[cfg(test)]

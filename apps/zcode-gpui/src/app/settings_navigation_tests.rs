@@ -16,7 +16,7 @@ fn grouped_navigation_is_complete_unique_and_searchable() {
     );
     assert_eq!(SettingsSection::parse("not-a-section"), None);
     let sections = navigation_sections("");
-    assert_eq!(sections.len(), 12);
+    assert_eq!(sections.len(), 13);
     assert_eq!(
         sections[0],
         (SettingsGroup::Basics, SettingsSection::General)
@@ -39,10 +39,17 @@ fn grouped_navigation_is_complete_unique_and_searchable() {
     );
     assert_eq!(
         sections[10],
-        (SettingsGroup::DataAndStats, SettingsSection::Usage)
+        (
+            SettingsGroup::AgentCapabilities,
+            SettingsSection::SystemPrompt
+        )
     );
     assert_eq!(
         sections[11],
+        (SettingsGroup::DataAndStats, SettingsSection::Usage)
+    );
+    assert_eq!(
+        sections[12],
         (SettingsGroup::DataAndStats, SettingsSection::Phone)
     );
     for (_, section) in &sections {

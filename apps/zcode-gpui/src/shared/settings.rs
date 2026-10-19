@@ -115,11 +115,22 @@ pub struct AppSettings {
     pub data_base_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "gpuiVoice")]
     pub gpui_voice: Option<crate::shared::voice_settings::VoiceSettings>,
+    /// GPUI-only noise-free transcript; absent means on.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "gpuiNoiseFree"
+    )]
+    pub gpui_noise_free: Option<bool>,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 impl AppSettings {
+    pub fn noise_free(&self) -> bool {
+        self.gpui_noise_free.unwrap_or(true)
+    }
+
     pub(crate) fn language_preference(&self) -> crate::shared::i18n::LocalePreference {
         // selector 与运行时必须使用同一回退规则；无效偏好不能偷偷跟随系统或旧 locale。
         self.locale_preference

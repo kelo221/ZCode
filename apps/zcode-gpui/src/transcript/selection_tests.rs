@@ -23,7 +23,11 @@ fn tool_card_path_can_be_drag_selected_and_copied() {
         ely_gpui_component::init(cx);
         cx.set_global(TestTargets::default());
         crate::shared::preferences::Preferences::install_at(
-            Default::default(),
+            // Tool cards fold in noise-free mode; this test drags inside one.
+            crate::shared::settings::AppSettings {
+                gpui_noise_free: Some(false),
+                ..Default::default()
+            },
             std::env::temp_dir().join(uuid::Uuid::now_v7().to_string()),
             Arc::new(|| true),
             cx,

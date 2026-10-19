@@ -212,8 +212,44 @@ impl RootView {
             && state
                 .active_conversation()
                 .is_some_and(|c| c.log_epoch.is_some() && c.subscribed);
+        use crate::transcript::noise_free::Place;
+        let place = if crate::transcript::noise_free::enabled(cx) {
+            self.fold_place(ix, cx)
+        } else {
+            Place::Show
+        };
+        let fold_line = match place {
+            Place::Show => None,
+            Place::Member { leader } => {
+                let leader_id = self.row_index.get(leader).copied().unwrap_or(row_id);
+                if !self.expanded_folds.contains(&leader_id) {
+                    return div().into_any_element();
+                }
+                None
+            }
+            Place::Leader(summary) => {
+                let expanded = self.expanded_folds.contains(&row_id);
+                Some((
+                    self.render_fold_line(row_id, summary, expanded, cx),
+                    expanded,
+                ))
+            }
+        };
+        let content = match fold_line {
+            Some((line, true)) => Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(line)
+                    .children(self.transcript_row(&row, row_actions, cx))
+                    .into_any_element(),
+            ),
+            Some((line, false)) => Some(line),
+            None => self.transcript_row(&row, row_actions, cx),
+        };
         // 无内容的行（空思考块、已配对的子代理行等）不能套 py_2，否则留下空白间隙。
-        let Some(content) = self.transcript_row(&row, row_actions, cx) else {
+        let Some(content) = content else {
             return div().into_any_element();
         };
         div()

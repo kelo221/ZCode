@@ -22,6 +22,7 @@ pub(crate) enum PreferenceChange {
     FontSize(f32),
     MemoryEnabled(bool),
     Voice(crate::shared::voice_settings::VoiceSettings),
+    NoiseFree(bool),
     Shortcut(String, Option<Vec<String>>),
     RecentProject(String),
 }
@@ -37,6 +38,7 @@ impl PreferenceChange {
             Self::FontSize(size) => settings.ui_font_size = Some(*size),
             Self::MemoryEnabled(enabled) => settings.memory_enabled = Some(*enabled),
             Self::Voice(voice) => settings.gpui_voice = Some(voice.clone()),
+            Self::NoiseFree(on) => settings.gpui_noise_free = Some(*on),
             Self::Shortcut(id, bindings) => {
                 let overrides = settings.shortcut_bindings.get_or_insert_with(HashMap::new);
                 if let Some(bindings) = bindings {

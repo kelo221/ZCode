@@ -5,6 +5,26 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## Noise-free transcript (2026-10-19, GPUI-only)
+
+- No single Electron counterpart. Electron has two separate switches: `messageStreamShowReasoning`
+  and `messageStreamShowTodos`. GPUI adds a filter button to the composer's bottom row, next
+  to the mode menu (the phone gets it too, through the shared composer). It is **on by
+  default** and stored as `gpuiNoiseFree` in `setting.json` (absent = on) through
+  `PreferenceChange::NoiseFree`.
+- Rows shown while it's on: user input, turn headers, assistant text that has text, thinking
+  that has text, and tool cards for `TodoWrite`, `AskUserQuestion` and `ExitPlanMode`, plus any
+  tool waiting on `pendingApproval`. Permission and question prompts live by the composer and
+  are never affected. Other tool calls, and subagent cards not paired to a tool call, fold.
+  Rows that render nothing (empty thinking, empty text, paired subagent rows, unknown kinds)
+  don't break a run.
+- Each run of folded rows renders one muted line on its first row: "N tool calls", with
+  "· K running" and a spinner while any of them runs, and "K failed" in red. Clicking it
+  expands that run in place ("Hide N tool calls"). The expanded state lives per window in
+  `RootView.expanded_folds`, keyed by the run's first row id. The list index is unchanged
+  (`transcript/noise_free.rs` places each visible row by walking its own run), so history
+  paging and scroll anchoring work as before.
+
 ## System prompt override (2026-10-19, GPUI-only)
 
 - No Electron counterpart. Settings › System prompt (desktop only, hidden on the phone)
