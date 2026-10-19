@@ -35,10 +35,14 @@ const result = await Bun.build({
   // Identifier minification stays off: diagnostics and registries rely on function names.
   minify: { whitespace: true, syntax: true, identifiers: false },
   sourcemap: "none",
-  external: resolveBuildExternal(),
+  // fff stays bundled here: Bun embeds its native library (fff_c.dll and friends) into the
+  // executable for the built-in FindFiles/SearchCode tools.
+  external: resolveBuildExternal().filter((name) => name !== "@ff-labs/fff-bun"),
   define: {
     __CLI_VERSION__: JSON.stringify(version),
     __ZCODE_VERSION__: JSON.stringify(version),
+    // fff-bun only embeds the Linux library when it knows the libc flavour.
+    ...(process.platform === "linux" ? { FFF_LIBC: JSON.stringify("gnu") } : {}),
   },
 });
 if (!result.success) {

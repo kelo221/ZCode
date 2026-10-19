@@ -25,6 +25,7 @@ import type {
   ModelToolSideEffectScope,
   OffPeakPort,
   VoicePort,
+  CodeSearchPort,
   TopicResourcePort,
   PdfDocumentPort,
   PermissionBrokerReasonSource,
@@ -179,6 +180,7 @@ export interface ToolExecutionContext {
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
   voicePort?: VoicePort;
+  codeSearchPort?: CodeSearchPort;
   topicResourcePort?: TopicResourcePort;
   sessionStore?: SessionStorePort;
   sessionModePort?: SessionModePort;

@@ -903,3 +903,13 @@ exceptions:
       - apps/zcode-cli/packages/core/src/runtime/methods/system-prompt-override.ts
       - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/system-prompt-override.ts
     reason: GPUI-only fork feature (apps/zcode-gpui/PARITY.md "System prompt override"). Kept in its own files beside the existing runtime methods and protocol preference handlers so upstream source syncs do not conflict; adopting the CLI runtime or protocol directories is outside this fork change.
+  - id: gpui-code-search-cli
+    rule: unmanaged-new-file
+    paths:
+      - apps/zcode-cli/packages/contracts/src/interfaces/code-search.port.ts
+      - apps/zcode-cli/packages/contracts/src/tools/code-search.ts
+      - apps/zcode-cli/packages/adapters/src/code-search/fff-engine.ts
+      - apps/zcode-cli/packages/core/src/tool/handlers/code-search.ts
+      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/code-search-manager.ts
+      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/code-search-wiring.ts
+    reason: GPUI-only fork feature (apps/zcode-gpui/PARITY.md "Built-in fff code search"). New port, tool and adapter files sit beside the existing ones (the Speak tool pattern) so upstream source syncs do not conflict; adopting the CLI contracts, tools, adapters or protocol directories is outside this fork change.

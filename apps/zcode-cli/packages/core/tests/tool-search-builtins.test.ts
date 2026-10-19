@@ -14,11 +14,15 @@ const RESIDENT_NAMES = [
   "AskUserQuestion",
   "Bash",
   "Edit",
+  // GPUI-only, injected by port: search and voice must be visible without a ToolSearch round trip.
+  "FindFiles",
   "Glob",
   "Grep",
   "Read",
   "ReportFindings",
+  "SearchCode",
   "Skill",
+  "Speak",
   "ToolSearch",
   "Write",
 ];

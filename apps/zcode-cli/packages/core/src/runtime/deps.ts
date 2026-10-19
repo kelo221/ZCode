@@ -117,6 +117,7 @@ export type {
   AutomationPort,
   OffPeakPort,
   VoicePort,
+  CodeSearchPort,
   TopicResourcePort,
   BackgroundExecutionSnapshot,
   BackgroundTaskCancelResult,

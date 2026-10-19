@@ -80,6 +80,9 @@ pub(crate) mod saved_workflow_form;
 pub(crate) mod saved_workflows_pane;
 pub(crate) mod settings;
 mod settings_browser;
+mod settings_code_search;
+#[cfg(test)]
+mod settings_code_search_tests;
 #[cfg(test)]
 mod settings_language_tests;
 #[cfg(test)]

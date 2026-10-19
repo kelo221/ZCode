@@ -2096,6 +2096,9 @@ export const zcodeSessionRuntimePreferencesResultSchema = z
     // GPUI-only voice: only `true` gives the main session the Speak tool. Hosts
     // that omit it (Electron, older hosts) never enable the tool.
     voiceEnabled: z.boolean().optional(),
+    // GPUI-only fff code search: only `true` gives sessions the FindFiles and SearchCode
+    // tools (when the agent can load the fff library). Electron never sends it.
+    codeSearchEnabled: z.boolean().optional(),
   })
   .strict();
 export type ZCodeSessionRuntimePreferencesResult = z.infer<

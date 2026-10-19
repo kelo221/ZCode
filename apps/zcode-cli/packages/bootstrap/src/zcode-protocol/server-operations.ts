@@ -117,6 +117,7 @@ import { createProtocolInteractionBroker } from "./interaction-broker.js";
 import { createProtocolAutomationPort } from "./automation-port.js";
 import { createProtocolOffPeakPort } from "./offpeak-port.js";
 import { createProtocolVoicePort } from "./voice-port.js";
+import { resolveSessionCodeSearchPort } from "./code-search-wiring.js";
 import { createProtocolTopicResourcePort } from "./topic-resource-port.js";
 import { createProtocolBrowserControlBroker } from "./browser-control-broker.js";
 import { mapComputerUseOperationEvent } from "./computer-use-operation-event.js";
@@ -166,6 +167,8 @@ interface SessionStartupPreferences {
   nativeSearchEnhancementsEnabled: boolean;
   // GPUI 桌面语音：主会话才注入 VoicePort（Speak 工具）；继承来源（子会话）恒为 false。
   voiceEnabled: boolean;
+  // GPUI fff 索引搜索：Host 下发 true 且原生库可加载才注入 CodeSearchPort；子会话沿用父值。
+  codeSearchEnabled: boolean;
   toolSearchMode: AppToolSearchMode;
   resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
 }
@@ -3374,6 +3377,7 @@ async function resolveSessionStartupPreferences(
       nativeSearchEnhancementsEnabled: source.parent.nativeSearchEnhancementsEnabled,
       voiceEnabled: false,
       toolSearchMode: source.parent.toolSearchMode,
+      codeSearchEnabled: source.parent.codeSearchEnabled === true,
       resolveInitialBashShellSelection: async () => inheritedShellSelection,
     };
   }
@@ -3395,6 +3399,7 @@ async function resolveSessionStartupPreferences(
     modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
     nativeSearchEnhancementsEnabled: runtimePreferences.nativeSearchEnhancementsEnabled,
     voiceEnabled: runtimePreferences.voiceEnabled === true,
+    codeSearchEnabled: runtimePreferences.codeSearchEnabled === true,
     toolSearchMode: runtimePreferences.toolSearchMode,
     resolveInitialBashShellSelection: async () => {
       const executionPreferences = await requestSessionRuntimePreferences(
@@ -3531,6 +3536,11 @@ async function createRecord(
     ...(startupPreferences.voiceEnabled
       ? { voicePort: createProtocolVoicePort(context, sessionId) }
       : {}),
+    ...(await resolveSessionCodeSearchPort(
+      context,
+      workspace,
+      startupPreferences.codeSearchEnabled,
+    )),
     resolveInitialBashShellSelection: startupPreferences.resolveInitialBashShellSelection,
     ...(startupPreferences.subagentRuntimeConfigEnabled &&
     !(workspace.workspaceIdentity && isRemoteWorkspaceIdentity(workspace.workspaceIdentity))
@@ -3583,6 +3593,7 @@ async function createRecord(
     modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
     nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
     toolSearchMode: startupPreferences.toolSearchMode,
+    codeSearchEnabled: startupPreferences.codeSearchEnabled,
     ...(parentSessionId ? { parentSessionId } : {}),
     persistence: "persistence" in params ? (params.persistence ?? "immediate") : "immediate",
     protocolEventSequences: new Map(),

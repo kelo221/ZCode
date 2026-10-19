@@ -68,6 +68,8 @@ pub struct HostPrefs {
     pub memory_enabled: bool,
     /// Desktop with Settings › Voice on: the main session gets the Speak tool.
     pub voice_enabled: bool,
+    /// Settings › Code search on: sessions get the built-in fff FindFiles/SearchCode tools.
+    pub code_search_enabled: bool,
 }
 
 /// Dispatches an agent-to-client request based on the method name.
@@ -99,7 +101,8 @@ pub fn dispatch_reverse_rpc(
                 "askUserQuestionAutoResolutionEnabled": true,
                 "nativeSearchEnhancementsEnabled": true,
                 "memoryEnabled": prefs.memory_enabled,
-                "voiceEnabled": prefs.voice_enabled
+                "voiceEnabled": prefs.voice_enabled,
+                "codeSearchEnabled": prefs.code_search_enabled
             }),
         ),
 

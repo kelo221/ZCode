@@ -434,6 +434,7 @@ export class ZCodeProtocolAgentServer {
   shutdown(): Promise<void> {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.shutdownPromise = this.runtimeResources.close();
+    this.context.codeSearch?.close();
     const error = new Error("ZCode Protocol runtime stopping");
     this.disconnectClient(error);
     this.messageSink = undefined;

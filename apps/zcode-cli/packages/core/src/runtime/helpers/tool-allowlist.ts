@@ -7,11 +7,18 @@ import {
   RESUME_WORKFLOW_RUN_TOOL_NAME,
   SAVE_WORKFLOW_TOOL_NAME,
 } from "@zcode/contracts";
-import { EXPLORE_AGENT_ALLOWED_TOOLS } from "../../subagent/explore-tools.js";
+import {
+  EXPLORE_AGENT_ALLOWED_TOOLS,
+  EXPLORE_AGENT_CODE_SEARCH_TOOLS,
+} from "../../subagent/explore-tools.js";
 import type { AgentRuntimeConfig } from "../types.js";
 import { normalizeToolNameAlias } from "../../tool/tool-visibility.js";
 
-const EXPLORE_AGENT_ALLOWED_TOOL_SET = new Set<string>(EXPLORE_AGENT_ALLOWED_TOOLS);
+// FindFiles/SearchCode 只在注入 CodeSearchPort 时注册；允许列表里出现不影响其他宿主。
+const EXPLORE_AGENT_ALLOWED_TOOL_SET = new Set<string>([
+  ...EXPLORE_AGENT_ALLOWED_TOOLS,
+  ...EXPLORE_AGENT_CODE_SEARCH_TOOLS,
+]);
 
 /**
  * workflow child 运行时额外不注册的工具。

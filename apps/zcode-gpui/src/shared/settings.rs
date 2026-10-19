@@ -122,6 +122,13 @@ pub struct AppSettings {
         rename = "gpuiNoiseFree"
     )]
     pub gpui_noise_free: Option<bool>,
+    /// GPUI-only built-in fff code search (FindFiles/SearchCode); absent means on.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "gpuiCodeSearch"
+    )]
+    pub gpui_code_search: Option<bool>,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -129,6 +136,10 @@ pub struct AppSettings {
 impl AppSettings {
     pub fn noise_free(&self) -> bool {
         self.gpui_noise_free.unwrap_or(true)
+    }
+
+    pub fn code_search(&self) -> bool {
+        self.gpui_code_search.unwrap_or(true)
     }
 
     pub(crate) fn language_preference(&self) -> crate::shared::i18n::LocalePreference {

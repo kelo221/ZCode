@@ -281,6 +281,9 @@ impl AppState {
                 let prefs = crate::backend::reverse_rpc::HostPrefs {
                     memory_enabled,
                     voice_enabled: self.voice.is_some() && crate::voice::settings(cx).enabled,
+                    code_search_enabled: cx
+                        .try_global::<crate::shared::preferences::PreferenceOwner>()
+                        .is_none_or(|owner| owner.0.read(cx).snapshot.code_search()),
                 };
                 let action =
                     crate::backend::reverse_rpc::dispatch_reverse_rpc(&id, &method, &params, prefs);

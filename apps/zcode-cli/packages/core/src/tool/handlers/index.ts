@@ -16,6 +16,8 @@ import {
   RESUME_WORKFLOW_RUN_TOOL_NAME,
   SAVE_WORKFLOW_TOOL_NAME,
   SPEAK_TOOL_NAME,
+  FIND_FILES_TOOL_NAME,
+  SEARCH_CODE_TOOL_NAME,
   SUBMIT_RESULT_TOOL_NAME,
   type JsonSchema,
 } from "@zcode/contracts";
@@ -69,6 +71,7 @@ import { saveWorkflowToolEntry } from "./save-workflow.js";
 import { listSavedWorkflowsToolEntry } from "./list-saved-workflows.js";
 import { listModelsToolEntry } from "./list-models.js";
 import { speakToolEntry } from "./speak.js";
+import { findFilesToolEntry, searchCodeToolEntry } from "./code-search.js";
 import { evalWorkflowSnippetToolEntry } from "./eval-workflow-snippet.js";
 import { listWorkflowRunsToolEntry } from "./list-workflow-runs.js";
 import { getWorkflowRunToolEntry } from "./get-workflow-run.js";
@@ -148,6 +151,9 @@ export const builtInTools: ToolEntry[] = [
   listModelsToolEntry,
   // GPUI 桌面语音：端口在场（Host 开启 voice 的主会话）才注册。
   speakToolEntry,
+  // GPUI fff 常驻索引搜索：注入了 CodeSearchPort 的会话才注册。
+  findFilesToolEntry,
+  searchCodeToolEntry,
   // workflowToolEntry,
 ];
 
@@ -198,6 +204,8 @@ interface RegisterBuiltInToolsOptions {
   includeOffPeak?: boolean;
   /** Speak（GPUI 桌面语音）；注入了 VoicePort 的主会话才注册。 */
   includeSpeak?: boolean;
+  /** FindFiles/SearchCode（GPUI fff 索引）；注入了 CodeSearchPort 的会话才注册。 */
+  includeCodeSearch?: boolean;
   /**
    * 动态工作流灰度门。**只有显式 false
    * 才下架** DYNAMIC_WORKFLOW_TOOL_NAMES：缺席代表调用方不参与灰度（TUI、headless、
@@ -277,6 +285,12 @@ export function registerBuiltInTools(
       continue;
     }
     if (entry.metadata.name === SPEAK_TOOL_NAME && options.includeSpeak !== true) {
+      continue;
+    }
+    if (
+      (entry.metadata.name === FIND_FILES_TOOL_NAME || entry.metadata.name === SEARCH_CODE_TOOL_NAME) &&
+      options.includeCodeSearch !== true
+    ) {
       continue;
     }
     if (

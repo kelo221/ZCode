@@ -1,4 +1,5 @@
 use crate::app::root::RootView;
+use crate::app::settings_code_search::code_search_pane;
 use crate::app::settings_navigation::settings_layout;
 use crate::app::settings_rows::{ControlWidth, settings_card, settings_row};
 use crate::shared::i18n::{LocalePreference, t};
@@ -34,6 +35,7 @@ pub(crate) enum SettingsSection {
     Browser,
     Voice,
     SystemPrompt,
+    CodeSearch,
     Usage,
     Phone,
 }
@@ -52,6 +54,7 @@ impl SettingsSection {
             "browser" => Self::Browser,
             "voice" => Self::Voice,
             "system-prompt" => Self::SystemPrompt,
+            "code-search" => Self::CodeSearch,
             "usage" => Self::Usage,
             "phone" => Self::Phone,
             _ => return None,
@@ -273,6 +276,7 @@ impl RootView {
             SettingsSection::Browser => self.browser_pane(cx),
             SettingsSection::Voice => self.voice_pane(&settings, blocked, cx),
             SettingsSection::SystemPrompt => self.system_prompt_pane(window, cx),
+            SettingsSection::CodeSearch => code_search_pane(&settings, blocked),
             SettingsSection::Usage => self.usage_pane(cx),
             SettingsSection::Phone => self.phone_pane(cx),
         };

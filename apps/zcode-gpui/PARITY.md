@@ -5,6 +5,30 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## Built-in fff code search (2026-10-19, GPUI-only)
+
+- No Electron counterpart. Sessions started by GPUI get two built-in, read-only tools that
+  need no permission prompt: `FindFiles` (fuzzy file-name search) and `SearchCode` (content
+  search: plain text, Rust regex when the query has regex syntax, a fuzzy retry when nothing
+  matches, `patterns` for multi-pattern OR, `files_with_matches`/`count` modes, context
+  lines and paged `cursor`s). Both use fff's constraint tokens (`src/`, `*.ts`, `!test`) and
+  return paths relative to the workspace root. They replace the user-configured `fff` MCP
+  server, which had one fixed root for every project.
+- Gate: GPUI answers `session/requestRuntimePreferences` with `codeSearchEnabled`
+  (Settings › Code search, stored as `gpuiCodeSearch` in `setting.json`, absent = on; desktop
+  only, hidden on the phone). The CLI injects a `CodeSearchPort` only when that is `true` and
+  the fff native library loads, so Electron (which never sends the field) and any failed load
+  leave the tools unregistered and the agent searches with Bash. Subagents and workflow child
+  agents share their parent's port; the Explore subagent may use both tools.
+- Owner: the CLI process (`bootstrap/src/zcode-protocol/code-search-manager.ts`). One fff
+  index per workspace key, shared by every session, subagent and workflow agent in the
+  process. It opens on the first query and closes once the workspace has had no active agent
+  for 60 seconds (checked every 5 seconds: active or queued turns, background tasks and
+  workflows, pending permission/question prompts, queued commands; an idle open chat does
+  not count). The next query reopens it; cursors from a closed index report "expired".
+- Packaging: `@ff-labs/fff-bun` (MIT) is external in the CLI's esbuild/Node build and is
+  embedded, with its native library, by `scripts/build_backend.ts` (`bun build --compile`).
+
 ## Noise-free transcript (2026-10-19, GPUI-only)
 
 - No single Electron counterpart. Electron has two separate switches: `messageStreamShowReasoning`

@@ -13,7 +13,13 @@ export const EXPLORE_AGENT_ALLOWED_TOOLS = [
   "TodoWrite",
 ] as const;
 
-export type ExploreAgentAllowedTool = (typeof EXPLORE_AGENT_ALLOWED_TOOLS)[number];
+// GPUI fff 索引搜索：只有注入了 CodeSearchPort 的会话才把它们加进 Explore 工具面，
+// 其余宿主（Electron）的允许列表与事件载荷保持不变。
+export const EXPLORE_AGENT_CODE_SEARCH_TOOLS = ["FindFiles", "SearchCode"] as const;
+
+export type ExploreAgentAllowedTool =
+  | (typeof EXPLORE_AGENT_ALLOWED_TOOLS)[number]
+  | (typeof EXPLORE_AGENT_CODE_SEARCH_TOOLS)[number];
 
 export const EXPLORE_AGENT_EMBEDDED_SEARCH_ALLOWED_TOOLS = [
   "ToolSearch",
@@ -41,11 +47,15 @@ const EXPLORE_AGENT_DESCRIPTION_TOOL_PRIORITY_SET = new Set<ExploreAgentAllowedT
 export function buildExploreAllowedTools(
   options: {
     embeddedSearchEnabled?: boolean;
+    codeSearch?: boolean;
   } = {},
 ): readonly ExploreAgentAllowedTool[] {
-  return options.embeddedSearchEnabled
+  const tools: readonly ExploreAgentAllowedTool[] = options.embeddedSearchEnabled
     ? EXPLORE_AGENT_EMBEDDED_SEARCH_ALLOWED_TOOLS
     : EXPLORE_AGENT_ALLOWED_TOOLS;
+  if (!options.codeSearch) return tools;
+  const bash = tools.indexOf("Bash") + 1;
+  return [...tools.slice(0, bash), ...EXPLORE_AGENT_CODE_SEARCH_TOOLS, ...tools.slice(bash)];
 }
 
 export function formatExploreAllowedToolsForAgentDescription(

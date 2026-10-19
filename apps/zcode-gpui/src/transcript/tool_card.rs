@@ -36,7 +36,7 @@ pub(crate) struct ToolCallView<'a> {
 /// Desktop renderer icon per tool kind (`ToolCallBlocks/renderers/*`).
 fn tool_icon(label: &str) -> IconName {
     match label {
-        "Read" | "Grep" | "Glob" | "LS" => IconName::Search,
+        "Read" | "Grep" | "Glob" | "LS" | "FindFiles" | "SearchCode" => IconName::Search,
         "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => IconName::Pencil,
         "Bash" => IconName::Terminal,
         "WebFetch" | "WebSearch" => IconName::Globe,
@@ -198,7 +198,7 @@ fn summary_label(label: &str, input: Option<&Value>) -> AnyElement {
 }
 
 /// One-line human summary per tool (desktop parity: primary param inline).
-fn tool_summary(label: &str, v: &Value) -> Option<String> {
+pub(crate) fn tool_summary(label: &str, v: &Value) -> Option<String> {
     let str_field = |k: &str| {
         v.get(k)
             .and_then(Value::as_str)
@@ -217,6 +217,15 @@ fn tool_summary(label: &str, v: &Value) -> Option<String> {
                 .unwrap_or_default(),
         ),
         "Glob" => str_field("pattern"),
+        "FindFiles" => str_field("query"),
+        "SearchCode" => str_field("query").map(|q| format!("\"{q}\"")).or_else(|| {
+            let patterns = v
+                .get("patterns")?
+                .as_array()?
+                .iter()
+                .filter_map(Value::as_str);
+            Some(patterns.collect::<Vec<_>>().join(" | "))
+        }),
         "WebFetch" => str_field("url"),
         "WebSearch" => str_field("query"),
         "Task" | "Agent" => str_field("description").or_else(|| str_field("prompt")),

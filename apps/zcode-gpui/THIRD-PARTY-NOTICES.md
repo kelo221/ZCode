@@ -82,6 +82,14 @@ only starts the process and exchanges newline-delimited JSON over stdin/stdout.
 Its license and dependency list ship as `zcode-voice-NOTICE.md`
 (`apps/zcode-voice/NOTICE.md`).
 
+## Code search backend (fff, MIT)
+
+The compiled backend (`scripts/build_backend.ts`) embeds `@ff-labs/fff-bun`
+0.11.0 and its platform library (`@ff-labs/fff-bin-*`, `fff_c`), from
+https://github.com/dmtrKovalenko/fff (MIT, Copyright Dmitry Kovalenko). It
+powers the GPUI-only `FindFiles` and `SearchCode` agent tools; the MIT notice
+above applies.
+
 ## Transitive dependencies
 
 Transitive crate dependencies (e.g. vte, unicode-width, parking_lot, regex)

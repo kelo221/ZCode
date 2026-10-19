@@ -521,6 +521,7 @@ async function executeToolCallImpl(
         automationPort: deps.automationPort,
         offPeakPort: deps.offPeakPort,
         voicePort: deps.voicePort,
+        codeSearchPort: deps.codeSearchPort,
         topicResourcePort: deps.topicResourcePort,
         sessionStore: deps.sessionStore,
         sessionModePort: deps.sessionModePort,

@@ -34,6 +34,7 @@ import type { ZCodeApp, ZCodeAppOptions } from "../app/types.js";
 import type { V4InteractionRegistry } from "../zcode-protocol-v4/interaction-registry.js";
 import type { ConversationV4Gateway } from "../zcode-protocol-v4/v4-gateway.js";
 import type { SessionResidentPool, SessionResidentPoolOptions } from "./session-resident-pool.js";
+import type { CodeSearchManager } from "./code-search-manager.js";
 import type { DynamicWorkflowMode } from "@zcode/shared";
 
 export interface ParamsSchema<T> {
@@ -88,6 +89,8 @@ export interface ZCodeProtocolSessionRecord {
   memoryEnabled: boolean;
   nativeSearchEnhancementsEnabled: boolean;
   toolSearchMode: AppToolSearchMode;
+  /** GPUI fff 索引搜索（FindFiles/SearchCode）；继承来源（子会话）沿用父值。 */
+  codeSearchEnabled?: boolean;
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
   createdAt: number;
   deliveryKind?: ZCodeDeliveryKind;
@@ -163,6 +166,8 @@ export interface ZCodeProtocolAgentServerContext {
   // 协议请求则持有 operation lease，禁止异步 handler 与容量回收交错。
   sessionResidentPool?: SessionResidentPool;
   sessions: Map<string, ZCodeProtocolSessionRecord>;
+  /** GPUI fff 索引的进程级生命周期；首个启用 codeSearch 的会话创建时惰性构造。 */
+  codeSearch?: CodeSearchManager;
   /** 仅覆盖异步创建窗口，结束即释放；输入命令仍由 CommandInbox 排队。 */
   sessionCreationIds?: Set<string>;
   notify(notification: ZCodeProtocolNotification): void;

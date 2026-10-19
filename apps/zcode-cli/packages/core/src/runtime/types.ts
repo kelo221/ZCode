@@ -76,6 +76,7 @@ import type {
   AutomationPort,
   OffPeakPort,
   VoicePort,
+  CodeSearchPort,
   TopicResourcePort,
   FileSystemPort,
   HttpClientPort,
@@ -393,6 +394,7 @@ export interface AgentRuntimeDeps {
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
   voicePort?: VoicePort;
+  codeSearchPort?: CodeSearchPort;
   topicResourcePort?: TopicResourcePort;
   contextSourcePort?: ContextSourcePort;
   eventSink?: SessionEventSink;

@@ -13,6 +13,8 @@ mod scroll_tests;
 pub(crate) mod subagent_card;
 pub(crate) mod tagged_text;
 pub(crate) mod tool_card;
+#[cfg(test)]
+mod tool_card_tests;
 pub(crate) mod tool_images;
 pub(crate) mod tool_inputs;
 pub(crate) mod user_row;

@@ -315,6 +315,7 @@ function createWorkflowChildRuntime(
           processEnv: deps.appOptions.env ?? process.env,
         }),
       fileSystemPort: deps.appOptions.fileSystemPort ?? createNodeFileSystemAdapter(),
+      codeSearchPort: deps.appOptions.codeSearchPort,
       httpClientPort:
         deps.appOptions.httpClientPort ??
         createNodeWebFetchHttpClientAdapter({

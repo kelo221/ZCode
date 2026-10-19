@@ -246,6 +246,7 @@ function createRuntimeDeps(
         processEnv: deps.appOptions.env ?? process.env,
       }),
     fileSystemPort: deps.appOptions.fileSystemPort ?? createNodeFileSystemAdapter(),
+    codeSearchPort: deps.appOptions.codeSearchPort,
     httpClientPort:
       deps.httpClientPort ??
       deps.appOptions.httpClientPort ??
