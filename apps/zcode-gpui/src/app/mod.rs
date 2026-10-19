@@ -95,6 +95,9 @@ mod settings_shell_tests;
 #[cfg(test)]
 mod settings_shortcut_bindings_tests;
 pub(crate) mod settings_shortcuts;
+mod settings_system_prompt;
+#[cfg(test)]
+mod settings_system_prompt_tests;
 #[cfg(test)]
 mod settings_tests;
 mod settings_voice;

@@ -18,6 +18,7 @@ impl AppState {
         if self.handle_workflow_content_response(ws_key, id, &result, &error, cx)
             || self.handle_workflow_artifact_response(ws_key, id, &result, &error, cx)
             || self.handle_attachment_response(ws_key, id, &result, &error, cx)
+            || self.handle_system_prompt_response(ws_key, id, &result, &error, cx)
         {
             return;
         }
@@ -171,6 +172,7 @@ impl AppState {
             | Pending::AttachmentAbort
             | Pending::WorkflowArtifacts(_)
             | Pending::WorkflowArtifactContent(_)
+            | Pending::SystemPrompt { .. }
             | Pending::CleanupCatalog => {}
             Pending::SubscribeConversation(sid) => {
                 let topic = format!("conversation/{sid}");

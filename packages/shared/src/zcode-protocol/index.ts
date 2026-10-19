@@ -2663,6 +2663,52 @@ export type ZCodeWorkspaceUpdateModelIoPreferencesResult = z.infer<
   typeof zcodeWorkspaceUpdateModelIoPreferencesResultSchema
 >;
 
+// GPUI 专属：主 Agent system prompt 覆盖。Electron 不调用；旧 CLI method-not-found → GPUI 显示不可用。
+// prompt 为 null 或空白 = 恢复默认（不覆盖）。
+export const zcodeWorkspaceReadSystemPromptParamsSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+  })
+  .strict();
+export type ZCodeWorkspaceReadSystemPromptParams = z.infer<
+  typeof zcodeWorkspaceReadSystemPromptParamsSchema
+>;
+
+export const zcodeWorkspaceReadSystemPromptResultSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    /** 不带覆盖时的 system 正文（不含固定的 CLI prefix 行）。 */
+    defaultPrompt: z.string(),
+    /** session = 取自本 workspace 的活跃主会话；static = 尚无会话时的身份段兜底。 */
+    defaultSource: z.enum(["session", "static"]),
+    override: z.string().nullable(),
+  })
+  .strict();
+export type ZCodeWorkspaceReadSystemPromptResult = z.infer<
+  typeof zcodeWorkspaceReadSystemPromptResultSchema
+>;
+
+export const zcodeWorkspaceUpdateSystemPromptParamsSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    prompt: z.string().nullable(),
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateSystemPromptParams = z.infer<
+  typeof zcodeWorkspaceUpdateSystemPromptParamsSchema
+>;
+
+export const zcodeWorkspaceUpdateSystemPromptResultSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    override: z.string().nullable(),
+    updatedSessionCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateSystemPromptResult = z.infer<
+  typeof zcodeWorkspaceUpdateSystemPromptResultSchema
+>;
+
 export const zcodeWorkspaceUpdateOffPeakToolPolicyParamsSchema = z
   .object({
     workspace: zcodeWorkspaceRefSchema,
@@ -4180,6 +4226,9 @@ export const zcodeProtocolMethods = {
   providerRefreshRegistry: "provider/refreshRegistry",
   workspaceUpdateInteractionPreferences: "workspace/updateInteractionPreferences",
   workspaceUpdateModelIoPreferences: "workspace/updateModelIoPreferences",
+  // GPUI 专属 system prompt 覆盖（Electron 不调用）。
+  workspaceReadSystemPrompt: "workspace/readSystemPrompt",
+  workspaceUpdateSystemPrompt: "workspace/updateSystemPrompt",
   // Off-Peak 工具面门禁是 workspace 级事实（灰度 + 本地/远程），由 host 在 agent 就绪时同步；
   // CLI 对 legacy create/resume 与 v4 冷恢复统一读取。旧 CLI method-not-found → host 降级忽略。
   workspaceUpdateOffPeakToolPolicy: "workspace/updateOffPeakToolPolicy",

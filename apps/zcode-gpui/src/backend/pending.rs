@@ -78,4 +78,8 @@ pub(crate) enum Pending {
         session: String,
         replacing: bool,
     },
+    /// GPUI-only `workspace/readSystemPrompt` (true) or `workspace/updateSystemPrompt` (false).
+    SystemPrompt {
+        read: bool,
+    },
 }

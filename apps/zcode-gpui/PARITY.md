@@ -5,6 +5,38 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## System prompt override (2026-10-19, GPUI-only)
+
+- No Electron counterpart. Settings › System prompt (desktop only, hidden on the phone)
+  lets the user replace the main agent's system prompt. It uses the CLI's existing
+  `customSystemPrompt` path: the text replaces the default body and every dynamic system
+  section (environment, git status, memory guidance, desktop context, communication and
+  autonomy text). The CLI always keeps the first line "You are ZCode, an interactive coding
+  agent", the skills listing, AGENTS.md/MEMORY.md and the date. Subagents and workflow
+  child agents never take the override.
+- Owner: GPUI. The override is stored in `~/.zcode/v2/gpui_system_prompt.md`, not in the
+  shared `setting.json` (Electron rewrites that file and drops unknown keys). A missing or
+  blank file means the default. It applies to every workspace.
+- Protocol (new, GPUI is the only caller): `workspace/readSystemPrompt {workspace}` returns
+  `{defaultPrompt, defaultSource: "session"|"static", override}`, and
+  `workspace/updateSystemPrompt {workspace, prompt: string|null}` returns `{override,
+  updatedSessionCount}`. Both use strict schemas. Null or blank means reset. The CLI keeps
+  the value in memory only (`appRuntimePreferences.systemPrompt`), so new and resumed main
+  sessions read it in `createRecord`, and resident main sessions get
+  `runtime.setSystemPromptOverride`. That rebuilds the prompt prefix right away when idle,
+  or when the active turn ends.
+- Order: on `startup/storageState: ready` GPUI sends `updateSystemPrompt` only if an
+  override exists. Entering the section sends `readSystemPrompt` to the active workspace
+  agent. Apply/Reset write the file first and then send `updateSystemPrompt` to every
+  started agent. An agent that answers -32601 (for example the installed Desktop runtime
+  fallback) marks the feature unavailable without an error banner.
+- Editor rules: it is prefilled with the override, or else the default. While the user
+  hasn't edited it, it follows later commits (default arriving, Reset). Apply is disabled
+  while the text equals the committed value. Text that is blank or equal to the default
+  applies as a reset, so an untouched editor never freezes a copy of the default. When no
+  session exists yet, the default is only the static identity text, and the page says to
+  open a chat to load the full one.
+
 ## Voice slice (2026-10-16, GPUI-only)
 
 - New GPUI-only feature with no Electron counterpart: a `Speak` tool lets the main agent talk

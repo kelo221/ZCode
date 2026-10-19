@@ -584,6 +584,10 @@ export interface AgentRuntime {
    */
   createChildClientPorts(context: ChildClientPortsContext): ClientFacingPorts;
   getContextBuilder(): ContextBuilder;
+  /** 主 Agent system prompt 覆盖；空/undefined 恢复默认。子代理与工作流子代理返回 false。 */
+  setSystemPromptOverride(prompt: string | undefined): boolean;
+  /** 不带覆盖时的默认 system 正文（不含 CLI prefix 行）。 */
+  previewDefaultSystemPrompt(): string;
   /** Composer 使用的 Session Skill 快照；同一 runtime 冻结，runtime 重建后重新发现。 */
   getSkillCatalog(traceContext: TraceContext): Promise<SkillLoadOutcome>;
   resumeFromStore(options?: ResumeSessionOptions): Promise<ResumeSessionResult>;

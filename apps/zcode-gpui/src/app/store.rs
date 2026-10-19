@@ -83,6 +83,8 @@ pub struct AppState {
     pub(crate) phone_client: crate::remote::phone_state::PhoneClient,
     /// Desktop only (`None` on the phone): spoken output, see VOICE.md.
     pub(crate) voice: Option<crate::voice::VoiceService>,
+    /// GPUI-only main-agent system prompt override (system_prompt/mod.rs).
+    pub(crate) system_prompt: crate::system_prompt::SystemPromptState,
 }
 
 impl AppState {
@@ -113,6 +115,12 @@ impl AppState {
             phone_client: Default::default(),
             browser: Default::default(),
             voice: None,
+            // Tests never read the real home file; the phone has no agents of its own.
+            system_prompt: if cfg!(test) || remote {
+                Default::default()
+            } else {
+                crate::system_prompt::SystemPromptState::load(crate::system_prompt::override_path())
+            },
             workspaces: workspace_paths
                 .into_iter()
                 .map(|p| WorkspaceHandle::new(p, candidates.clone()))

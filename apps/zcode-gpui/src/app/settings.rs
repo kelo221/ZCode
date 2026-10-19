@@ -33,6 +33,7 @@ pub(crate) enum SettingsSection {
     Mcp,
     Browser,
     Voice,
+    SystemPrompt,
     Usage,
     Phone,
 }
@@ -50,6 +51,7 @@ impl SettingsSection {
             "mcp" => Self::Mcp,
             "browser" => Self::Browser,
             "voice" => Self::Voice,
+            "system-prompt" => Self::SystemPrompt,
             "usage" => Self::Usage,
             "phone" => Self::Phone,
             _ => return None,
@@ -69,6 +71,7 @@ pub(crate) struct SettingsView {
     pub query: String,
     pub shortcut_query: String,
     pub model_query: String,
+    pub system_prompt: Option<crate::app::settings_system_prompt::PromptEditor>,
     pub focus: FocusHandle,
 }
 
@@ -269,6 +272,7 @@ impl RootView {
             SettingsSection::Mcp => self.mcp_pane(cx),
             SettingsSection::Browser => self.browser_pane(cx),
             SettingsSection::Voice => self.voice_pane(&settings, blocked, cx),
+            SettingsSection::SystemPrompt => self.system_prompt_pane(window, cx),
             SettingsSection::Usage => self.usage_pane(cx),
             SettingsSection::Phone => self.phone_pane(cx),
         };

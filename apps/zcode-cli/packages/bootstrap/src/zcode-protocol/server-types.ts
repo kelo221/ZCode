@@ -150,6 +150,8 @@ export interface ZCodeProtocolAgentServerContext {
      * 缺席（旧 Host 只发布尔）= alwaysOn；`onDemand` 让 createRecord 写 runtimeConfig.dynamicWorkflowToolsOnDemand。
      */
     dynamicWorkflowMode?: DynamicWorkflowMode;
+    /** GPUI 专属主 Agent system prompt 覆盖（workspace/updateSystemPrompt）；缺省 = 默认 prompt。 */
+    systemPrompt?: string;
   };
   // 竖切：v4 conversation 通道（订阅/帧/命令），与旧 session/* 方法并存。
   // 构造顺序问题（gateway 闭包持有 context）用可选字段收口，server 构造完立即赋值。

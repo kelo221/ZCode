@@ -21,6 +21,7 @@ import { getSessionEventStore } from "./config.js";
 import { notifyExternalChildSessionEvent } from "./config.js";
 import { createChildClientPorts } from "./config.js";
 import { getContextBuilder } from "./config.js";
+import { previewDefaultSystemPrompt, setSystemPromptOverride } from "./system-prompt-override.js";
 import { getPendingPermissionRequests } from "./config.js";
 import { recordUserInputAutoResolutionUpdate } from "./interaction-auto-resolution.js";
 import { recordDynamicWorkflowRunProgress } from "./dynamic-workflow-run-progress.js";
@@ -228,6 +229,8 @@ export function installAgentRuntimeMethods(ctor: AgentRuntimeConstructor): void 
   proto.notifyExternalChildSessionEvent = notifyExternalChildSessionEvent;
   proto.createChildClientPorts = createChildClientPorts;
   proto.getContextBuilder = getContextBuilder;
+  proto.setSystemPromptOverride = setSystemPromptOverride;
+  proto.previewDefaultSystemPrompt = previewDefaultSystemPrompt;
   proto.getPendingPermissionRequests = getPendingPermissionRequests;
   proto.recordUserInputAutoResolutionUpdate = recordUserInputAutoResolutionUpdate;
   proto.recordDynamicWorkflowRunProgress = recordDynamicWorkflowRunProgress;

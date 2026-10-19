@@ -68,6 +68,9 @@ pub(crate) mod status;
 pub(crate) mod subagent_cmds;
 pub(crate) mod submission;
 mod subscription_ack;
+mod system_prompt_cmds;
+#[cfg(test)]
+mod system_prompt_tests;
 pub(crate) mod transport_state;
 pub(crate) mod wire;
 pub(crate) mod workflow_artifact_content;

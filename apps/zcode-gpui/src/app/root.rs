@@ -139,6 +139,7 @@ impl RootView {
                 query: String::new(),
                 shortcut_query: String::new(),
                 model_query: String::new(),
+                system_prompt: None,
             },
         }
     }

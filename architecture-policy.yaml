@@ -897,3 +897,9 @@ exceptions:
       - apps/zcode-cli/packages/adapters/src/model/endpoint-routing-edition/index.ts
       - apps/zcode-cli/packages/adapters/src/model/provider-endpoint-routing-options.ts
     reason: Existing upstream routing assembly files gain the endpoint origin and injected JWT reader; adopting the full CLI model adapter directory needs a separate module boundary refactor.
+  - id: gpui-system-prompt-override-cli
+    rule: unmanaged-new-file
+    paths:
+      - apps/zcode-cli/packages/core/src/runtime/methods/system-prompt-override.ts
+      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/system-prompt-override.ts
+    reason: GPUI-only fork feature (apps/zcode-gpui/PARITY.md "System prompt override"). Kept in its own files beside the existing runtime methods and protocol preference handlers so upstream source syncs do not conflict; adopting the CLI runtime or protocol directories is outside this fork change.

@@ -51,6 +51,7 @@ import {
   type RuntimeMessageEntry,
 } from "../../agent/message-history.js";
 import type { AgentRuntimeInternal } from "../internal.js";
+import { flushPendingSystemPromptRebuild } from "./system-prompt-override.js";
 
 function hasSteerInput(request: Pick<TurnSteerInput, "attachments" | "input" | "intent">): boolean {
   return (
@@ -386,6 +387,7 @@ export function finishActiveTurn(
 ): void {
   if (activeTurn !== undefined && this.activeTurn === activeTurn) {
     this.activeTurn = undefined;
+    flushPendingSystemPromptRebuild(this);
   }
 }
 

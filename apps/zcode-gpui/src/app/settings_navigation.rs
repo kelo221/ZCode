@@ -41,6 +41,7 @@ impl SettingsSection {
             Self::Mcp => ("MCP Servers", "MCP 服务器"),
             Self::Browser => ("Browser Use", "浏览器使用"),
             Self::Voice => ("Voice", "语音"),
+            Self::SystemPrompt => ("System prompt", "系统提示词"),
             Self::Usage => ("Usage stats", "使用统计"),
             Self::Phone => ("Phone", "手机"),
         }
@@ -60,6 +61,7 @@ impl SettingsSection {
             Self::Mcp => CABLE_ICON,
             Self::Browser => IconName::Globe.path(),
             Self::Voice => IconName::Volume2.path(),
+            Self::SystemPrompt => IconName::FileText.path(),
             Self::Usage => IconName::ChartColumn.path(),
             Self::Phone => IconName::Smartphone.path(),
         }
@@ -77,6 +79,7 @@ impl SettingsSection {
             Self::Mcp => "settings-mcp",
             Self::Browser => "settings-browser",
             Self::Voice => "settings-voice",
+            Self::SystemPrompt => "settings-system-prompt",
             Self::Usage => "settings-usage",
             Self::Phone => "settings-phone",
         }
@@ -104,6 +107,7 @@ pub(crate) fn navigation_sections(query: &str) -> Vec<(SettingsGroup, SettingsSe
         (AgentCapabilities, Mcp),
         (AgentCapabilities, Browser),
         (AgentCapabilities, Voice),
+        (AgentCapabilities, SystemPrompt),
         (DataAndStats, Usage),
         (DataAndStats, Phone),
     ]
@@ -268,8 +272,14 @@ impl RootView {
         // The phone drives the desktop's browser and has no voice output of
         // its own; both are desktop-only sections.
         if self.state.read(cx).phone_client.enabled {
-            sections
-                .retain(|(_, s)| !matches!(s, SettingsSection::Browser | SettingsSection::Voice));
+            sections.retain(|(_, s)| {
+                !matches!(
+                    s,
+                    SettingsSection::Browser
+                        | SettingsSection::Voice
+                        | SettingsSection::SystemPrompt
+                )
+            });
         }
         for (index, group) in [
             SettingsGroup::Basics,

@@ -76,6 +76,7 @@ impl AppState {
             phone_client: Default::default(),
             browser: Default::default(),
             voice: None,
+            system_prompt: Default::default(),
         }
     }
 }

@@ -112,7 +112,13 @@ impl RootView {
             && (self.settings.section != section || !self.settings.open);
         let entering_browser = section == SettingsSection::Browser
             && (self.settings.section != section || !self.settings.open);
+        let entering_prompt = section == SettingsSection::SystemPrompt
+            && (self.settings.section != section || !self.settings.open);
         self.settings.section = section;
+        if entering_prompt {
+            self.state
+                .update(cx, |s, cx| s.read_system_prompt_default(cx));
+        }
         if entering_browser {
             self.state
                 .update(cx, |s, cx| s.refresh_browser_registration(cx));

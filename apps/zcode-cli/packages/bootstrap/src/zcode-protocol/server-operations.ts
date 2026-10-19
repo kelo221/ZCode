@@ -3473,6 +3473,10 @@ async function createRecord(
       modelSelection: "model" in params ? toRuntimeModelSelection(initialModel) : undefined,
       parentSessionId,
       taskType,
+      // GPUI 专属 system prompt 覆盖只给主会话；子会话（含工作流子代理）保持各自的 prompt 路径。
+      ...(parentSessionId === undefined && context.appRuntimePreferences.systemPrompt
+        ? { systemPrompt: context.appRuntimePreferences.systemPrompt }
+        : {}),
       // 动态工作流灰度门（docs/dynamic-workflow/launch.md「Gray release」「On demand: activation」）：
       // 与 offPeakPort 同一套读法——本次 create/resume 参数优先，缺席时读 Host 同步到进程的
       // workspace 级结论。取值与「必须显式布尔」的理由收在 resolveDynamicWorkflowRuntimeGate。

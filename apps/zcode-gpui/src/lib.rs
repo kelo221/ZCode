@@ -22,6 +22,7 @@ pub mod remote;
 mod review;
 mod sessions;
 mod shared;
+mod system_prompt;
 mod terminal;
 mod transcript;
 mod voice;
