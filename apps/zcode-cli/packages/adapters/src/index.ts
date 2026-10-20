@@ -20,3 +20,4 @@ export * from "./workflow/index.js";
 export * from "./tools/index.js";
 export * from "./code-search/fff-engine.js";
 export * from "./lsp/index.js";
+export * from "./git/worktree.js";

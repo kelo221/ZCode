@@ -11,6 +11,8 @@ export interface AgentProfile {
   description: string;
   disallowedTools?: readonly string[];
   injectAgentsMd?: boolean;
+  /** `worktree`：默认在独立 git worktree 中运行（见 CLI 07-subagent「Worktree isolation」）。 */
+  isolation?: "worktree";
   maxTurns?: number;
   mcpServers?: readonly string[];
   memory?: AgentMemoryScope;
@@ -46,6 +48,7 @@ export const agentProfileSchema = z
     modelSelection: modelSelectionSchema.optional(),
     background: z.boolean().optional(),
     injectAgentsMd: z.boolean().optional(),
+    isolation: z.literal("worktree").optional(),
     color: z
       .enum(["red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"])
       .optional(),

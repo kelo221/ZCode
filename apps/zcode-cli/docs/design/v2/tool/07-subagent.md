@@ -347,7 +347,7 @@ ZCode 应把 hook/MCP/skill 都视为外部 I/O 或扩展边界，必须带 trac
 - async agent AbortError，标记 killed 并返回 partial result。
 - async agent 普通异常，标记 failed。
 - async agent 普通异常的 provider 原始 message 必须同时进入 task notification summary、`<error>`、runtime task error 和 `SubagentStopped.payload.error`；外层 `Turn execution failed` 只能作为 detail 保留，不能覆盖父模型或 Agent 卡片看到的失败原因。
-- worktree cleanup 失败或 worktree 已被外部删除，resume 时回退到 parent cwd。
+- worktree cleanup 失败时保留文件、branch 与 metadata 并在结果中报告；worktree 已被外部删除时 resume 先从保留的 branch 重建，重建失败返回可恢复的 isolation unavailable 错误，**绝不**回退到 parent cwd（见「Worktree isolation 当前范围」）。
 - classifier 不可用或判定 handoff 危险，需要把 warning 插入父 agent 可见结果。
 - session store 中 child history 缺失，resume 失败。
 - task state 被 evict 但 `metadata.json` 仍在，`SendMessage` 从磁盘重建后恢复；metadata 也缺失时返回指向 `ListAgents` 的结构化失败。
@@ -451,6 +451,22 @@ Child finish    -> no parent MCP cleanup
 - `status: "success"` 只表示消息已被 `queued`、`steered` 或通过 `resumed_background` 接受，不表示目标 agent 已读取、接受任务或回复。
 - lowercase `send_message` 是独立的 session mailbox 工具，不复用 `SendMessage` 的 local-agent 路由、output 或 display 语义。
 - 当前没有独立的通用 resume tool，也不把 fork、worktree、team 或跨 session mailbox 能力隐式归入 `SendMessage`。
+
+### Worktree isolation 当前范围（Fork，2026-10-20）
+
+- 入口：`Agent` 输入 `isolation: "worktree"`，或 agent 定义 frontmatter `isolation: worktree`。字段始终在 schema 中；bootstrap 为本地 workspace 注入 `WorktreeIsolationPort`，没有该端口的 runtime（远程 workspace、测试）收到该值返回明确错误，不静默降级为非隔离运行。`remote` 与 `cwd` 仍不支持。
+- 位置：`<repoTop>/.zcode/worktrees/<agentId>`，branch `zcode/<agentId>`，起点为启动时的 **HEAD**（clean HEAD only）。父 checkout 的未提交改动与 untracked 文件不会带入；child 的首条 prompt 与结果都会说明这一点。`repoTop` 取 `git rev-parse --show-toplevel`；从 linked worktree 启动时同样成立。`.zcode/worktrees/` 一次性写入 `git rev-parse --git-path info/exclude` 指向的 exclude 文件。不在 git 仓库或仓库没有提交时，在启动前返回错误，不创建 child。
+- agent id 在 lifecycle 中先分配（纯内存，无 IO），随后创建 worktree，再登记 registry 与写 `running` metadata；创建失败不留下 running task。
+- 记录：`worktree { repoRoot, path, branch, sourceHead, resultHead?, finalizeError?, cargoTargetDir? }` 进入**每一个** metadata 写入点（running / completed / failed / stopped，含 `writeStoppedAgentArtifacts`）、`RuntimeTaskSnapshot`、`agent-index` 回读与 `ListAgents`。base 同时写入 `git config branch.zcode/<id>.zcodeBase <sourceHead>`，供 GPUI 只读查看。
+- 执行位置：child runtime 的 `workingDirectory` 为 worktree；session `directory` 仍为父 cwd（会话归属不变）；cold resume 通过 `executionDirectoryOverride` 在 read-state hydration 与 context 初始化之前恢复 worktree，`resume.ts` 不再用 `session.directory` 覆盖它。persistent agent memory 仍使用父 workspace root。worktree 缺失时按「branch 存在 → `git worktree add <path> <branch>`；否则 → 从 `sourceHead` 重建 branch」恢复，失败返回 `isolation unavailable`，不写父 checkout。
+- 执行范围重绑定：code search 通过 Host 的 scope 工厂按 worktree root 取独立端口（父索引绝不复用；没有工厂时 isolated child 不注册 code search）；diagnostics 按文件路径定位项目根；Bash（前台与后台）经 child 级 `ExecutionEnvOverlay.set` 注入环境；skills / commands 复用父 runtime 已解析的 skill port。
+- Cargo：仓库根有 `Cargo.toml` 且进程环境未设置 `CARGO_TARGET_DIR` 时，worktree 内 Bash 与 rust-analyzer 使用主 checkout 的 `<repoTop>/target`；用户显式设置的 `CARGO_TARGET_DIR` 始终保留。
+- 收尾（finalize）只有一个所有者：`runAgentToCompletion` 在 child runtime **真正结束**后执行（前台、自动转后台、显式后台、stop / 失败、SendMessage resume 均经过它），不在前台→后台交接时执行。每个 agent 串行、每次 run 一次。收尾前先停止 child 仍在运行的后台 Bash（与取消同一路径），结果会说明。
+  - 有未提交改动：`git add -A` 后提交 `zcode agent <id>: <description>`；仓库未配置身份时才使用 ZCode 回退身份。
+  - agent 自己已提交：保留 branch，不产生空提交。
+  - 没有新提交也没有改动：删除 worktree 与 branch。
+  - 提交或清理失败（hook、签名等）：保留文件与 branch，记录 `finalizeError` 并与 agent 原本的结果一同报告，下一次 finalize 重试。
+- 结果：模型可见尾注给出 branch、worktree 路径、相对 `sourceHead` 的 diff stat，以及集成命令 `git merge --no-ff zcode/<id>`（由模型在主 checkout 通过 Bash 按正常权限执行；重叠的脏文件由 git 安全拒绝）。合并 / 丢弃按钮不在本轮范围。
 
 ### RespondToCoordinator 当前范围
 

@@ -124,7 +124,8 @@ export async function resumeFromStore(
     traceContext,
   });
 
-  this.workingDirectory = session.directory;
+  // worktree 子代理的 session.directory 是父工作区（只做关联）；执行目录必须仍是它的 worktree。
+  this.workingDirectory = this.config.executionDirectoryOverride ?? session.directory;
   this.config.taskType = session.taskType;
   if (this.config.memory) {
     // Memory root 必须使用会话落盘时的 workspace identity，不能沿用进程启动 workspace。

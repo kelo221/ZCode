@@ -64,6 +64,7 @@ export function parseAgentProfileFromMarkdown(input: {
   const permissionMode = input.source === "project" ? undefined : parsedPermissionMode;
   const maxTurns = normalizePositiveInteger(frontmatter.maxTurns);
   const memory = parseAgentMemoryScope(frontmatter.memory);
+  const isolation = scalarString(frontmatter.isolation) === "worktree" ? "worktree" : undefined;
   const memoryDiagnostic =
     frontmatter.memory !== undefined && memory === undefined
       ? {
@@ -95,6 +96,7 @@ export function parseAgentProfileFromMarkdown(input: {
       ...(permissionMode ? { permissionMode } : {}),
       ...(maxTurns ? { maxTurns } : {}),
       ...(memory ? { memory } : {}),
+      ...(isolation ? { isolation } : {}),
       ...optionalList("tools", frontmatter.tools),
       ...optionalList("disallowedTools", frontmatter.disallowedTools),
       ...optionalList("skills", frontmatter.skills),

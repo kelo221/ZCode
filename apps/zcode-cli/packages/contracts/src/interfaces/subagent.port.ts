@@ -7,6 +7,7 @@ import type { Model, ModelSelection } from "../model/index.js";
 import type { ModelRequestDependencies } from "../model/invocation-context.js";
 import type { SessionId, ToolCallId, TurnId } from "./shared.js";
 import type { TraceContext } from "../tracing/tracer.js";
+import type { WorktreeRecord } from "./worktree.port.js";
 
 export interface SubagentRunRequest {
   sessionId: SessionId;
@@ -16,6 +17,8 @@ export interface SubagentRunRequest {
   description: string;
   prompt: string;
   callerCanReadOutputFile?: boolean;
+  /** 显式请求；未给出时由 profile.isolation 决定。 */
+  isolation?: "worktree";
   workingDirectory: string;
   workspaceRoot: string;
   trace: TraceContext;
@@ -102,6 +105,7 @@ export interface SubagentTaskSnapshot {
   output?: AgentOutput;
   outputFile?: string;
   notified?: boolean;
+  worktree?: WorktreeRecord;
 }
 
 export interface SubagentListEntry {
@@ -113,6 +117,7 @@ export interface SubagentListEntry {
   updatedAt: Date;
   /** 当前 runtime 的 registry 里仍有这个 agent（true），还是只从磁盘 metadata 读回（false）。 */
   live: boolean;
+  worktree?: WorktreeRecord;
 }
 
 export interface SubagentPort {

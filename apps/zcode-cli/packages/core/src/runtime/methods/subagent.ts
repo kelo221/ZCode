@@ -53,6 +53,7 @@ import { deriveChildClientPorts } from "../helpers/child-client-ports.js";
 import { createCoordinatorResponsePort } from "../../subagent/coordinator-response.js";
 import { isStaleBranchRuntimeTaskEvent } from "./runtime-command-generation.js";
 import { loadPersistentAgentMemory } from "../../subagent/persistent-memory.js";
+import { withExecutionEnv } from "../../subagent/worktree-isolation.js";
 import {
   createOfficialCuaPolicy,
   SUBAGENT_COMPUTER_USE_UNAVAILABLE_CODE,
@@ -80,6 +81,7 @@ export function createDefaultSubagentPort(
     getAgentDefinitions: this.getAgentDefinitions,
     builtInModelSelectionOverrides: this.config.subagents?.builtInModelSelectionOverrides,
     runtimeTaskRegistry: this.runtimeTaskRegistry,
+    worktreeIsolation: deps.worktreeIsolationPort,
     emitParentEvent: async (event, traceContext) => {
       if (isStaleBranchRuntimeTaskEvent(this, event)) return;
       await this.appendEvent(event, traceContext);
@@ -136,9 +138,26 @@ export function createDefaultSubagentPort(
           ? modelSelectionFromActiveModel(inheritedModel)
           : profileChildSelection;
         const embeddedSearchEnabled = resolveSubagentEmbeddedSearchEnabled();
+        // worktree 隔离：执行目录与按根绑定的服务都换到 worktree；session 关联、Memory
+        // 与 skill/AGENTS.md 仍沿用父工作区。没有 scope 工厂时不继承父的 code search 索引。
+        const isolation = request.isolation;
+        const executionDirectory = isolation?.executionDirectory ?? request.workingDirectory;
+        const scopedPorts = isolation
+          ? deps.scopePortsFor?.({
+              root: executionDirectory,
+              ...(isolation.env ? { env: isolation.env } : {}),
+            })
+          : undefined;
+        const childExecutionPort = isolation
+          ? withExecutionEnv(deps.executionPort, isolation.env)
+          : deps.executionPort;
+        const childCodeSearchPort = isolation ? scopedPorts?.codeSearchPort : deps.codeSearchPort;
+        const childDiagnosticsPort = isolation
+          ? (scopedPorts?.diagnosticsPort ?? deps.diagnosticsPort)
+          : deps.diagnosticsPort;
         const baseChildEnvInfo = this.contextSourceSnapshot?.envInfo ??
           this.config.envInfo ?? {
-            cwd: request.workingDirectory,
+            cwd: executionDirectory,
             platform: "unknown",
             shell: "unknown",
             osVersion: "unknown",
@@ -170,7 +189,7 @@ export function createDefaultSubagentPort(
         const childRuntimeEnvInfo = {
           ...childEnvInfo,
 
-          cwd: request.workingDirectory,
+          cwd: executionDirectory,
         };
         const officialCuaServerNames = computeOfficialCuaServerNames(
           this.config.mcp?.servers ?? {},
@@ -283,7 +302,13 @@ export function createDefaultSubagentPort(
             // finally 清理，快照不会成为可恢复的 session 配置。
             modelSelection: cloneModelSelection(childSelection),
             modelContextBudgetStrategy: this.config.modelContextBudgetStrategy,
-            workingDirectory: request.workingDirectory,
+            workingDirectory: executionDirectory,
+            ...(isolation
+              ? {
+                  workspacePath: request.workingDirectory,
+                  executionDirectoryOverride: executionDirectory,
+                }
+              : {}),
             // 执行模型只由 child Active Model 投影进 Context；envInfo 不保存第二份模型事实。
             envInfo: childRuntimeEnvInfo,
             // Explore 子运行时之前没有继承主会话的流式配置，Protocol 桌面端虽已默认
@@ -362,10 +387,10 @@ export function createDefaultSubagentPort(
               ? new PermissionService(defaultPermissionConfig)
               : this.permissionService,
             toolScheduler: deps.toolScheduler ?? defaultScheduler,
-            executionPort: deps.executionPort,
+            executionPort: childExecutionPort,
             fileSystemPort: deps.fileSystemPort,
-            codeSearchPort: deps.codeSearchPort,
-            diagnosticsPort: deps.diagnosticsPort,
+            codeSearchPort: childCodeSearchPort,
+            diagnosticsPort: childDiagnosticsPort,
             // Explore 子运行时会暴露 WebFetch，但之前没有继承主 runtime 的
             // HTTP client port，导致工具在真正发请求前抛出配置错误，而不是网络请求失败。
             httpClientPort: deps.httpClientPort,
@@ -502,11 +527,13 @@ export function createDefaultSubagentPort(
             reason: cancelled ? "subagent_cancelled" : "subagent_terminal",
             traceContext: request.traceContext,
           });
-          if (cancelled) {
-            await childRuntime.cancelRunningRuntimeBackgroundTasks({
-              reason: "subagent_cancelled",
+          if (cancelled || isolation) {
+            // worktree 收尾（提交、删除）前必须停掉 child 留下的后台写入者，数量随结果报告。
+            const stopped = await childRuntime.cancelRunningRuntimeBackgroundTasks({
+              reason: cancelled ? "subagent_cancelled" : "subagent_worktree_finalize",
               traceContext: request.traceContext,
             });
+            isolation?.onBackgroundTasksStopped(stopped);
           }
           await childBrowserControlPort
             ?.closeSession?.({ sessionId: request.sessionId, traceContext: request.traceContext })

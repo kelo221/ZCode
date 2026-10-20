@@ -22,6 +22,25 @@ limits below take precedence over the retained historical milestone requirements
 - In noise-free mode the fold line adds "· N errors": the latest edit result per file inside that
   run, so an error fixed by a later edit in the same run is not counted.
 
+## Agent worktree isolation (2026-10-20, fork CLI)
+
+- CLI-only so far; the GPUI branch review comes next. Spec: `apps/zcode-cli/docs/design/v2/tool/07-subagent.md`
+  ("Worktree isolation 当前范围"). `Agent` takes `isolation: "worktree"`, and an agent file can set
+  `isolation: worktree` as its default. Only local git workspaces get it; elsewhere the call fails
+  before launch, and the agent never runs in the parent checkout instead.
+- The agent runs in `<repo>/.zcode/worktrees/<agentId>` on branch `zcode/<agentId>`, starting from
+  HEAD. The parent's uncommitted changes and untracked files are not included. `.zcode/worktrees/` is
+  added to the repository's exclude file. Bash, Read/Write, FindFiles/SearchCode (separate index) and
+  Diagnostics all resolve in the worktree. Cargo builds share the main checkout's `target` unless
+  `CARGO_TARGET_DIR` is already set.
+- When the agent really finishes (not when it is moved to the background), background commands it
+  left running are stopped, its changes are committed ("zcode agent <id>: <description>"), and the
+  result ends with a `<worktree_result>` block: branch, diff stat and `git merge --no-ff zcode/<id>`.
+  No changes means the worktree and branch are removed. A failed commit (hooks, signing) keeps
+  everything and reports the error next to the agent's own result.
+- Resuming with `SendMessage` reuses the worktree, recreating it from the branch if the directory
+  is gone, or fails with "isolation unavailable". `ListAgents` shows the branch and path.
+
 ## Subagent IDs survive restarts and failures (2026-10-20, fork CLI + GPUI)
 
 - The CLI spec is `apps/zcode-cli/docs/design/v2/tool/07-subagent.md` ("SendMessage 当前范围").

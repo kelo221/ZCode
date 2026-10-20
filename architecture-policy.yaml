@@ -930,6 +930,16 @@ exceptions:
       - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/diagnostics-manager.ts
       - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/diagnostics-wiring.ts
     reason: GPUI-gated fork feature (apps/zcode-cli/docs/design/v2/tool/lsp-diagnostics.md, apps/zcode-gpui/PARITY.md "Diagnostics after edits"). The language-server client, port, tool, post-edit hook and server manager live in their own files beside the code-search ones so upstream source syncs only meet small call sites; adopting the CLI contracts, adapters, executor or protocol directories is outside this fork change.
+  - id: fork-agent-worktree-isolation-cli
+    rule: unmanaged-new-file
+    paths:
+      - apps/zcode-cli/packages/contracts/src/interfaces/worktree.port.ts
+      - apps/zcode-cli/packages/adapters/src/git/worktree.ts
+      - apps/zcode-cli/packages/core/src/subagent/worktree-isolation.ts
+      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/worktree-isolation-wiring.ts
+      - packages/shared/src/subagent-profile.ts
+      - packages/shared/src/subagent-profile-parser.ts
+    reason: Fork feature (apps/zcode-cli/docs/design/v2/tool/07-subagent.md "Worktree isolation 当前范围"). The git worktree port, its adapter, the runner-side lifecycle helpers and the session wiring live in their own files so the upstream runner, child-runtime and server-operations files only gain small call sites and source syncs stay mergeable. The two packages/shared profile files are upstream files (v3.15.1 sync) that only gain the optional `isolation` agent-file field.
   - id: fork-subagent-id-recovery-cli
     rule: unmanaged-new-file
     paths:

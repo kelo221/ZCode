@@ -673,9 +673,9 @@ export interface AgentRuntime {
     options: RuntimeBackgroundStopOptions,
   ): Promise<RuntimeBackgroundStopResult>;
   cancelRunningRuntimeBackgroundTasks(input: {
-    reason: "subagent_cancelled";
+    reason: "subagent_cancelled" | "subagent_worktree_finalize";
     traceContext?: TraceContext;
-  }): Promise<void>;
+  }): Promise<number>;
   sealBackgroundTaskNotifications(input: {
     reason: "subagent_terminal" | "subagent_cancelled";
     traceContext?: TraceContext;

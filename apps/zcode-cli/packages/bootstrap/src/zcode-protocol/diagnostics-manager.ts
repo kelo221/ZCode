@@ -39,6 +39,8 @@ export interface DiagnosticsServerHandle {
 
 export interface DiagnosticsScope {
   workspaceKey: string;
+  /** 叠加到语言服务器进程环境（worktree 子代理共享 CARGO_TARGET_DIR）；首个启动该根的 scope 决定。 */
+  env?: Record<string, string>;
 }
 
 export interface DiagnosticsManagerOptions {
@@ -49,7 +51,11 @@ export interface DiagnosticsManagerOptions {
   idleCloseMs?: number;
   pollMs?: number;
   now?: () => number;
-  createServer?: (spec: LanguageServerSpec, root: string) => DiagnosticsServerHandle;
+  createServer?: (
+    spec: LanguageServerSpec,
+    root: string,
+    env?: Record<string, string>,
+  ) => DiagnosticsServerHandle;
   findRoot?: (spec: LanguageServerSpec, filePath: string) => Promise<string | undefined>;
   isInstalled?: (command: string) => Promise<boolean>;
 }
@@ -218,7 +224,7 @@ export class DiagnosticsManager {
     request: DiagnosticsRequest,
     signal: AbortSignal | undefined,
   ): Promise<FileDiagnosticsResult[]> {
-    const entry = await this.acquire(group.spec, group.root, request.deadline, signal);
+    const entry = await this.acquire(group.spec, group.root, request.deadline, signal, scope.env);
     if (!entry) {
       const note = this.closed
         ? "the agent is shutting down"
@@ -272,6 +278,7 @@ export class DiagnosticsManager {
     root: string,
     deadline: number,
     signal: AbortSignal | undefined,
+    env?: Record<string, string>,
   ): Promise<ServerEntry | undefined> {
     const key = entryKey(spec, root);
     for (;;) {
@@ -286,7 +293,7 @@ export class DiagnosticsManager {
       if (existing) this.entries.delete(key);
       if (this.entries.size >= this.maxServers) this.evictOneIdle();
       if (this.entries.size < this.maxServers) {
-        const entry = this.start(spec, root, key);
+        const entry = this.start(spec, root, key, env);
         entry.waiters += 1;
         return entry;
       }
@@ -296,10 +303,20 @@ export class DiagnosticsManager {
     }
   }
 
-  private start(spec: LanguageServerSpec, root: string, key: string): ServerEntry {
+  private start(
+    spec: LanguageServerSpec,
+    root: string,
+    key: string,
+    env: Record<string, string> | undefined,
+  ): ServerEntry {
     const server = this.options.createServer
-      ? this.options.createServer(spec, root)
-      : new LanguageServer({ spec, root, logger: this.options.logger });
+      ? this.options.createServer(spec, root, env)
+      : new LanguageServer({
+          spec,
+          root,
+          logger: this.options.logger,
+          ...(env ? { env: { ...process.env, ...env } } : {}),
+        });
     const entry: ServerEntry = {
       key,
       spec,

@@ -6,7 +6,12 @@
 // `<outputRoot>/<parentSessionId>/<agentId>/`，这里把它读回来：SendMessage 用它重建 terminal
 // snapshot 以便 resume，ListAgents 与 compact 后的 reminder 用它列出本 session 的 subagent。
 
-import type { SessionId, SubagentListEntry, SubagentTaskStatus } from "@zcode/contracts";
+import {
+  WorktreeRecordSchema,
+  type SessionId,
+  type SubagentListEntry,
+  type SubagentTaskStatus,
+} from "@zcode/contracts";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RuntimeTaskRegistry, RuntimeTaskSnapshot } from "../runtime-task/registry.js";
@@ -32,6 +37,7 @@ interface AgentMetadataFile {
   prompt?: string;
   status?: string;
   updatedAt?: string;
+  worktree?: unknown;
 }
 
 /**
@@ -105,7 +111,11 @@ export function formatSubagentRosterReminder(
 }
 
 export function formatSubagentIndexLine(entry: SubagentIndexEntry): string {
-  return `- ${entry.agentId} · ${entry.agentType} · ${entry.status} · ${JSON.stringify(entry.description)} · updated ${entry.updatedAt.toISOString()}`;
+  const worktree =
+    entry.worktree && entry.worktree.removed !== true
+      ? ` · branch ${entry.worktree.branch} (${entry.worktree.path})`
+      : "";
+  return `- ${entry.agentId} · ${entry.agentType} · ${entry.status} · ${JSON.stringify(entry.description)} · updated ${entry.updatedAt.toISOString()}${worktree}`;
 }
 
 function indexEntryFromSnapshot(task: RuntimeTaskSnapshot): SubagentIndexEntry {
@@ -117,12 +127,14 @@ function indexEntryFromSnapshot(task: RuntimeTaskSnapshot): SubagentIndexEntry {
     startedAt: task.startedAt,
     updatedAt: task.completedAt ?? task.startedAt,
     live: false,
+    ...(task.worktree ? { worktree: task.worktree } : {}),
   };
 }
 
 function snapshotFromMetadata(metadata: AgentMetadataFile): RuntimeTaskSnapshot {
   const startedAt = parseDate(metadata.createdAt) ?? new Date(0);
   const updatedAt = parseDate(metadata.updatedAt);
+  const worktree = WorktreeRecordSchema.safeParse(metadata.worktree);
   return {
     taskId: metadata.agentId,
     agentId: metadata.agentId,
@@ -141,6 +153,7 @@ function snapshotFromMetadata(metadata: AgentMetadataFile): RuntimeTaskSnapshot 
     notified: true,
     taskType: "local_agent",
     type: "local_agent",
+    ...(worktree.success ? { worktree: worktree.data } : {}),
   };
 }
 

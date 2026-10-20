@@ -31,6 +31,7 @@ export * from "./interfaces/off-peak.port.js";
 export * from "./interfaces/voice.port.js";
 export * from "./interfaces/code-search.port.js";
 export * from "./interfaces/diagnostics.port.js";
+export * from "./interfaces/worktree.port.js";
 export * from "./interfaces/topic-resource.port.js";
 export * from "./interfaces/mcp.port.js";
 

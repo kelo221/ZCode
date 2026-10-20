@@ -258,9 +258,9 @@ export interface AgentRuntimeTurnMethods {
     options: RuntimeBackgroundStopOptions,
   ): Promise<RuntimeBackgroundStopResult>;
   cancelRunningRuntimeBackgroundTasks(input: {
-    reason: "subagent_cancelled";
+    reason: "subagent_cancelled" | "subagent_worktree_finalize";
     traceContext?: TraceContext;
-  }): Promise<void>;
+  }): Promise<number>;
   hasRunningBackgroundTasks(): boolean;
   getSessionId(): SessionId;
   listWorkspaceCheckpoints(options?: { limit?: number }): Promise<WorkspaceCheckpointSummary[]>;

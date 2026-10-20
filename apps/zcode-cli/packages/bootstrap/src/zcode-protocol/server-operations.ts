@@ -119,6 +119,7 @@ import { createProtocolOffPeakPort } from "./offpeak-port.js";
 import { createProtocolVoicePort } from "./voice-port.js";
 import { resolveSessionCodeSearchPort } from "./code-search-wiring.js";
 import { resolveSessionDiagnosticsPort } from "./diagnostics-wiring.js";
+import { resolveSessionWorktreeIsolation } from "./worktree-isolation-wiring.js";
 import { createProtocolTopicResourcePort } from "./topic-resource-port.js";
 import { createProtocolBrowserControlBroker } from "./browser-control-broker.js";
 import { mapComputerUseOperationEvent } from "./computer-use-operation-event.js";
@@ -3547,6 +3548,13 @@ async function createRecord(
       startupPreferences.codeSearchEnabled,
     )),
     ...resolveSessionDiagnosticsPort(context, workspace, startupPreferences.lspDiagnosticsEnabled),
+    ...(await resolveSessionWorktreeIsolation(context, workspace, {
+      remote: Boolean(
+        workspace.workspaceIdentity && isRemoteWorkspaceIdentity(workspace.workspaceIdentity),
+      ),
+      codeSearchEnabled: startupPreferences.codeSearchEnabled,
+      lspDiagnosticsEnabled: startupPreferences.lspDiagnosticsEnabled,
+    })),
     resolveInitialBashShellSelection: startupPreferences.resolveInitialBashShellSelection,
     ...(startupPreferences.subagentRuntimeConfigEnabled &&
     !(workspace.workspaceIdentity && isRemoteWorkspaceIdentity(workspace.workspaceIdentity))

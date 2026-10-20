@@ -119,6 +119,7 @@ export type {
   VoicePort,
   CodeSearchPort,
   DiagnosticsPort,
+  WorktreeIsolationPort,
   TopicResourcePort,
   BackgroundExecutionSnapshot,
   BackgroundTaskCancelResult,

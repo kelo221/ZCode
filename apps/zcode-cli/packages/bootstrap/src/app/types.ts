@@ -40,6 +40,7 @@ import type {
   VoicePort,
   CodeSearchPort,
   DiagnosticsPort,
+  WorktreeIsolationPort,
   TopicResourcePort,
   PdfDocumentPort,
   PermissionBrokerPort,
@@ -214,6 +215,13 @@ export interface ZCodeAppOptions {
   voicePort?: VoicePort;
   codeSearchPort?: CodeSearchPort;
   diagnosticsPort?: DiagnosticsPort;
+  /** 本地 git 工作区的 Agent `isolation: "worktree"`；缺席时该选项明确报错。 */
+  worktreeIsolationPort?: WorktreeIsolationPort;
+  /** worktree 子代理按其根目录重新取 code search / 诊断端口。 */
+  scopePortsFor?: (input: { root: string; env?: Record<string, string> }) => {
+    codeSearchPort?: CodeSearchPort;
+    diagnosticsPort?: DiagnosticsPort;
+  };
   topicResourcePort?: TopicResourcePort;
   /** 首次真实用户执行或 cold-resume fallback 时解析一次，之后由 app 生命周期缓存。 */
   resolveInitialBashShellSelection?: () => Promise<ExecutionShellSelection | undefined>;

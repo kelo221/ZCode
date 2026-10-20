@@ -617,7 +617,10 @@ async function persistSession(
     const workspaceIdentity = this.config.memory?.workspaceIdentity?.trim();
     await this.sessionStore.createSession({
       id: this.sessionId,
-      projectID: projectIdFromDirectory(directory),
+      // worktree 子代理归属父工作区的 project，而不是 .zcode/worktrees 下的执行目录。
+      projectID: projectIdFromDirectory(
+        this.config.executionDirectoryOverride ? persistedWorkspacePath : directory,
+      ),
       // Memory workspaceIdentity 是上游提供的不透明隔离键。这里只做类型品牌化，
       // 不能调用会改写字符串的 ID 生成器，否则恢复后的 Memory root 会发生漂移。
       workspaceID: this.config.workspaceIdentity ?? (workspaceIdentity as WorkspaceId | undefined),

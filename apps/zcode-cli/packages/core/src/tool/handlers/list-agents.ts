@@ -56,6 +56,9 @@ const listAgentsHandler: ToolHandler = async (input, context) => {
       startedAt: entry.startedAt.toISOString(),
       updatedAt: entry.updatedAt.toISOString(),
       live: entry.live,
+      ...(entry.worktree && entry.worktree.removed !== true
+        ? { worktree: { branch: entry.worktree.branch, path: entry.worktree.path } }
+        : {}),
     })),
     total: filtered.length,
   } satisfies ListAgentsOutput;
@@ -71,7 +74,7 @@ function formatListAgentsModelContent(output: unknown): ModelMessageContent {
   }
   const rows = agents.map(
     (agent) =>
-      `<agent id="${agent.agentId}" type=${JSON.stringify(agent.agentType)} status="${agent.status}" live="${agent.live}" description=${JSON.stringify(agent.description)} started_at="${agent.startedAt}" updated_at="${agent.updatedAt}" />`,
+      `<agent id="${agent.agentId}" type=${JSON.stringify(agent.agentType)} status="${agent.status}" live="${agent.live}" description=${JSON.stringify(agent.description)} started_at="${agent.startedAt}" updated_at="${agent.updatedAt}"${agent.worktree ? ` branch=${JSON.stringify(agent.worktree.branch)} worktree=${JSON.stringify(agent.worktree.path)}` : ""} />`,
   );
   return [`<agents ${header}>`, ...rows, "</agents>"].join("\n");
 }

@@ -1,5 +1,18 @@
 # Tool Change Chain Spec
 
+## Agent worktree isolation（Fork，2026-10-20）
+
+`Agent` 输入新增可选 `isolation: "worktree"`（agent 定义 `isolation: worktree` 为默认）。合同见
+[07-subagent.md「Worktree isolation 当前范围」](07-subagent.md)。链路检查要点：
+
+- 契约：`WorktreeIsolationPort`（contracts）由 bootstrap 用 git adapter 注入；core 只经端口调用 git，
+  不导入 adapter。缺端口时 `isolation` 返回明确错误，不静默降级为非隔离运行。
+- 生命周期：agent id → 创建 worktree → registry / `running` metadata；收尾只在 child 真正结束时由
+  `runAgentToCompletion` 执行，前台转后台的交接点不收尾；收尾前停止 child 的后台 Bash。
+- 持久化：`worktree` 记录进入全部 metadata 写入点、`RuntimeTaskSnapshot`、`agent-index` 与
+  `ListAgents`；冷恢复经 `executionDirectoryOverride` 回到 worktree，缺失时重建或报错，绝不回到父 checkout。
+- 执行范围：child 的 cwd、Bash 环境（含 `CARGO_TARGET_DIR`）、code search 索引与诊断都绑定 worktree。
+
 ## 编辑后语言服务器诊断（Fork，2026-10-20）
 
 GPUI 门控（`lspDiagnosticsEnabled`）的 `Edit`/`Write` 结果尾部追加 `<diagnostics>`，并新增延迟加载、

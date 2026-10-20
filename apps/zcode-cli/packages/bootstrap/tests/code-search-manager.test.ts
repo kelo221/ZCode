@@ -119,6 +119,26 @@ describe("CodeSearchManager", () => {
     expect(manager.openWorkspaceKeys()).toEqual(["a"]);
   });
 
+  it("a worktree index has its own key and root but follows the parent workspace's busy state", async () => {
+    let parentBusy = true;
+    const { manager, engines, open } = setup({ busy: (key) => key === "w" && parentBusy });
+    await manager.available();
+    await manager.portFor({ workspaceKey: "w", root: "/w" }).findFiles(FIND);
+    await manager
+      .portFor({
+        workspaceKey: "w#worktree:/w/.zcode/worktrees/a",
+        root: "/w/.zcode/worktrees/a",
+        busyKey: "w",
+      })
+      .findFiles(FIND);
+    expect(open.mock.calls.map(([root]) => root)).toEqual(["/w", "/w/.zcode/worktrees/a"]);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(engines.map((engine) => engine.destroyed)).toEqual([false, false]);
+    parentBusy = false;
+    await vi.advanceTimersByTimeAsync(70_000);
+    expect(engines.map((engine) => engine.destroyed)).toEqual([true, true]);
+  });
+
   it("shutdown destroys every engine and later queries are refused", async () => {
     const { manager, engines } = setup({ busy: () => true });
     await manager.available();

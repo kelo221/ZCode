@@ -892,6 +892,8 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       voicePort: options.voicePort,
       codeSearchPort: options.codeSearchPort,
       diagnosticsPort: options.diagnosticsPort,
+      worktreeIsolationPort: options.worktreeIsolationPort,
+      scopePortsFor: options.scopePortsFor,
       topicResourcePort: options.topicResourcePort,
       appVersion,
       traceContext,

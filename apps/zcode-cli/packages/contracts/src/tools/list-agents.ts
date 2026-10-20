@@ -58,6 +58,8 @@ export const ListAgentsOutputSchema = z
           startedAt: z.string(),
           updatedAt: z.string(),
           live: z.boolean(),
+          /** 隔离 worktree 仍在时的分支与路径；已移除（无改动）则省略。 */
+          worktree: z.object({ branch: z.string(), path: z.string() }).strict().optional(),
         })
         .strict(),
     ),

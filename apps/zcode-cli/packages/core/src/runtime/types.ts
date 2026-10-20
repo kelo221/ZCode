@@ -78,6 +78,7 @@ import type {
   VoicePort,
   CodeSearchPort,
   DiagnosticsPort,
+  WorktreeIsolationPort,
   TopicResourcePort,
   FileSystemPort,
   HttpClientPort,
@@ -259,6 +260,11 @@ export interface AgentRuntimeConfig {
    * 文件和命令执行仍只使用规范化后的 workingDirectory。
    */
   workspacePath?: string;
+  /**
+   * worktree 隔离的 subagent：执行目录固定为该 worktree，冷恢复也不回到 session.directory
+   * （那是父工作区，只用于关联）。
+   */
+  executionDirectoryOverride?: string;
   /** 仅用于持久化隔离；文件与命令执行仍使用 workingDirectory。 */
   workspaceIdentity?: WorkspaceId;
   envInfo?: EnvInfo; // Optional, will be auto-detected if not provided
@@ -397,6 +403,16 @@ export interface AgentRuntimeDeps {
   voicePort?: VoicePort;
   codeSearchPort?: CodeSearchPort;
   diagnosticsPort?: DiagnosticsPort;
+  /** 本地 git 工作区才注入；缺席时 `isolation: "worktree"` 明确报错。 */
+  worktreeIsolationPort?: WorktreeIsolationPort;
+  /**
+   * 按根目录绑定的服务（code search 索引、语言服务器）为 worktree 子代理重新取一份；
+   * 缺席时 child 不继承父的 code search（索引指向父 checkout）。
+   */
+  scopePortsFor?: (input: { root: string; env?: Record<string, string> }) => {
+    codeSearchPort?: CodeSearchPort;
+    diagnosticsPort?: DiagnosticsPort;
+  };
   topicResourcePort?: TopicResourcePort;
   contextSourcePort?: ContextSourcePort;
   eventSink?: SessionEventSink;

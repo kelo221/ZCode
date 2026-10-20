@@ -41,6 +41,7 @@ import {
   type SubagentTaskSnapshot,
   type SubagentWaitOptions,
   type TraceContext,
+  type WorktreeIsolationPort,
 } from "@zcode/contracts";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -54,6 +55,16 @@ import { EXPLORE_AGENT_ALLOWED_TOOLS } from "./explore-tools.js";
 import { formatLocalAgentTaskNotification } from "./completion-notification.js";
 import { listSessionSubagents, readAgentMetadataSnapshot } from "./agent-index.js";
 import { filterSubagentChildToolNames } from "./tool-policy.js";
+import {
+  createSubagentWorktree,
+  ensureSubagentWorktree,
+  finalizeSubagentWorktree,
+  formatWorktreePromptNote,
+  patchMetadataWorktree,
+  trackIsolationRun,
+  wantsWorktreeIsolation,
+  type SubagentIsolationState,
+} from "./worktree-isolation.js";
 import {
   ErrorPayloadRole,
   selectExecutionErrorMessage,
@@ -87,8 +98,15 @@ export interface ExploreSubagentRuntimeRequest {
   reportActivity?: () => void;
   resumeFromStore?: boolean;
   systemPrompt?: string;
+  /** 父工作区：session 关联、Memory 与 cwd 记录仍用它。 */
   workingDirectory: string;
   workspaceRoot: string;
+  /** worktree 隔离：child 的实际执行目录、额外环境，以及收尾前停止的后台命令数回报。 */
+  isolation?: {
+    executionDirectory: string;
+    env?: Record<string, string>;
+    onBackgroundTasksStopped: (count: number) => void;
+  };
   traceContext: TraceContext;
 }
 
@@ -129,6 +147,8 @@ export interface ExploreSubagentPortOptions {
   getAllowedTools?: (profile: AgentProfile) => readonly string[];
   inactivityTimeoutMs?: number;
   autoBackgroundMs?: number;
+  /** 缺席时 `isolation: "worktree"` 在启动前明确报错，不在父 checkout 中运行。 */
+  worktreeIsolation?: WorktreeIsolationPort;
   logger?: Logger;
 }
 
@@ -181,7 +201,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       runOptions?: SubagentRunOptions,
     ): Promise<AgentOutput> {
       const { profile, request } = resolveAgentProfileForRequest(getProfiles(), rawRequest);
-      const lifecycle = createSubagentLifecycle(options, request, profile);
+      const lifecycle = await prepareSubagentLifecycle(options, request, profile);
       const startedAt = new Date(lifecycle.startedAt);
 
       registry.register(
@@ -199,6 +219,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         // 启动元数据写入失败时，child runtime 还没有开始执行；
         // 保留 running task 会让父 runtime 误以为仍有后台任务并持续 defer。
         registry.remove(lifecycle.agentId);
+        await abandonUnstartedWorktree(options, request, lifecycle);
         throw error;
       }
 
@@ -422,7 +443,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         if (isCoreError(error)) {
           error.context = {
             ...error.context,
-            modelContentSuffix: formatInterruptedAgentHint(lifecycle.agentId),
+            modelContentSuffix: formatInterruptedAgentHint(lifecycle),
           };
           throw error;
         }
@@ -434,7 +455,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
           context: withErrorPayloadRole(
             {
               code: AgentErrorCode.CHILD_RUNTIME_FAILED,
-              modelContentSuffix: formatInterruptedAgentHint(lifecycle.agentId),
+              modelContentSuffix: formatInterruptedAgentHint(lifecycle),
               agentId: lifecycle.agentId,
               agentType: request.agentType,
               parentToolCallId: request.parentToolCallId,
@@ -454,7 +475,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       startOptions?: SubagentStartOptions,
     ): Promise<AgentBackgroundedOutput> {
       const { profile, request } = resolveAgentProfileForRequest(getProfiles(), rawRequest);
-      const lifecycle = createSubagentLifecycle(options, request, profile);
+      const lifecycle = await prepareSubagentLifecycle(options, request, profile);
       const startedAt = new Date(lifecycle.startedAt);
       const output = createAgentBackgroundedOutput(request, lifecycle);
 
@@ -472,6 +493,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       } catch (error) {
         // setup 失败时移除 registry 记录，避免 fake running background task。
         registry.remove(lifecycle.agentId);
+        await abandonUnstartedWorktree(options, request, lifecycle);
         throw error;
       }
 
@@ -615,6 +637,8 @@ interface SubagentLifecycle {
   startedAt: number;
   runTraceContext: TraceContext;
   childTraceContext: TraceContext;
+  /** worktree 隔离状态；收尾会原地更新 record 与 summary。 */
+  isolation?: SubagentIsolationState;
 }
 
 type AgentProfileResolution =
@@ -819,19 +843,49 @@ function toSubagentExecutionRequest(request: SubagentLaunchRequest): SubagentRun
   return executionRequest;
 }
 
+/**
+ * agent id 先于 lifecycle 分配：worktree 路径和分支名都取自它，必须在 registry 登记与
+ * running metadata 之前建好，失败时什么都还没登记。
+ */
+async function prepareSubagentLifecycle(
+  options: ExploreSubagentPortOptions,
+  request: SubagentRunRequest,
+  profile: AgentProfile,
+): Promise<SubagentLifecycle> {
+  const agentId = options.createAgentId?.() ?? `agent_${crypto.randomUUID()}`;
+  const isolation = wantsWorktreeIsolation(request, profile)
+    ? await createSubagentWorktree(options.worktreeIsolation, {
+        agentId,
+        agentType: request.agentType,
+        cwd: request.workingDirectory,
+      })
+    : undefined;
+  return createSubagentLifecycle(options, request, profile, agentId, isolation);
+}
+
+async function abandonUnstartedWorktree(
+  options: ExploreSubagentPortOptions,
+  request: SubagentRunRequest,
+  lifecycle: SubagentLifecycle,
+): Promise<void> {
+  if (!lifecycle.isolation) return;
+  await finalizeSubagentWorktree(options.worktreeIsolation, lifecycle.isolation, {
+    agentId: lifecycle.agentId,
+    backgroundTasksStopped: 0,
+    description: request.description,
+  });
+}
+
 function createSubagentLifecycle(
   options: ExploreSubagentPortOptions,
   request: SubagentRunRequest,
   profile: AgentProfile,
+  agentId: string,
+  isolation: SubagentIsolationState | undefined,
 ): SubagentLifecycle {
-  const agentId = options.createAgentId?.() ?? `agent_${crypto.randomUUID()}`;
   const childSessionId = createSessionId(`subagent_${agentId}`);
   const startedAt = Date.now();
-  const agentOutputDir = join(
-    resolveAgentOutputRootDir(options),
-    request.sessionId,
-    agentId,
-  );
+  const agentOutputDir = join(resolveAgentOutputRootDir(options), request.sessionId, agentId);
   const metadataFile = join(agentOutputDir, "metadata.json");
   const outputFile = join(agentOutputDir, "output.txt");
   const taskOutputFile = join(agentOutputDir, "task.output");
@@ -865,6 +919,7 @@ function createSubagentLifecycle(
     startedAt,
     runTraceContext,
     childTraceContext,
+    ...(isolation ? { isolation } : {}),
   };
 }
 
@@ -873,6 +928,7 @@ function createSubagentLifecycleFromTask(
   request: SubagentRunRequest,
   profile: AgentProfile,
   task: RuntimeTaskSnapshot,
+  isolation: SubagentIsolationState | undefined,
 ): SubagentLifecycle | undefined {
   if (!task.childSessionId) return undefined;
   const agentId = task.agentId;
@@ -916,6 +972,7 @@ function createSubagentLifecycleFromTask(
     startedAt,
     runTraceContext,
     childTraceContext,
+    ...(isolation ? { isolation } : {}),
   };
 }
 
@@ -975,8 +1032,17 @@ async function resolveLocalAgentTask(
   return restored;
 }
 
-function formatInterruptedAgentHint(agentId: string): string {
-  return `agentId: ${agentId} (the subagent stopped early; its conversation is saved. Use SendMessage with to: '${agentId}' to resume it)`;
+function formatInterruptedAgentHint(
+  lifecycle: Pick<SubagentLifecycle, "agentId" | "isolation">,
+): string {
+  const { agentId, isolation } = lifecycle;
+  const hint = `agentId: ${agentId} (the subagent stopped early; its conversation is saved. Use SendMessage with to: '${agentId}' to resume it)`;
+  if (!isolation) return hint;
+  // 前台取消时 guard 先于 child 收尾返回；此时只能报告 worktree 位置，收尾稍后完成。
+  const worktree =
+    isolation.summary ??
+    `<worktree_result>\nWorktree ${isolation.record.path} (branch ${isolation.record.branch}) is finalized once the agent finishes stopping.\n</worktree_result>`;
+  return `${hint}\n${worktree}`;
 }
 
 function resolveAgentOutputRootDir(options: ExploreSubagentPortOptions): string {
@@ -1031,7 +1097,25 @@ async function resumeTerminalAgentInBackground(
     workspaceRoot: request.workspaceRoot,
     trace: request.trace,
   };
-  const lifecycle = createSubagentLifecycleFromTask(options, resumeRequest, profile, task);
+  let isolation: SubagentIsolationState | undefined;
+  if (task.worktree) {
+    // worktree 缺失时只能从保留的 branch 重建；重建失败就报 isolation unavailable，绝不在父 checkout 中继续。
+    const ensured = await ensureSubagentWorktree(options.worktreeIsolation, task.worktree);
+    if ("error" in ensured) {
+      return createSendMessageFailure(
+        request,
+        `Cannot resume local agent ${task.agentId}: ${ensured.error}`,
+      );
+    }
+    isolation = ensured.state;
+  }
+  const lifecycle = createSubagentLifecycleFromTask(
+    options,
+    resumeRequest,
+    profile,
+    task,
+    isolation,
+  );
   if (!lifecycle) {
     return createSendMessageFailure(
       request,
@@ -1183,36 +1267,73 @@ async function runAgentToCompletion(
     await executionOptions.onSessionReady?.();
     sessionReady = true;
   };
-  const childResult = await options.runExploreAgent(
-    {
-      agentId: lifecycle.agentId,
-      agentType: request.agentType,
-      allowedTools: resolveAllowedTools(lifecycle.profile, options),
-      // 显式 background Agent 的 child tool 会被镜像到父会话；
-      // 过去丢失这个来源会让父 turn 把仍在运行的 child tool 误当前台孤儿收口。这里必须
-      // 保留 getter，foreground 后续转后台时，每条 mirror event 才会读取 registry 当前值，
-      // 而不是继续携带 child 启动时的 false 快照。
-      get background() {
-        return registry.get(lifecycle.agentId)?.isBackgrounded === true;
+  const isolation = lifecycle.isolation;
+  const releaseIsolationRun = isolation ? trackIsolationRun(isolation.record.path) : undefined;
+  let backgroundTasksStopped = 0;
+  let childResult: ExploreSubagentRuntimeResult;
+  try {
+    childResult = await options.runExploreAgent(
+      {
+        agentId: lifecycle.agentId,
+        agentType: request.agentType,
+        allowedTools: resolveAllowedTools(lifecycle.profile, options),
+        // 显式 background Agent 的 child tool 会被镜像到父会话；
+        // 过去丢失这个来源会让父 turn 把仍在运行的 child tool 误当前台孤儿收口。这里必须
+        // 保留 getter，foreground 后续转后台时，每条 mirror event 才会读取 registry 当前值，
+        // 而不是继续携带 child 启动时的 false 快照。
+        get background() {
+          return registry.get(lifecycle.agentId)?.isBackgrounded === true;
+        },
+        disallowedTools: lifecycle.profile.disallowedTools,
+        sessionId: lifecycle.childSessionId,
+        description: request.description,
+        maxTurns: lifecycle.profile.maxTurns,
+        onSessionReady: notifySessionReady,
+        permissionMode: lifecycle.profile.permissionMode,
+        prompt: isolation
+          ? `${request.prompt}\n\n${formatWorktreePromptNote(isolation.record)}`
+          : request.prompt,
+        profile: lifecycle.profile,
+        registerMessageSink: createMessageSinkRegistration(options, lifecycle, registry),
+        reportActivity: monitorOptions.reportActivity,
+        resumeFromStore: executionOptions.resumeFromStore,
+        systemPrompt: lifecycle.profile.systemPrompt,
+        workingDirectory: request.workingDirectory,
+        workspaceRoot: request.workspaceRoot,
+        ...(isolation
+          ? {
+              isolation: {
+                executionDirectory: isolation.record.path,
+                ...(isolation.record.cargoTargetDir
+                  ? { env: { CARGO_TARGET_DIR: isolation.record.cargoTargetDir } }
+                  : {}),
+                onBackgroundTasksStopped: (count: number) => {
+                  backgroundTasksStopped += count;
+                },
+              },
+            }
+          : {}),
+        traceContext: lifecycle.childTraceContext,
       },
-      disallowedTools: lifecycle.profile.disallowedTools,
-      sessionId: lifecycle.childSessionId,
-      description: request.description,
-      maxTurns: lifecycle.profile.maxTurns,
-      onSessionReady: notifySessionReady,
-      permissionMode: lifecycle.profile.permissionMode,
-      prompt: request.prompt,
-      profile: lifecycle.profile,
-      registerMessageSink: createMessageSinkRegistration(options, lifecycle, registry),
-      reportActivity: monitorOptions.reportActivity,
-      resumeFromStore: executionOptions.resumeFromStore,
-      systemPrompt: lifecycle.profile.systemPrompt,
-      workingDirectory: request.workingDirectory,
-      workspaceRoot: request.workspaceRoot,
-      traceContext: lifecycle.childTraceContext,
-    },
-    runOptions,
-  );
+      runOptions,
+    );
+  } finally {
+    // 唯一收尾点：child 真正结束（完成、失败、被停止）之后，而不是前台转后台的交接点。
+    if (isolation) {
+      try {
+        await finalizeLifecycleWorktree(
+          options,
+          request,
+          lifecycle,
+          registry,
+          isolation,
+          backgroundTasksStopped,
+        );
+      } finally {
+        releaseIsolationRun?.();
+      }
+    }
+  }
   // 测试桩和旧注入实现可能尚未主动调用 readiness hook；真实 AgentRuntime 会在
   // persist 后调用。回落只保证兼容，不改变生产链路的 persist-before-spawn 顺序。
   await notifySessionReady();
@@ -1231,7 +1352,9 @@ async function runAgentToCompletion(
     content: [
       {
         type: "text",
-        text: childResult.response,
+        text: isolation?.summary
+          ? `${childResult.response}\n\n${isolation.summary}`
+          : childResult.response,
       },
     ],
     totalToolUseCount,
@@ -1241,6 +1364,44 @@ async function runAgentToCompletion(
   };
 
   return { events: childResult.events, output };
+}
+
+async function finalizeLifecycleWorktree(
+  options: ExploreSubagentPortOptions,
+  request: SubagentRunRequest,
+  lifecycle: SubagentLifecycle,
+  registry: RuntimeTaskRegistry,
+  isolation: SubagentIsolationState,
+  backgroundTasksStopped: number,
+): Promise<void> {
+  await finalizeSubagentWorktree(options.worktreeIsolation, isolation, {
+    agentId: lifecycle.agentId,
+    backgroundTasksStopped,
+    description: request.description,
+  });
+  registry.update(lifecycle.agentId, (task) => ({ ...task, worktree: isolation.record }));
+  try {
+    await patchMetadataWorktree(lifecycle.metadataFile, isolation.record);
+  } catch (error) {
+    options.logger?.warn("Failed to record subagent worktree state", {
+      ...traceContextToLogContext(lifecycle.runTraceContext),
+      agentId: lifecycle.agentId,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      event: "subagent.worktree.metadata_failed",
+      module: "core.subagent",
+      status: "failed",
+    });
+  }
+  if (isolation.record.finalizeError) {
+    options.logger?.warn("Subagent worktree finalization failed", {
+      ...traceContextToLogContext(lifecycle.runTraceContext),
+      agentId: lifecycle.agentId,
+      errorMessage: isolation.record.finalizeError,
+      event: "subagent.worktree.finalize_failed",
+      module: "core.subagent",
+      status: "failed",
+    });
+  }
 }
 
 function createSubagentActivityWatchdog(options: {
@@ -1520,6 +1681,7 @@ function createRuntimeTaskSnapshot(input: {
     traceContext: input.lifecycle.runTraceContext,
     type: "local_agent",
     turnId: input.request.turnId,
+    ...(input.lifecycle.isolation ? { worktree: input.lifecycle.isolation.record } : {}),
   };
 }
 
@@ -1638,7 +1800,11 @@ async function finalizeBackgroundFailure(
   // background runner 收到的通常是 Turn failure wrapper，直接读 message
   // 会把 provider 的 429 原文替换成通用的 “Turn execution failed”；这里只选择
   // wrapper 下的根因 message，不压缩空白或截断 provider 原文。
-  const errorMessage = error instanceof Error ? selectExecutionErrorMessage(error) : String(error);
+  const rootMessage = error instanceof Error ? selectExecutionErrorMessage(error) : String(error);
+  // worktree 收尾结果（含收尾失败）与 agent 自身的失败并列报告，不互相覆盖。
+  const errorMessage = lifecycle.isolation?.summary
+    ? `${rootMessage}\n\n${lifecycle.isolation.summary}`
+    : rootMessage;
   const completedAt = new Date();
   const totalDurationMs = Date.now() - lifecycle.startedAt;
   await writeFailedAgentArtifacts(lifecycle, request, errorMessage);
@@ -2026,6 +2192,7 @@ async function writeStoppedAgentArtifacts(task: RuntimeTaskSnapshot): Promise<vo
         status: BACKGROUND_AGENT_STOPPED_STATE.subagentEventStatus,
         taskOutputFile: join(outputDir, "task.output"),
         updatedAt: new Date().toISOString(),
+        ...(task.worktree ? { worktree: task.worktree } : {}),
       },
       null,
       2,
@@ -2067,6 +2234,7 @@ async function writeAgentMetadataFile(
         taskOutputFile: lifecycle.taskOutputFile,
         updatedAt: new Date().toISOString(),
         workspaceRoot: request.workspaceRoot,
+        ...(lifecycle.isolation ? { worktree: lifecycle.isolation.record } : {}),
         ...extra,
       },
       null,

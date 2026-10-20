@@ -30,6 +30,12 @@ export const AgentInputSchema = z.object({
     .describe(
       "Set to true to run this agent in the background. You will be notified when it completes.",
     ),
+  isolation: z
+    .enum(["worktree"])
+    .optional()
+    .describe(
+      'Set to "worktree" to run the agent in its own git worktree on branch zcode/<agentId>, starting from HEAD (your uncommitted changes are not included). Its work is committed to that branch; merge it yourself afterwards.',
+    ),
 });
 
 export type AgentInput = z.infer<typeof AgentInputSchema>;

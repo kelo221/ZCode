@@ -13,6 +13,8 @@ export const CODE_SEARCH_IDLE_POLL_MS = 5_000;
 export interface CodeSearchScope {
   workspaceKey: string;
   root: string;
+  /** 空闲判定用的 workspace；worktree 子代理的索引跟随父 workspace 的忙闲。 */
+  busyKey?: string;
 }
 
 export interface CodeSearchManagerOptions {
@@ -27,6 +29,7 @@ export interface CodeSearchManagerOptions {
 
 interface IndexEntry {
   root: string;
+  busyKey?: string;
   engine?: CodeSearchEngine;
   opening?: Promise<CodeSearchEngine>;
   inFlight: number;
@@ -88,7 +91,7 @@ export class CodeSearchManager {
   tick(): void {
     const now = this.now();
     for (const [key, entry] of this.entries) {
-      if (entry.inFlight > 0 || this.busy(key)) {
+      if (entry.inFlight > 0 || this.busy(entry.busyKey ?? key)) {
         entry.idleSince = undefined;
         continue;
       }
@@ -116,7 +119,11 @@ export class CodeSearchManager {
 
     let entry = this.entries.get(scope.workspaceKey);
     if (entry === undefined) {
-      entry = { root: scope.root, inFlight: 0 };
+      entry = {
+        root: scope.root,
+        inFlight: 0,
+        ...(scope.busyKey ? { busyKey: scope.busyKey } : {}),
+      };
       this.entries.set(scope.workspaceKey, entry);
     }
     entry.inFlight += 1;

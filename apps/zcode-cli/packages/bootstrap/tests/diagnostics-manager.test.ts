@@ -40,51 +40,53 @@ function setup(
 ) {
   const servers: FakeServer[] = [];
   let now = 0;
-  const createServer = vi.fn((spec: LanguageServerSpec, root: string): FakeServer => {
-    const exitListeners: Array<() => void> = [];
-    let gates: Array<() => void> = [];
-    let active = 0;
-    const server: FakeServer = {
-      root,
-      closed: false,
-      starting: false,
-      requests: [],
-      alive: true,
-      isBusy: () => server.starting || active > 0,
-      collect: async (request) => {
-        server.requests.push(request);
-        active += 1;
-        try {
-          if (options.holdCollects) {
-            await new Promise<void>((resolve, reject) => {
-              gates.push(resolve);
-              request.signal?.addEventListener("abort", () => reject(request.signal?.reason), {
-                once: true,
+  const createServer = vi.fn(
+    (spec: LanguageServerSpec, root: string, _env?: Record<string, string>): FakeServer => {
+      const exitListeners: Array<() => void> = [];
+      let gates: Array<() => void> = [];
+      let active = 0;
+      const server: FakeServer = {
+        root,
+        closed: false,
+        starting: false,
+        requests: [],
+        alive: true,
+        isBusy: () => server.starting || active > 0,
+        collect: async (request) => {
+          server.requests.push(request);
+          active += 1;
+          try {
+            if (options.holdCollects) {
+              await new Promise<void>((resolve, reject) => {
+                gates.push(resolve);
+                request.signal?.addEventListener("abort", () => reject(request.signal?.reason), {
+                  once: true,
+                });
               });
-            });
+            }
+            return request.files.map((file) => okResult(file, spec.id));
+          } finally {
+            active -= 1;
           }
-          return request.files.map((file) => okResult(file, spec.id));
-        } finally {
-          active -= 1;
-        }
-      },
-      close: vi.fn(async () => {
-        server.closed = true;
-      }),
-      onExit: (listener) => exitListeners.push(listener),
-      release: () => {
-        const pending = gates;
-        gates = [];
-        for (const resolve of pending) resolve();
-      },
-      crash: () => {
-        (server as { alive: boolean }).alive = false;
-        for (const listener of exitListeners) listener();
-      },
-    };
-    servers.push(server);
-    return server;
-  });
+        },
+        close: vi.fn(async () => {
+          server.closed = true;
+        }),
+        onExit: (listener) => exitListeners.push(listener),
+        release: () => {
+          const pending = gates;
+          gates = [];
+          for (const resolve of pending) resolve();
+        },
+        crash: () => {
+          (server as { alive: boolean }).alive = false;
+          for (const listener of exitListeners) listener();
+        },
+      };
+      servers.push(server);
+      return server;
+    },
+  );
   const manager = new DiagnosticsManager({
     isWorkspaceBusy: () => options.workspaceBusy ?? false,
     maxServers: options.maxServers ?? 4,
@@ -126,6 +128,20 @@ function tracked<T extends ReturnType<typeof setup>>(env: T): T {
 }
 
 describe("DiagnosticsManager", () => {
+  it("starts a worktree's server with the scope's environment", async () => {
+    const env = tracked(setup());
+    const scoped = env.manager.portFor({
+      workspaceKey: "ws",
+      env: { CARGO_TARGET_DIR: "/a/target" },
+    });
+    await collect(scoped, ["/wt/lib.rs"]);
+    await collect(env.port, ["/a/lib.rs"]);
+    expect(env.createServer.mock.calls.map(([, root, serverEnv]) => [root, serverEnv])).toEqual([
+      ["/wt", { CARGO_TARGET_DIR: "/a/target" }],
+      ["/a", undefined],
+    ]);
+  });
+
   it("reports unsupported file types and missing servers without starting anything", async () => {
     const env = tracked(setup({ installed: false }));
     const results = await collect(env.port, ["/a/readme.md", "/a/lib.rs"]);
