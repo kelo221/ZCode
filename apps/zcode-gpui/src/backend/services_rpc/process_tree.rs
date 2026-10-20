@@ -167,7 +167,14 @@ mod platform {
             }
             match std::io::Error::last_os_error().raw_os_error() {
                 Some(3) => Ok(false), // ESRCH 才是组已不存在；权限或探测错误不能视为退出。
-                _ => Err(unsafe_exit("process group operation failed")),
+                // EPERM：macOS CI 上组内成员已被杀但尚未被回收时，kill(-pgid) 可能返回
+                // EPERM（推测，未在本机复现）。它不能证明组已退出，所以按“仍存在”处理，
+                // 由 verify_empty 继续轮询到 ESRCH 或超时，而不是立即判定清理失败。
+                Some(1) => Ok(true),
+                errno => Err(unsafe_exit(&format!(
+                    "process group operation failed (errno {})",
+                    errno.unwrap_or(-1)
+                ))),
             }
         }
         pub(in crate::backend::services_rpc) fn active(&self) -> Result<bool, String> {
