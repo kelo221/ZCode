@@ -2,9 +2,10 @@
 //! diffs, stage/commit/push. All git I/O runs on the background executor.
 
 use crate::app::root::RootView;
+use crate::review::agent_branches::{self, ReviewTarget};
 use crate::review::git::{self, DiffSide};
 use crate::shared::theme::ui_size;
-use crate::shared::theme::{DANGER, MUTED, SUCCESS, TEXT};
+use crate::shared::theme::{MUTED, TEXT};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div, prelude::*, px};
 
@@ -25,6 +26,11 @@ impl RootView {
         let Some(path) = self.active_workspace_path(cx) else {
             return;
         };
+        self.refresh_agent_branches(path.clone(), cx);
+        if let ReviewTarget::AgentBranch(branch) = self.git.target.clone() {
+            self.refresh_compare(branch, cx);
+            return;
+        }
         self.git.generation += 1;
         let generation = self.git.generation;
         self.git.requested = Some(path.clone());
@@ -79,6 +85,7 @@ impl RootView {
     pub(crate) fn sync_git_workspace(&mut self, cx: &mut Context<Self>) {
         let active = self.active_workspace_path(cx);
         if active.is_some() && active != self.git.requested {
+            self.git.set_target(ReviewTarget::WorkingTree);
             self.refresh_git(cx);
         }
     }
@@ -99,6 +106,10 @@ impl RootView {
         action: GitAction,
         cx: &mut Context<Self>,
     ) {
+        // An agent-branch comparison is read-only; its controls are hidden too.
+        if self.git.target.is_compare() {
+            return;
+        }
         let Some(path) = self.active_workspace_path(cx) else {
             return;
         };
@@ -168,6 +179,11 @@ impl RootView {
             return;
         }
         let generation = self.git.generation;
+        let key = self.git.diff_key(side, path);
+        let compare = match &self.git.target {
+            ReviewTarget::AgentBranch(b) => Some(agent_branches::compare_file_diff_args(b, path)),
+            ReviewTarget::WorkingTree => None,
+        };
         let untracked = self
             .git
             .status
@@ -176,11 +192,12 @@ impl RootView {
             .find(|f| f.path == path)
             .is_some_and(git::GitFile::untracked);
         let file = path.to_string();
-        let diff_file = file.clone();
         cx.spawn(async move |this, cx| {
             let text = cx
                 .background_spawn(async move {
-                    if untracked {
+                    if let Some(args) = compare {
+                        git::run_git(&ws, &args.iter().map(String::as_str).collect::<Vec<_>>())
+                    } else if untracked {
                         // Untracked files have no index diff: show an
                         // all-added view from the file contents.
                         Ok(git::untracked_as_diff(&ws, &file))
@@ -200,7 +217,7 @@ impl RootView {
                     return;
                 }
                 let text = text.unwrap_or_else(|e| format!("(git diff failed: {e})"));
-                v.git.store_diff(side, &diff_file, text);
+                v.git.store_diff_key(key, text);
                 cx.notify();
             })
             .ok();
@@ -287,6 +304,9 @@ impl RootView {
     }
 
     pub(crate) fn cycle_branch(&mut self, cx: &mut Context<Self>) {
+        if self.git.target.is_compare() {
+            return;
+        }
         let branches = &self.git.status.branches;
         if branches.len() <= 1 {
             return;
@@ -306,19 +326,6 @@ impl RootView {
         self.run_git_action(vec!["push".into()], GitAction::ThenRefresh("Push"), cx);
     }
 
-    fn notice_banner(&self) -> Option<AnyElement> {
-        let (ok, msg) = self.git.notice.as_ref()?;
-        Some(
-            div()
-                .px_2()
-                .py_1()
-                .text_size(px(ui_size(11.)))
-                .text_color(rgb(if *ok { SUCCESS } else { DANGER }))
-                .child(msg.clone())
-                .into_any_element(),
-        )
-    }
-
     pub(crate) fn review_pane(&mut self, cx: &mut Context<Self>) -> AnyElement {
         // Plan progress capsule (desktop parity: a section in the side panel,
         // not an overlay on the transcript).
@@ -336,6 +343,7 @@ impl RootView {
             .iter()
             .map(|f| f.path.clone())
             .collect();
+        let commit_bar = (!self.git.target.is_compare()).then(|| self.commit_bar(cx));
 
         div()
             .flex()
@@ -349,6 +357,7 @@ impl RootView {
             .children(self.goal_section(cx))
             .child(self.render_agents_section(cx))
             .child(self.render_background_activity(cx))
+            .children(self.render_agent_branches(cx))
             .child(self.review_header(&branch, files_n, add, del, cx))
             .children(self.notice_banner())
             .child(
@@ -372,7 +381,7 @@ impl RootView {
                     .text_color(rgb(MUTED))
                     .child("git running…")
             }))
-            .child(self.commit_bar(cx))
+            .children(commit_bar)
             .into_any_element()
     }
 }

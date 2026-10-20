@@ -22,9 +22,31 @@ limits below take precedence over the retained historical milestone requirements
 - In noise-free mode the fold line adds "· N errors": the latest edit result per file inside that
   run, so an error fixed by a later edit in the same run is not counted.
 
+## Agent branches (read-only, 2026-10-20, fork GPUI)
+
+- No Electron counterpart. The Review pane lists "Agent branches" above the working-tree header:
+  `git worktree list --porcelain` entries under `<repo>/.zcode/worktrees/` on `zcode/agent_*`
+  branches, each with "N files +A −D" from `git diff --shortstat <base> <head>`. The base is
+  `git config branch.<branch>.zcodeBase` (written by the CLI), else `git merge-base HEAD <branch>`.
+  The list refreshes with the pane and is hidden when empty.
+- Clicking a branch switches the pane to compare mode, pinned to that worktree's HEAD SHA at the
+  time of the click: files come from `git diff --name-status`/`--numstat <base> <head>`, and an
+  expanded row shows `git diff <base> <head> -- <path>`. Refresh re-reads the same pinned pair.
+  The header shows the branch and both short SHAs with a "Working tree" button to go back.
+  Uncommitted changes inside a still-running agent's worktree are not shown.
+- Compare mode is read-only: Stage all, the Unstaged/Staged tabs, per-file stage/discard/unstage,
+  the branch switcher, Commit and Push are hidden, and git actions are refused if reached anyway.
+  Merging stays a model or terminal step (`git merge --no-ff zcode/<id>`); Merge/Discard buttons
+  are a later round.
+- The diff cache key includes the target (working tree or `base..head`), and switching target
+  bumps the pane generation, so a diff that was loading for the previous target is dropped.
+  Switching workspace returns to the working tree.
+- Failed git commands now report the exit code and stderr, or stdout when stderr is empty (hooks
+  often print to stdout), instead of an empty notice.
+
 ## Agent worktree isolation (2026-10-20, fork CLI)
 
-- CLI-only so far; the GPUI branch review comes next. Spec: `apps/zcode-cli/docs/design/v2/tool/07-subagent.md`
+- CLI side of "Agent branches" above. Spec: `apps/zcode-cli/docs/design/v2/tool/07-subagent.md`
   ("Worktree isolation 当前范围"). `Agent` takes `isolation: "worktree"`, and an agent file can set
   `isolation: worktree` as its default. Only local git workspaces get it; elsewhere the call fails
   before launch, and the agent never runs in the parent checkout instead.

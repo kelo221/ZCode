@@ -112,3 +112,27 @@ fn badge_prefers_view_column() {
     // Staged view of an unstaged-only file falls back to the worktree letter.
     assert_eq!(unstaged_only.badge(true), "M");
 }
+
+#[test]
+fn git_failures_report_exit_code_and_fall_back_to_stdout() {
+    assert_eq!(
+        format_git_failure(
+            Some(1),
+            "",
+            "fatal: bad revision
+"
+        ),
+        "fatal: bad revision (exit 1)"
+    );
+    assert_eq!(
+        format_git_failure(
+            Some(1),
+            "hook says no
+",
+            "  
+"
+        ),
+        "hook says no (exit 1)"
+    );
+    assert_eq!(format_git_failure(Some(128), "", ""), "git exited with 128");
+}

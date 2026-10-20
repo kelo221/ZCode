@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
 
+pub use crate::review::git_state::GitState;
+
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
@@ -194,99 +196,11 @@ impl DiffSide {
             DiffSide::Staged => "Staged",
         }
     }
-    fn cache_key(self, path: &str) -> String {
+    pub(crate) fn cache_key(self, path: &str) -> String {
         format!(
             "{}:{path}",
             if self == DiffSide::Staged { "s" } else { "u" }
         )
-    }
-}
-
-/// UI-side cache for the Review pane (pure data; effects live in
-/// review/pane.rs).
-#[derive(Default)]
-pub struct GitState {
-    pub status: GitStatus,
-    pub side: DiffSide,
-    /// Paths currently showing their inline diff.
-    pub expanded: std::collections::HashSet<String>,
-    /// Cached diff texts keyed by (side, path).
-    pub diffs: HashMap<String, String>,
-    /// Diff cache keys with a load in flight (dedupes repeated requests).
-    pub pending: std::collections::HashSet<String>,
-    pub busy: bool,
-    /// Outcome of the last stage/commit/push action: (ok, message).
-    pub notice: Option<(bool, String)>,
-    /// Workspace the cached status/diffs belong to.
-    pub root: Option<std::path::PathBuf>,
-    /// Workspace of the most recently requested refresh.
-    pub requested: Option<std::path::PathBuf>,
-    /// Bumped per refresh; async results from older generations are dropped
-    /// so a slow, superseded refresh cannot overwrite newer state.
-    pub generation: u64,
-    /// Destructive ops (discard) arm first: the path awaiting its second
-    /// click, if any.
-    pub confirm_discard: Option<String>,
-}
-
-impl GitState {
-    /// Adopt a fresh status for `root`, invalidating every cached diff (the
-    /// working tree may have changed since they were loaded).
-    pub fn apply_status(&mut self, root: std::path::PathBuf, status: GitStatus) {
-        if self.root.as_ref() != Some(&root) {
-            self.expanded.clear();
-            self.notice = None;
-            self.confirm_discard = None;
-        }
-        let paths: std::collections::HashSet<&str> =
-            status.files.iter().map(|f| f.path.as_str()).collect();
-        self.expanded.retain(|p| paths.contains(p.as_str()));
-        self.diffs.clear();
-        self.pending.clear();
-        self.status = status;
-        self.root = Some(root);
-    }
-    pub fn mark_pending(&mut self, side: DiffSide, path: &str) -> bool {
-        self.pending.insert(side.cache_key(path))
-    }
-    /// Expanded paths whose diff for the current side is neither cached nor
-    /// already loading.
-    pub fn missing_diffs(&self) -> Vec<String> {
-        self.expanded
-            .iter()
-            .filter(|p| {
-                let key = self.side.cache_key(p);
-                !self.diffs.contains_key(&key) && !self.pending.contains(&key)
-            })
-            .cloned()
-            .collect()
-    }
-    pub fn files_for_side(&self) -> Vec<&GitFile> {
-        self.status
-            .files
-            .iter()
-            .filter(|f| match self.side {
-                DiffSide::Staged => f.staged_changed() || f.untracked(),
-                DiffSide::Unstaged => f.unstaged_changed(),
-            })
-            .collect()
-    }
-    pub fn totals(&self) -> (usize, u32, u32) {
-        let mut add = 0;
-        let mut del = 0;
-        for f in &self.status.files {
-            add += f.total_add();
-            del += f.total_del();
-        }
-        (self.status.files.len(), add, del)
-    }
-    pub fn diff_for(&self, side: DiffSide, path: &str) -> Option<&String> {
-        self.diffs.get(&side.cache_key(path))
-    }
-    pub fn store_diff(&mut self, side: DiffSide, path: &str, text: String) {
-        let key = side.cache_key(path);
-        self.pending.remove(&key);
-        self.diffs.insert(key, text);
     }
 }
 
@@ -363,8 +277,35 @@ pub fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
     let err = stderr.join().unwrap_or_default();
     match status {
         Ok(st) if st.success() => Ok(String::from_utf8_lossy(&out).into_owned()),
-        Ok(_) => Err(String::from_utf8_lossy(&err).trim().to_string()),
+        Ok(st) => Err(format_git_failure(
+            st.code(),
+            &String::from_utf8_lossy(&out),
+            &String::from_utf8_lossy(&err),
+        )),
         Err(e) => Err(e),
+    }
+}
+
+/// Failure text: stderr, or stdout when stderr is empty (hooks often print
+/// there), plus the exit code, capped to a few lines.
+pub fn format_git_failure(code: Option<i32>, stdout: &str, stderr: &str) -> String {
+    let body = if stderr.trim().is_empty() {
+        stdout.trim()
+    } else {
+        stderr.trim()
+    };
+    let body: Vec<&str> = body.lines().take(12).collect();
+    let code = code.map_or_else(|| "a signal".to_string(), |c| c.to_string());
+    if body.is_empty() {
+        format!("git exited with {code}")
+    } else {
+        format!(
+            "{} (exit {code})",
+            body.join(
+                "
+"
+            )
+        )
     }
 }
 

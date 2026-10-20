@@ -23,6 +23,7 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let side = self.git.side;
+        let compare = self.git.target.is_compare();
         div()
             .flex()
             .flex_col()
@@ -75,14 +76,7 @@ impl RootView {
                             .child(format!("-{del}")),
                     )
                     .child(div().flex_1())
-                    .child(side_btn(
-                        "stage-all",
-                        "Stage all",
-                        cx.listener(|this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.stage_all(cx);
-                        }),
-                    ))
+                    .child(self.review_primary_button(cx))
                     .child(side_btn(
                         "git-refresh",
                         "Refresh",
@@ -92,33 +86,35 @@ impl RootView {
                         }),
                     )),
             )
-            .child(
-                div()
-                    .flex()
-                    .gap_1()
-                    .children([DiffSide::Unstaged, DiffSide::Staged].map(|s| {
-                        let selected = s == side;
-                        div()
-                            .id(SharedString::from(format!("side-{}", s.label())))
-                            .px_3()
-                            .py_0p5()
-                            .rounded_sm()
-                            .text_size(px(ui_size(11.)))
-                            .cursor(CursorStyle::PointingHand)
-                            .when(selected, |el| el.bg(rgb(CARD)).text_color(rgb(ACCENT)))
-                            .when(!selected, |el| {
-                                el.text_color(rgb(MUTED)).hover(|h| h.bg(rgb(HOVER)))
-                            })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.git.side = s;
-                                // Expanded rows need this side's diff too.
-                                this.load_missing_diffs(cx);
-                                cx.notify();
-                            }))
-                            .child(s.label())
-                    })),
-            )
+            .when(!compare, |el| {
+                el.child(
+                    div()
+                        .flex()
+                        .gap_1()
+                        .children([DiffSide::Unstaged, DiffSide::Staged].map(|s| {
+                            let selected = s == side;
+                            div()
+                                .id(SharedString::from(format!("side-{}", s.label())))
+                                .px_3()
+                                .py_0p5()
+                                .rounded_sm()
+                                .text_size(px(ui_size(11.)))
+                                .cursor(CursorStyle::PointingHand)
+                                .when(selected, |el| el.bg(rgb(CARD)).text_color(rgb(ACCENT)))
+                                .when(!selected, |el| {
+                                    el.text_color(rgb(MUTED)).hover(|h| h.bg(rgb(HOVER)))
+                                })
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    cx.stop_propagation();
+                                    this.git.side = s;
+                                    // Expanded rows need this side's diff too.
+                                    this.load_missing_diffs(cx);
+                                    cx.notify();
+                                }))
+                                .child(s.label())
+                        })),
+                )
+            })
             .into_any_element()
     }
 
@@ -143,6 +139,7 @@ impl RootView {
             })
             .unwrap_or(("--".to_string(), 0, 0));
         let expanded = self.git.expanded.contains(path);
+        let compare = self.git.target.is_compare();
         let row_path = path.to_string();
         let act_path = path.to_string();
         let is_untracked = self
@@ -197,7 +194,7 @@ impl RootView {
                     .text_color(rgb(DANGER))
                     .child(format!("-{del}")),
             )
-            .when(side == DiffSide::Unstaged, |el| {
+            .when(side == DiffSide::Unstaged && !compare, |el| {
                 let p1 = act_path.clone();
                 let p2 = act_path.clone();
                 el.child(
@@ -278,7 +275,7 @@ impl RootView {
                     ]
                 })
             })
-            .when(side == DiffSide::Staged, |el| {
+            .when(side == DiffSide::Staged && !compare, |el| {
                 let p1 = act_path.clone();
                 el.child(
                     div()
@@ -338,7 +335,7 @@ impl RootView {
     }
 
     pub(crate) fn commit_bar(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        div()
+        let bar = div()
             .flex()
             .flex_col()
             .gap_1p5()
@@ -367,7 +364,10 @@ impl RootView {
                             this.push(cx);
                         }),
                     )),
-            )
-            .into_any_element()
+            );
+        let bar = div().child(bar);
+        #[cfg(test)]
+        let bar = crate::app::test_support::track_children(bar, vec!["review-commit-bar".into()]);
+        bar.into_any_element()
     }
 }
