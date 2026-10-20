@@ -36,10 +36,10 @@ impl FrameAssembler {
             format!("{e} (fragment frame {id}, ordinal {ordinal}, topic {topic})")
         };
         let bad = "proto.frameAssemblyMetadataMismatch: bad fragment fields".to_string();
-        let index = req_u64(obj, "fragmentIndex").map_err(&fault)?;
-        let count = req_u64(obj, "fragmentCount").map_err(&fault)?;
-        let logical_bytes = req_u64(obj, "logicalBytes").map_err(&fault)?;
-        let data_b64 = req_str(obj, "dataBase64").map_err(&fault)?;
+        let index = req_u64(obj, "fragmentIndex").map_err(fault)?;
+        let count = req_u64(obj, "fragmentCount").map_err(fault)?;
+        let logical_bytes = req_u64(obj, "logicalBytes").map_err(fault)?;
+        let data_b64 = req_str(obj, "dataBase64").map_err(fault)?;
         let checksum = {
             let c = obj.get("checksum").ok_or_else(|| fault(bad.clone()))?;
             let algo = c.get("algorithm").and_then(Value::as_str).unwrap_or("");

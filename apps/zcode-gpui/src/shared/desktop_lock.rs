@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 const DESKTOP_APP_NAMES: &[&str] = &["ZCode", "ZCode Preview", "ZCode Dev"];
 
 /// Executable names of packaged desktop builds (`productName` + `.exe`).
+#[cfg(any(windows, test))]
 pub(crate) const DESKTOP_EXE_NAMES: &[&str] = &["zcode.exe", "zcode preview.exe", "zcode dev.exe"];
 
 fn app_data_dir() -> Option<PathBuf> {

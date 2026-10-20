@@ -116,10 +116,10 @@ pub(crate) fn make_kill(child: &Child) -> Box<dyn FnOnce() + Send> {
 fn make_kill(child: &std::sync::Arc<std::sync::Mutex<Option<Child>>>) -> Box<dyn FnOnce() + Send> {
     let child = child.clone();
     Box::new(move || {
-        if let Ok(mut guard) = child.lock() {
-            if let Some(c) = guard.as_mut() {
-                let _ = c.kill();
-            }
+        if let Ok(mut guard) = child.lock()
+            && let Some(c) = guard.as_mut()
+        {
+            let _ = c.kill();
         }
     })
 }
