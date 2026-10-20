@@ -95,7 +95,7 @@ fn long_paste_in_a_session_uploads_a_text_attachment_and_keeps_the_draft() {
     let (state, mut window, rx) = open(&mut app, true);
     let key = app.update_entity(&state, |s, _| s.workspaces[0].key.clone());
     app.write_to_clipboard(ClipboardItem::new_string(long_text()));
-    window.simulate_keystroke("ctrl-v");
+    window.simulate_keystroke("secondary-v");
     window.draw();
     let begin: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
     assert_eq!(begin["method"], "v4/attachment/begin");
@@ -133,7 +133,7 @@ fn long_paste_in_a_new_draft_writes_an_owned_text_file_and_short_text_stays_inli
     );
     let (state, mut window, rx) = open(&mut app, false);
     app.write_to_clipboard(ClipboardItem::new_string(long_text()));
-    window.simulate_keystroke("ctrl-v");
+    window.simulate_keystroke("secondary-v");
     window.draw();
     assert!(rx.try_recv().is_err(), "a draft never uploads");
     let path = app.update_entity(&state, |s, cx| {
@@ -154,7 +154,7 @@ fn long_paste_in_a_new_draft_writes_an_owned_text_file_and_short_text_stays_inli
     assert!(!path.exists(), "removing the chip deletes the owned file");
 
     app.write_to_clipboard(ClipboardItem::new_string("short".into()));
-    window.simulate_keystroke("ctrl-v");
+    window.simulate_keystroke("secondary-v");
     app.update_entity(&state, |s, cx| {
         let composer = s.composer.read(cx);
         assert_eq!(composer.text(), "keep this draftshort");

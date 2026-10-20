@@ -51,6 +51,12 @@ jobs:
             pkg-config libssl-dev libfontconfig1-dev libfreetype6-dev \
             libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
             libxrandr-dev libxi-dev libxcursor-dev libvulkan-dev libasound2-dev
+      # The Services RPC tests run a JavaScript peer under Bun (see
+      # src/backend/services_rpc/fake_child.rs); children get a cleared PATH,
+      # so a bare `node` fallback cannot be found.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/zcode-gpui

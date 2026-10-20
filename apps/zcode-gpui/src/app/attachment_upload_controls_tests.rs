@@ -52,7 +52,7 @@ fn clipboard_upload_cancel_retry_and_ready_send_are_reachable() {
         )))
     });
     window.draw();
-    window.simulate_keystroke("ctrl-v");
+    window.simulate_keystroke("secondary-v");
     window.draw();
     let begin: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
     assert_eq!(begin["method"], "v4/attachment/begin");
@@ -76,7 +76,7 @@ fn clipboard_upload_cancel_retry_and_ready_send_are_reachable() {
         let focus = state.read(cx).composer.read(cx).focus.clone();
         window.focus(&focus, cx);
     });
-    window.simulate_keystroke("ctrl-v");
+    window.simulate_keystroke("secondary-v");
     window.draw();
     let begin: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
     app.update_entity(&state, |s, cx| {

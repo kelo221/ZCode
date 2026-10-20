@@ -44,7 +44,7 @@ fn new_draft_clipboard_preserves_format_and_explicit_temp_ownership_without_uplo
         )))
     });
     window.draw();
-    window.simulate_keystroke("ctrl-v");
+    window.simulate_keystroke("secondary-v");
     window.draw();
     let path = app.update_entity(&state, |s, cx| {
         assert!(s.workspaces[0].image_uploads.is_empty());
