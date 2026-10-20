@@ -98,6 +98,10 @@ Header 是运行时 Secret，只进入 Exporter 配置，不进入 Resource、Sp
 - No-op `run()` 直接且只执行一次业务回调；
 - `--help`、版本查询和无 Agent 工作路径不承担 SDK 初始化成本。
 
+Fork（2026-10-20）：`prepareZCodeTelemetryEnv` 恒传入 `ZCODE_MODEL_TELEMETRY_ENABLED=0`，
+所有 CLI 入口（含 GPUI 内置后端）都走 Disabled 路径：即使环境里有 `OTEL_*` 或打包注入的
+端点也不加载 Exporter、不发网络请求，不生成安装 ID，不写 `telemetry-state.json`。
+
 ### 1.4 安装 ID 与身份更新
 
 Standalone 安装 ID 保存于：

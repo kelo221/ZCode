@@ -16,6 +16,8 @@ export async function prepareZCodeTelemetryEnv(
   const prepared = await prepareModelTelemetryEnv({
     ...getCapturedZCodeAgentTelemetryEnv(),
     ...env,
+    // Fork: telemetry is always off (docs/trace/reference/runtime-and-operations.md §1.3).
+    ZCODE_MODEL_TELEMETRY_ENABLED: "0",
   }, {
     ...options,
     productVersion: options.productVersion ?? env.ZCODE_APP_VERSION,
