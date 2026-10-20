@@ -126,6 +126,6 @@ jobs:
           Check the download with the `.sha256` file. See the repository README for what the fork adds.
           EOF
           gh release create "${{ github.ref_name }}" out/* \
-            --title "ZCode GPUI ${{ github.ref_name }}" \
+            --title "ZCode GPUI ${GITHUB_REF_NAME#gpui-}" \
             --notes-file notes.md \
             --verify-tag
