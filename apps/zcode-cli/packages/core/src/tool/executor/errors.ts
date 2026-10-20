@@ -17,7 +17,7 @@ export function createErrorResult(
       : undefined;
   // 根因：通用错误层按 tool name 拼接 provider 文案会反向依赖具体工具。
   // handler 只返回自己的 code/message；这里统一组装 envelope，并保留裸 message 给 UI 和日志。
-  const modelContent =
+  const baseModelContent =
     getInitialInputValidationModelContent(error) ??
     (handlerFailure ? `<tool_use_error>${handlerFailure.message}</tool_use_error>` : undefined);
   // subagent/turn/model 错误常把真实 provider 原因包在 cause 链里；
@@ -36,6 +36,11 @@ export function createErrorResult(
     reasonSource !== undefined || options?.preserveReasonFormatting === true
       ? error.message
       : projectedError.message;
+  const modelContentSuffix = readErrorModelContentSuffix(error);
+  const modelContent =
+    modelContentSuffix === undefined
+      ? baseModelContent
+      : `${baseModelContent ?? message}\n\n${modelContentSuffix}`;
   return {
     toolCallId: toolCall.id,
     toolName: toolCall.name,
@@ -88,6 +93,16 @@ export function isToolHandlerFailure(value: unknown): value is ToolHandlerFailur
 
 export function isToolHandlerFailureError(error: unknown): boolean {
   return isCoreError(error) && isToolHandlerFailure(error.context?.toolHandlerFailure);
+}
+
+/**
+ * 只给父模型看的补充行（例如中断 subagent 的 agent id）。`error.message` 仍是 UI hover 与日志
+ * 看到的根因摘要；后缀只进 modelContent，工具名无关，由抛错方自己决定内容。
+ */
+export function readErrorModelContentSuffix(error: unknown): string | undefined {
+  if (!isCoreError(error)) return undefined;
+  const suffix = error.context?.modelContentSuffix;
+  return typeof suffix === "string" && suffix.trim().length > 0 ? suffix : undefined;
 }
 
 export function createPermissionErrorResult(

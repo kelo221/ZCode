@@ -9,6 +9,7 @@ import {
   EVAL_WORKFLOW_SNIPPET_TOOL_NAME,
   FILL_WORKFLOW_HOLE_TOOL_NAME,
   GET_WORKFLOW_RUN_TOOL_NAME,
+  LIST_AGENTS_TOOL_NAME,
   LIST_MODELS_TOOL_NAME,
   LIST_SAVED_WORKFLOWS_TOOL_NAME,
   LIST_WORKFLOW_RUNS_TOOL_NAME,
@@ -57,6 +58,7 @@ import {
 } from "./plan-mode.js";
 import { askUserQuestionToolEntry } from "./ask-user-question.js";
 import { sendMessageToolEntry } from "./send-message.js";
+import { listAgentsToolEntry } from "./list-agents.js";
 import { respondToCoordinatorToolEntry } from "./respond-to-coordinator.js";
 import { createSubmitResultToolEntry, submitResultToolEntry } from "./submit-result.js";
 import { escalateToolEntry } from "./escalate.js";
@@ -106,6 +108,7 @@ export const builtInTools: ToolEntry[] = [
   exitPlanModeToolEntry,
   askUserQuestionToolEntry,
   sendMessageToolEntry,
+  listAgentsToolEntry,
   respondToCoordinatorToolEntry,
   submitResultToolEntry,
   // actor 的升级通道。与 submit_result 完全同构：
@@ -251,7 +254,10 @@ export function registerBuiltInTools(
     if (entry.metadata.name === "Skill" && options.includeSkill === false) {
       continue;
     }
-    if (entry.metadata.name === "SendMessage" && options.includeSendMessage !== true) {
+    if (
+      (entry.metadata.name === "SendMessage" || entry.metadata.name === LIST_AGENTS_TOOL_NAME) &&
+      options.includeSendMessage !== true
+    ) {
       continue;
     }
     if (

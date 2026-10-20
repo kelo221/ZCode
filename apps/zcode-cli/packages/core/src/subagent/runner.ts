@@ -28,6 +28,7 @@ import {
   type SessionId,
   type SubagentLaunchOptions,
   type SubagentLaunchRequest,
+  type SubagentListEntry,
   type SubagentPort,
   type SubagentRunOptions,
   type SubagentRunRequest,
@@ -51,6 +52,7 @@ import {
 } from "./profile.js";
 import { EXPLORE_AGENT_ALLOWED_TOOLS } from "./explore-tools.js";
 import { formatLocalAgentTaskNotification } from "./completion-notification.js";
+import { listSessionSubagents, readAgentMetadataSnapshot } from "./agent-index.js";
 import { filterSubagentChildToolNames } from "./tool-policy.js";
 import {
   ErrorPayloadRole,
@@ -415,7 +417,13 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
           },
         );
 
+        // 失败、取消与 watchdog 超时的 tool result 原本只有错误摘要，父模型拿不到 agent id，
+        // 也就无法用 SendMessage 续上已保存的 child 对话；把 id 作为模型可见后缀带回去。
         if (isCoreError(error)) {
+          error.context = {
+            ...error.context,
+            modelContentSuffix: formatInterruptedAgentHint(lifecycle.agentId),
+          };
           throw error;
         }
 
@@ -426,6 +434,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
           context: withErrorPayloadRole(
             {
               code: AgentErrorCode.CHILD_RUNTIME_FAILED,
+              modelContentSuffix: formatInterruptedAgentHint(lifecycle.agentId),
               agentId: lifecycle.agentId,
               agentType: request.agentType,
               parentToolCallId: request.parentToolCallId,
@@ -582,6 +591,14 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         request,
         sendOptions,
       );
+    },
+
+    async listAgents(sessionId: SessionId): Promise<SubagentListEntry[]> {
+      return listSessionSubagents({
+        outputRootDir: resolveAgentOutputRootDir(options),
+        registry,
+        sessionId,
+      });
     },
   };
 
@@ -811,7 +828,7 @@ function createSubagentLifecycle(
   const childSessionId = createSessionId(`subagent_${agentId}`);
   const startedAt = Date.now();
   const agentOutputDir = join(
-    options.outputRootDir ?? join(tmpdir(), "zcode-agents"),
+    resolveAgentOutputRootDir(options),
     request.sessionId,
     agentId,
   );
@@ -863,7 +880,7 @@ function createSubagentLifecycleFromTask(
   const startedAt = Date.now();
   const agentOutputDir = task.outputFile
     ? dirname(task.outputFile)
-    : join(options.outputRootDir ?? join(tmpdir(), "zcode-agents"), request.sessionId, agentId);
+    : join(resolveAgentOutputRootDir(options), request.sessionId, agentId);
   const metadataFile = join(agentOutputDir, "metadata.json");
   const outputFile = join(agentOutputDir, "output.txt");
   const taskOutputFile = join(agentOutputDir, "task.output");
@@ -914,11 +931,11 @@ async function sendMessageToLocalAgent(
     return createSendMessageFailure(request, `SendMessage was aborted for ${request.to}.`);
   }
 
-  const task = registry.get(request.to);
-  if (!task || task.type !== "local_agent") {
+  const task = await resolveLocalAgentTask(options, registry, request);
+  if (!task) {
     return createSendMessageFailure(
       request,
-      `No active local_agent task found for target ${request.to}.`,
+      `No subagent ${request.to} found in this session. Use ListAgents to see this session's subagents and their IDs.`,
     );
   }
 
@@ -937,6 +954,33 @@ async function sendMessageToLocalAgent(
     message,
     sendOptions,
   );
+}
+
+async function resolveLocalAgentTask(
+  options: ExploreSubagentPortOptions,
+  registry: RuntimeTaskRegistry,
+  request: SubagentSendMessageRequest,
+): Promise<RuntimeTaskSnapshot | undefined> {
+  const task = registry.get(request.to);
+  if (task) return task.type === "local_agent" ? task : undefined;
+  // registry 只在内存里：CLI 重启、runtime 替换或宿主空闲卸载后，模型手里的 id 会全部失效。
+  // child history 仍在 session store，metadata.json 也还在，所以从磁盘重建 terminal snapshot 再 resume。
+  const restored = await readAgentMetadataSnapshot(
+    resolveAgentOutputRootDir(options),
+    request.sessionId,
+    request.to,
+  );
+  if (!restored) return undefined;
+  registry.register(restored);
+  return restored;
+}
+
+function formatInterruptedAgentHint(agentId: string): string {
+  return `agentId: ${agentId} (the subagent stopped early; its conversation is saved. Use SendMessage with to: '${agentId}' to resume it)`;
+}
+
+function resolveAgentOutputRootDir(options: ExploreSubagentPortOptions): string {
+  return options.outputRootDir ?? join(tmpdir(), "zcode-agents");
 }
 
 async function deliverMessageToRunningAgent(

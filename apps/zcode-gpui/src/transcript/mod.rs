@@ -11,6 +11,8 @@ pub(crate) mod scroll;
 #[cfg(test)]
 mod scroll_tests;
 pub(crate) mod subagent_card;
+#[cfg(test)]
+mod subagent_card_tests;
 pub(crate) mod tagged_text;
 pub(crate) mod tool_card;
 #[cfg(test)]

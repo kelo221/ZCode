@@ -29,6 +29,7 @@ import {
   createToolHandlerFailureError,
   isToolHandlerFailure,
   isToolHandlerFailureError,
+  readErrorModelContentSuffix,
 } from "./errors.js";
 import { emitToolCallError, emitToolCallResult, emitToolCallStarted } from "./events.js";
 import {
@@ -689,7 +690,8 @@ async function executeToolCallImpl(
         durationMs,
       );
       const baseModelContent = result.error
-        ? isToolHandlerFailureError(error) && typeof result.modelContent === "string"
+        ? (isToolHandlerFailureError(error) || readErrorModelContentSuffix(error) !== undefined) &&
+          typeof result.modelContent === "string"
           ? result.modelContent
           : result.error.message
         : undefined;

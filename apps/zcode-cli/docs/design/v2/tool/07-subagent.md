@@ -268,7 +268,7 @@ metadata 至少保存：
 - `to` 可以是注册过的 name，也可以是 raw `agentId`。
 - running task 收到消息时，只把文本放入 `pendingMessages`，在下一次 tool round 边界 drain。
 - stopped task 会通过 `resumeAgentBackground()` 自动恢复。
-- task 已从 registry evict 时，当前不会仅凭磁盘 artifact 重新发现目标。
+- task 不在 registry 时（CLI 重启、runtime 替换、宿主空闲卸载），按 `<outputRoot>/<当前 parent session>/<agentId>/metadata.json` 重建 terminal snapshot 后再走同一 resume 路径；见下文「SendMessage 当前范围」。
 - resume 会读取 session store 中的 messages/parts 和 session entries，过滤未配对 tool use、重建 content replacement state、恢复 worktree cwd，并把新 prompt 追加为 user message。
 - fork resume 必须重建父 system prompt，且不会重复传入原 fork parent context slice，避免重复 tool_use id。
 
@@ -350,7 +350,8 @@ ZCode 应把 hook/MCP/skill 都视为外部 I/O 或扩展边界，必须带 trac
 - worktree cleanup 失败或 worktree 已被外部删除，resume 时回退到 parent cwd。
 - classifier 不可用或判定 handoff 危险，需要把 warning 插入父 agent 可见结果。
 - session store 中 child history 缺失，resume 失败。
-- output file 或 task state 被 evict，`SendMessage` 不会仅凭磁盘 artifact 重新发现目标。
+- task state 被 evict 但 `metadata.json` 仍在，`SendMessage` 从磁盘重建后恢复；metadata 也缺失时返回指向 `ListAgents` 的结构化失败。
+- foreground Agent 失败、取消或 inactivity watchdog 超时：父模型可见的 tool result 在错误摘要后追加 `agentId: … SendMessage …` 一行（`error.context.modelContentSuffix`），UI hover 的 `state.error` 仍只显示根因。
 
 ## ZCode Explore MVP（历史基线）
 
@@ -432,7 +433,9 @@ Child finish    -> no parent MCP cleanup
 
 ### SendMessage 当前范围
 
-- `to` 必须是当前 runtime `RuntimeTaskRegistry` 中仍可寻址的 `local_agent` task/agent id。当前不支持名称 alias、跨 runtime 投递，也不会在 task 已从 registry evict 后仅凭磁盘 artifact 重新发现目标。
+- `to` 必须是 `local_agent` 的 agent id（`agent_<字母数字与->`）。先查当前 runtime 的 `RuntimeTaskRegistry`；未命中时读 `<outputRoot>/<request.sessionId>/<to>/metadata.json`，校验 `agentId` 与 `parentSessionId` 均匹配后注册为 terminal snapshot（`running` 视为 `stopped`：持有它的进程已不在），再走下面的 terminal resume。只认当前 parent session 的目录：不支持名称 alias、跨 session（含 fork 前的父 session）或跨 runtime 投递。两者都未命中时返回 `No subagent ${to} found in this session. Use ListAgents to see this session's subagents and their IDs.`
+- `ListAgents`（与 `SendMessage` 同门：subagent port 提供 `sendMessage` 才注册，`shouldDefer`）列出当前 parent session 的 subagent：registry 中 `parentSessionId` 匹配的条目与磁盘 metadata 合并，registry 优先，按最近更新排序，可按状态过滤，最多 50 条。
+- compact 后的 reminder 追加当前 session 最近 20 个 subagent 的 id / 类型 / 状态 / 描述（同一合并来源），避免摘要丢掉可续用的 agent id。
 - provider-visible description 和字段说明只覆盖 local-agent 子集；teammate mailbox、shutdown、
   plan approval 等 ZCode 未支持的 team protocol 不进入工具说明。
 - running agent 有 active message sink 时直接投递到当前 turn，返回 `steered` 或 `queued`；没有 sink 或 sink 投递失败时进入该 task 的 pending message queue。

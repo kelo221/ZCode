@@ -104,6 +104,17 @@ export interface SubagentTaskSnapshot {
   notified?: boolean;
 }
 
+export interface SubagentListEntry {
+  agentId: string;
+  agentType: string;
+  description: string;
+  status: SubagentTaskStatus;
+  startedAt: Date;
+  updatedAt: Date;
+  /** 当前 runtime 的 registry 里仍有这个 agent（true），还是只从磁盘 metadata 读回（false）。 */
+  live: boolean;
+}
+
 export interface SubagentPort {
   launch(request: SubagentLaunchRequest, options?: SubagentLaunchOptions): Promise<AgentOutput>;
   run(request: SubagentRunRequest, options?: SubagentRunOptions): Promise<AgentOutput>;
@@ -125,4 +136,6 @@ export interface SubagentPort {
     request: SubagentSendMessageRequest,
     options?: SubagentSendMessageOptions,
   ): Promise<SubagentSendMessageResult>;
+  /** 某个 parent session 的 subagent（含已不在内存 registry、只剩磁盘 metadata 的），最近更新的在前。 */
+  listAgents?(sessionId: SessionId): Promise<SubagentListEntry[]>;
 }

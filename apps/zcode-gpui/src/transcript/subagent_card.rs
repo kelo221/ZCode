@@ -9,10 +9,61 @@ use crate::shared::theme::ui_size;
 use crate::shared::theme::{ACCENT, BORDER, CARD, CARD_HOVER, DANGER, MUTED, PANEL, SUCCESS, TEXT};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{
-    AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px,
+    AnyElement, ClipboardItem, Context, ElementId, IntoElement, ParentElement, Styled, div,
+    prelude::*, px,
 };
 
+/// The CLI names a subagent's child session `sess_subagent_<agentId>`, so the
+/// agent ID (what SendMessage takes) is recoverable from any subagent row.
+pub(crate) fn agent_id_from_child_session(child_session_id: &str) -> Option<&str> {
+    child_session_id
+        .strip_prefix("sess_subagent_")
+        .filter(|id| id.starts_with("agent_"))
+}
+
+/// `agent_7fbbd55f-28a1-…` → `agent_7fbbd55f` for the chip label.
+pub(crate) fn short_agent_id(agent_id: &str) -> &str {
+    let end = agent_id
+        .char_indices()
+        .skip("agent_".len())
+        .find(|(_, c)| *c == '-')
+        .map_or(agent_id.len(), |(i, _)| i);
+    &agent_id[..end]
+}
+
 impl RootView {
+    /// Small mono chip that copies the full agent ID, so the user can tell the
+    /// agent "resume agent_…" after a restart or lost connection.
+    pub(crate) fn agent_id_copy_chip(&self, agent_id: &str, cx: &mut Context<Self>) -> AnyElement {
+        let full = agent_id.to_string();
+        let element = div().child(
+            div()
+                .id(ElementId::Name(format!("agent-id-copy-{agent_id}").into()))
+                .px_1p5()
+                .py_0p5()
+                .rounded_sm()
+                .bg(rgb(PANEL))
+                .border_1()
+                .border_color(rgb(BORDER))
+                .font_family(crate::shared::theme::MONO_FONT)
+                .text_size(px(ui_size(10.)))
+                .text_color(rgb(MUTED))
+                .hover(|h| h.bg(rgb(CARD_HOVER)).text_color(rgb(TEXT)))
+                .cursor_pointer()
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    cx.stop_propagation();
+                    cx.write_to_clipboard(ClipboardItem::new_string(full.clone()));
+                }))
+                .child(short_agent_id(agent_id).to_string()),
+        );
+        #[cfg(test)]
+        let element = crate::app::test_support::track_children(
+            element,
+            vec![format!("agent-id-copy-{agent_id}")],
+        );
+        element.into_any_element()
+    }
+
     pub(crate) fn find_subagent_for_tool_call(
         &self,
         tool_call_id: &str,
@@ -125,6 +176,11 @@ impl RootView {
                 .child("Open")
         });
 
+        let id_chip = child_session_id
+            .as_deref()
+            .and_then(agent_id_from_child_session)
+            .map(|agent_id| self.agent_id_copy_chip(agent_id, cx));
+
         let clamped = if !summary_text.is_empty() {
             let max_chars = 240;
             let text = if summary_text.chars().count() > max_chars {
@@ -196,6 +252,7 @@ impl RootView {
                         .flex()
                         .items_center()
                         .gap_1p5()
+                        .children(id_chip)
                         .children(stop_button)
                         .children(open_button),
                 ),

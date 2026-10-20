@@ -129,18 +129,20 @@ function formatAgentOutputForModel(output: unknown): string {
   const data = parsed.data as AgentOutput;
   if (data.status !== "async_launched") {
     const childText = data.content.map((block) => block.text).join("\n");
-    const childContent =
-      childText.trim().length > 0 ? [childText] : ["(Subagent completed but returned no output.)"];
     const usageLines = [
       ...(data.totalTokens === undefined ? [] : [`subagent_tokens: ${data.totalTokens}`]),
       `tool_uses: ${data.totalToolUseCount}`,
       `duration_ms: ${data.totalDurationMs}`,
     ];
-    return [
-      ...childContent,
+    const trailer = [
       `agentId: ${data.agentId} (use SendMessage with to: '${data.agentId}' to continue this agent)`,
       `<usage>${usageLines.join("\n")}</usage>`,
     ].join("\n");
+    const childContent =
+      childText.trim().length > 0
+        ? fitChildTextBeforeTrailer(childText, trailer)
+        : "(Subagent completed but returned no output.)";
+    return [childContent, trailer].join("\n");
   }
 
   const launchLines = [
@@ -162,6 +164,21 @@ function formatAgentOutputForModel(output: unknown): string {
     ...launchLines,
     "Briefly tell the user what you launched and end your response. Do not generate any other text - agent results will arrive in a subsequent message.",
   ].join("\n");
+}
+
+/**
+ * 超过 maxModelBytes 的结果会被序列化层换成只含开头的预览，结尾的 agentId 行随之丢失，
+ * 父模型就无法再用 SendMessage 续上这个 agent。这里先截 child 正文，保证 trailer 始终在预算内。
+ */
+function fitChildTextBeforeTrailer(childText: string, trailer: string): string {
+  const budget = MAX_AGENT_MODEL_BYTES - Buffer.byteLength(trailer, "utf8") - 512;
+  const bytes = Buffer.from(childText, "utf8");
+  if (bytes.length <= budget) return childText;
+  const kept = bytes
+    .subarray(0, Math.max(0, budget))
+    .toString("utf8")
+    .replace(/\uFFFD+$/u, "");
+  return `${kept}\n[Subagent output truncated after ${budget} bytes. Use SendMessage to ask the agent for the rest.]`;
 }
 
 const agentHandler: ToolHandler = async (input, context) => {

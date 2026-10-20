@@ -5,6 +5,22 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## Subagent IDs survive restarts and failures (2026-10-20, fork CLI + GPUI)
+
+- The CLI spec is `apps/zcode-cli/docs/design/v2/tool/07-subagent.md` ("SendMessage 当前范围").
+  `SendMessage(to: agent_…)` falls back to `~/.zcode/cli/agents/<session>/<agentId>/metadata.json`
+  when the in-memory registry has lost the agent (CLI restart, idle unload, crash). It then resumes
+  the same child conversation. A metadata status of `running` means the owning process died, so it
+  is treated as `stopped`. Only the current parent session's agents resolve.
+- When a foreground Agent fails, is cancelled or hits the inactivity watchdog, the parent model's
+  tool result now ends with `agentId: … SendMessage …`. The UI error text stays the root cause.
+- The new deferred `ListAgents` tool lists this session's subagents (live and on-disk) with their
+  IDs. After a compaction, a reminder lists the 20 most recent ones.
+- GPUI: subagent cards in the transcript and in the dock's Agents section show a mono chip with
+  the short agent ID (`agent_7fbbd55f`). Clicking it copies the full ID, so the user can say
+  "resume agent_…". Electron has no counterpart. The ID comes from the dock's `agentId` when
+  present, else from the child session name `sess_subagent_<agentId>`.
+
 ## Idle agent unload keeps background work alive (2026-10-20, GPUI-only)
 
 - No Electron counterpart (Electron never unloads an agent). Every 30 s GPUI unloads (kills)
@@ -15,8 +31,9 @@ limits below take precedence over the retained historical milestone requirements
   `prewarming`), `hasBackgroundWork: true` in the sessions index, or, in an open
   conversation, a running phase, a pending interaction, or running `backgroundWorks` /
   subagents. Background subagents, shells and workflows live only in that CLI process's
-  in-memory task registry, so killing it ends them and they can't be resumed or read back
-  with `TaskOutput`/`SendMessage` (bug seen 2026-10-19: three background Explore agents were
+  in-memory task registry, so killing it ends them mid-task: `TaskOutput` can't read them back,
+  and `SendMessage` can only restart them from their saved conversation (see "Subagent IDs
+  survive restarts and failures") (bug seen 2026-10-19: three background Explore agents were
   killed 600 s after the user's last command, once the parent turn had ended and the user had
   switched to another project).
 - Owner of the facts: the CLI. `hasBackgroundWork` is derived from the session snapshot's

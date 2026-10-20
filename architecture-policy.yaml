@@ -913,3 +913,11 @@ exceptions:
       - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/code-search-manager.ts
       - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/code-search-wiring.ts
     reason: GPUI-only fork feature (apps/zcode-gpui/PARITY.md "Built-in fff code search"). New port, tool and adapter files sit beside the existing ones (the Speak tool pattern) so upstream source syncs do not conflict; adopting the CLI contracts, tools, adapters or protocol directories is outside this fork change.
+  - id: fork-subagent-id-recovery-cli
+    rule: unmanaged-new-file
+    paths:
+      - apps/zcode-cli/packages/core/src/subagent/agent-index.ts
+      - apps/zcode-cli/packages/contracts/src/tools/list-agents.ts
+      - apps/zcode-cli/packages/core/src/tool/handlers/list-agents.ts
+      - apps/zcode-cli/packages/core/src/runtime/helpers/agent-listing.ts
+    reason: Fork feature (apps/zcode-cli/docs/design/v2/tool/07-subagent.md "SendMessage 当前范围"). Rebuilding evicted subagents from metadata.json and the ListAgents tool live in their own files so the upstream runner/handler files only gain small call sites and source syncs stay mergeable. agent-listing.ts is an upstream-introduced helper that gains the post-compact subagent roster beside the existing agent-type listing.

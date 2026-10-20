@@ -52,6 +52,8 @@ const DIRECT_BRANCH_EXPECTED_PROVIDER_TOOL_ORDER = [
   "ToolSearch",
   "DeferredToolCall",
   "SendMessage",
+  // 同 SendMessage 一道门，按注册序紧随其后。
+  "ListAgents",
   "ReadSessionContext",
   "ReplyToChannel",
   "CreateWorkflow",
@@ -112,7 +114,7 @@ const SOURCE_DERIVED_SEND_MESSAGE_DESCRIPTION = [
   '{"to": "agent_<uuid>", "summary": "assign task 1", "message": "start on task #1"}',
   "```",
   "",
-  "Your plain text output is NOT visible to other agents — to communicate, you MUST call this tool. Messages from agents are delivered automatically; you don't check an inbox. Refer to local agents by the `agentId` returned in the Agent spawn result. To resume a completed agent, use its `agentId`; it resumes in the background and you'll be notified when it finishes.",
+  "Your plain text output is NOT visible to other agents — to communicate, you MUST call this tool. Messages from agents are delivered automatically; you don't check an inbox. Refer to local agents by the `agentId` returned in the Agent spawn result. To resume a completed, failed or interrupted agent, use its `agentId`; it resumes in the background with its earlier conversation and you'll be notified when it finishes. This also works after the app restarted. If you no longer have the ID, call ListAgents.",
 ].join("\n");
 
 function getSchemaPath(schema: unknown, path: readonly string[]): unknown {

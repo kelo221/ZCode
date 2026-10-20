@@ -192,6 +192,17 @@ impl RootView {
                     None
                 };
 
+                let id_chip = agent
+                    .agent_id
+                    .as_deref()
+                    .filter(|id| id.starts_with("agent_"))
+                    .or_else(|| {
+                        crate::transcript::subagent_card::agent_id_from_child_session(
+                            &agent.child_session_id,
+                        )
+                    })
+                    .map(|agent_id| self.agent_id_copy_chip(agent_id, cx));
+
                 let summary_node = truncate_summary(agent.summary.as_deref(), 160).map(|txt| {
                     div()
                         .text_size(px(ui_size(11.)))
@@ -258,6 +269,7 @@ impl RootView {
                                 )
                             })
                             .child(div().flex_1())
+                            .children(id_chip)
                             .children(stop_button)
                             .children(open_button),
                     )
