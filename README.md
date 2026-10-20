@@ -4,7 +4,7 @@
 
 This README only covers what the fork adds. For ZCode itself (the Electron desktop app, the Web client, the CLI distribution, packaging, configuration and the project notice), see the [upstream repository](https://github.com/zai-org/ZCode) and its README.
 
-The fork tracks upstream releases (currently v3.16.1) and keeps its changes on `main`. The Electron desktop app and the Web client are left as upstream ships them.
+The fork tracks upstream releases (currently v3.16.2) and keeps its changes on `main`. The Electron desktop app and the Web client are left as upstream ships them.
 
 ## What the fork adds
 
@@ -42,7 +42,7 @@ GPUI turns these on through optional runtime preferences. The Electron app never
 
 Windows x64 builds are on the [Releases page](https://github.com/kelo221/ZCode/releases). Unzip anywhere and run `zcode-gpui.exe`. The zip includes the compiled CLI backend, the browser extension and native host, and the voice program, so no checkout, Node or Bun is needed. The executables are not code-signed.
 
-Releases are built by [gpui-release.yml](.github/workflows/gpui-release.yml). Pushing a tag such as `gpui-v3.16.1-1` (upstream version, then the fork's build number) publishes one; running the workflow by hand only produces a downloadable artifact.
+Releases are built by [gpui-release.yml](.github/workflows/gpui-release.yml). Pushing a tag such as `gpui-v3.16.2-1` (upstream version, then the fork's build number) publishes one; running the workflow by hand only produces a downloadable artifact.
 
 ## Building from source
 
