@@ -39,6 +39,7 @@ import type {
   OffPeakPort,
   VoicePort,
   CodeSearchPort,
+  DiagnosticsPort,
   TopicResourcePort,
   PdfDocumentPort,
   PermissionBrokerPort,
@@ -212,6 +213,7 @@ export interface ZCodeAppOptions {
   offPeakPort?: OffPeakPort;
   voicePort?: VoicePort;
   codeSearchPort?: CodeSearchPort;
+  diagnosticsPort?: DiagnosticsPort;
   topicResourcePort?: TopicResourcePort;
   /** 首次真实用户执行或 cold-resume fallback 时解析一次，之后由 app 生命周期缓存。 */
   resolveInitialBashShellSelection?: () => Promise<ExecutionShellSelection | undefined>;

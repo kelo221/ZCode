@@ -73,6 +73,8 @@ function registerRuntimeBuiltInTools(runtime: AgentRuntimeInternal, deps: AgentR
     includeSpeak: Boolean(deps.voicePort) && runtime.config.taskType !== "subagent_child",
     // codeSearchPort 只在 Host 下发 codeSearchEnabled 且 fff 原生库可加载时注入（GPUI）；子代理同享。
     includeCodeSearch: Boolean(deps.codeSearchPort),
+    // diagnosticsPort 只在 Host 下发 lspDiagnosticsEnabled 时注入（GPUI）；子代理同享。
+    includeDiagnostics: Boolean(deps.diagnosticsPort),
     // 动态工作流灰度门：与 off-peak 相反，
     // 这里不能用端口在场做判据——十个工具的端口在任何 CLI 里都装配齐全，灰度是 Host 的决定。
     // 取值收在 tool-allowlist.ts，与分支刷新那个入口共用同一个推导。
@@ -196,6 +198,7 @@ function createRuntimeToolExecutor(
     offPeakPort: deps.offPeakPort,
     voicePort: runtime.config.taskType === "subagent_child" ? undefined : deps.voicePort,
     codeSearchPort: deps.codeSearchPort,
+    diagnosticsPort: deps.diagnosticsPort,
     topicResourcePort: deps.topicResourcePort,
     sessionStore: deps.sessionStore,
     sessionModePort: createRuntimeSessionModePort(runtime),

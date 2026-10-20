@@ -45,6 +45,11 @@ import { buildToolInputResolutionContext } from "./permission-input-adjustments.
 import { createMcpToolDisplay, createToolResultDisplay } from "./result-display.js";
 import { appendHookAdditionalContexts, serializeOutput } from "./result-serialization.js";
 import {
+  appendDiagnosticsTrailer,
+  collectPostEditDiagnostics,
+  withDiagnosticsDisplay,
+} from "./post-edit-diagnostics.js";
+import {
   ToolDeadline,
   executeWithTimeout,
   linkAbortSignal,
@@ -523,6 +528,7 @@ async function executeToolCallImpl(
         offPeakPort: deps.offPeakPort,
         voicePort: deps.voicePort,
         codeSearchPort: deps.codeSearchPort,
+        diagnosticsPort: deps.diagnosticsPort,
         topicResourcePort: deps.topicResourcePort,
         sessionStore: deps.sessionStore,
         sessionModePort: deps.sessionModePort,
@@ -599,10 +605,24 @@ async function executeToolCallImpl(
         [...preToolHookResult.additionalContexts, ...postToolHookResult.additionalContexts],
         modelOutputEntry,
       );
-      const display = createToolResultDisplay(canonicalToolCall.name, output, {
-        mcp: entry.metadata.mcpPresentation,
-        officialCua: entry.modelContentProtection === OFFICIAL_CUA_FRAME_MODEL_CONTENT_PROTECTION,
+      // 编辑后诊断：只在注入了 DiagnosticsPort（GPUI）时运行，失败只记日志，不影响编辑结果。
+      const postEditDiagnostics = await collectPostEditDiagnostics({
+        port: deps.diagnosticsPort,
+        output,
+        workingDirectory: context.workingDirectory,
+        signal: options?.signal,
+        logger: deps.logger,
       });
+      if (postEditDiagnostics) {
+        serialization = appendDiagnosticsTrailer(serialization, postEditDiagnostics.trailer);
+      }
+      const display = withDiagnosticsDisplay(
+        createToolResultDisplay(canonicalToolCall.name, output, {
+          mcp: entry.metadata.mcpPresentation,
+          officialCua: entry.modelContentProtection === OFFICIAL_CUA_FRAME_MODEL_CONTENT_PROTECTION,
+        }),
+        postEditDiagnostics,
+      );
       const perf = mergeToolExecutionTelemetry(readToolExecutionTelemetry(output), {
         permissionWaitMs,
         // totalMs 是用户感知的工具生命周期：registry lookup、校验、Hook、权限等待、

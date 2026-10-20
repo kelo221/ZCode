@@ -70,6 +70,8 @@ pub struct HostPrefs {
     pub voice_enabled: bool,
     /// Settings › Code search on: sessions get the built-in fff FindFiles/SearchCode tools.
     pub code_search_enabled: bool,
+    /// Settings › Diagnostics on: edits report language-server errors and agents get Diagnostics.
+    pub lsp_diagnostics_enabled: bool,
 }
 
 /// Dispatches an agent-to-client request based on the method name.
@@ -102,7 +104,8 @@ pub fn dispatch_reverse_rpc(
                 "nativeSearchEnhancementsEnabled": true,
                 "memoryEnabled": prefs.memory_enabled,
                 "voiceEnabled": prefs.voice_enabled,
-                "codeSearchEnabled": prefs.code_search_enabled
+                "codeSearchEnabled": prefs.code_search_enabled,
+                "lspDiagnosticsEnabled": prefs.lsp_diagnostics_enabled
             }),
         ),
 

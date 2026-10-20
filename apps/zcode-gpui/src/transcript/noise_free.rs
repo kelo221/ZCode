@@ -18,7 +18,12 @@ pub(crate) enum Kind {
     /// Always shown; ends a fold run.
     Keep,
     /// Folded into the surrounding run.
-    Fold { running: bool, failed: bool },
+    Fold {
+        running: bool,
+        failed: bool,
+        /// Edited file and its error count, from the edit's diagnostics.
+        diagnostics: Option<(u64, u32)>,
+    },
     /// Renders nothing on its own (empty thinking, paired subagent rows):
     /// neither shown nor a run boundary.
     Transparent,
@@ -38,7 +43,10 @@ pub(crate) fn kind(row: &Row) -> Kind {
         }
         Row::Reasoning { .. } | Row::Other => Kind::Transparent,
         Row::ToolCall {
-            tool_name, status, ..
+            tool_name,
+            status,
+            display,
+            ..
         } => {
             if status == "pendingApproval" || KEPT_TOOLS.contains(&canonical_tool(tool_name)) {
                 Kind::Keep
@@ -46,6 +54,7 @@ pub(crate) fn kind(row: &Row) -> Kind {
                 Kind::Fold {
                     running: status == "running" || status == "inputStreaming",
                     failed: status == "error",
+                    diagnostics: edit_errors(display.as_ref()),
                 }
             }
         }
@@ -57,8 +66,20 @@ pub(crate) fn kind(row: &Row) -> Kind {
         Row::Subagent { status, .. } => Kind::Fold {
             running: status == "running",
             failed: status == "failed",
+            diagnostics: None,
         },
     }
+}
+
+fn edit_errors(display: Option<&serde_json::Value>) -> Option<(u64, u32)> {
+    let diagnostics = crate::transcript::edit_diagnostics::edit_diagnostics(display)?;
+    if !diagnostics.available {
+        return None;
+    }
+    Some((
+        crate::transcript::edit_diagnostics::file_key(display)?,
+        diagnostics.errors,
+    ))
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -66,6 +87,8 @@ pub(crate) struct Summary {
     pub count: usize,
     pub running: usize,
     pub failed: usize,
+    /// Errors in the files edited in this run, latest result per file.
+    pub errors: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -97,17 +120,30 @@ pub(crate) fn place(ix: usize, len: usize, kind_at: impl Fn(usize) -> Kind) -> P
         return Place::Member { leader };
     }
     let mut summary = Summary::default();
+    // A later edit of the same file replaces its count, so fixed errors drop out.
+    let mut latest: Vec<(u64, u32)> = Vec::new();
     for i in ix..len {
         match kind_at(i) {
             Kind::Keep => break,
-            Kind::Fold { running, failed } => {
+            Kind::Fold {
+                running,
+                failed,
+                diagnostics,
+            } => {
                 summary.count += 1;
                 summary.running += usize::from(running);
                 summary.failed += usize::from(failed);
+                if let Some((file, errors)) = diagnostics {
+                    match latest.iter_mut().find(|(key, _)| *key == file) {
+                        Some(entry) => entry.1 = errors,
+                        None => latest.push((file, errors)),
+                    }
+                }
             }
             Kind::Transparent => {}
         }
     }
+    summary.errors = latest.iter().map(|(_, errors)| *errors as usize).sum();
     Place::Leader(summary)
 }
 
@@ -189,6 +225,12 @@ impl RootView {
                         .style(SpinnerStyle::Ring)
                         .size(IconSize::Sm),
                 )
+            })
+            .when(summary.errors > 0, |el| {
+                el.child(div().text_color(rgb(DANGER)).child(match summary.errors {
+                    1 => label("1 error", "1 个错误").to_owned(),
+                    n => format!("{n} {}", label("errors", "个错误")),
+                }))
             })
             .when(summary.failed > 0, |el| {
                 el.child(div().text_color(rgb(DANGER)).child(format!(

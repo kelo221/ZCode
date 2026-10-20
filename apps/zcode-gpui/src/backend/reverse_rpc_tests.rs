@@ -64,6 +64,7 @@ fn test_runtime_preferences_served() {
                 memory_enabled: enabled,
                 voice_enabled: enabled,
                 code_search_enabled: enabled,
+                lsp_diagnostics_enabled: enabled,
             },
         ) {
             ReverseRpcAction::Respond(resp) => {
@@ -74,6 +75,7 @@ fn test_runtime_preferences_served() {
                 assert_eq!(val["result"]["memoryEnabled"], enabled);
                 assert_eq!(val["result"]["voiceEnabled"], enabled);
                 assert_eq!(val["result"]["codeSearchEnabled"], enabled);
+                assert_eq!(val["result"]["lspDiagnosticsEnabled"], enabled);
             }
             _ => panic!("Must respond"),
         }

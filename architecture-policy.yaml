@@ -913,6 +913,23 @@ exceptions:
       - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/code-search-manager.ts
       - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/code-search-wiring.ts
     reason: GPUI-only fork feature (apps/zcode-gpui/PARITY.md "Built-in fff code search"). New port, tool and adapter files sit beside the existing ones (the Speak tool pattern) so upstream source syncs do not conflict; adopting the CLI contracts, tools, adapters or protocol directories is outside this fork change.
+  - id: fork-lsp-diagnostics-cli
+    rule: unmanaged-new-file
+    paths:
+      - apps/zcode-cli/packages/contracts/src/interfaces/diagnostics.port.ts
+      - apps/zcode-cli/packages/contracts/src/tools/diagnostics.ts
+      - apps/zcode-cli/packages/adapters/src/lsp/framing.ts
+      - apps/zcode-cli/packages/adapters/src/lsp/uri.ts
+      - apps/zcode-cli/packages/adapters/src/lsp/servers.ts
+      - apps/zcode-cli/packages/adapters/src/lsp/lsp-client.ts
+      - apps/zcode-cli/packages/adapters/src/lsp/language-server.ts
+      - apps/zcode-cli/packages/adapters/src/lsp/index.ts
+      - apps/zcode-cli/packages/core/src/tool/diagnostics-format.ts
+      - apps/zcode-cli/packages/core/src/tool/executor/post-edit-diagnostics.ts
+      - apps/zcode-cli/packages/core/src/tool/handlers/diagnostics.ts
+      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/diagnostics-manager.ts
+      - apps/zcode-cli/packages/bootstrap/src/zcode-protocol/diagnostics-wiring.ts
+    reason: GPUI-gated fork feature (apps/zcode-cli/docs/design/v2/tool/lsp-diagnostics.md, apps/zcode-gpui/PARITY.md "Diagnostics after edits"). The language-server client, port, tool, post-edit hook and server manager live in their own files beside the code-search ones so upstream source syncs only meet small call sites; adopting the CLI contracts, adapters, executor or protocol directories is outside this fork change.
   - id: fork-subagent-id-recovery-cli
     rule: unmanaged-new-file
     paths:

@@ -118,6 +118,7 @@ import { createProtocolAutomationPort } from "./automation-port.js";
 import { createProtocolOffPeakPort } from "./offpeak-port.js";
 import { createProtocolVoicePort } from "./voice-port.js";
 import { resolveSessionCodeSearchPort } from "./code-search-wiring.js";
+import { resolveSessionDiagnosticsPort } from "./diagnostics-wiring.js";
 import { createProtocolTopicResourcePort } from "./topic-resource-port.js";
 import { createProtocolBrowserControlBroker } from "./browser-control-broker.js";
 import { mapComputerUseOperationEvent } from "./computer-use-operation-event.js";
@@ -169,6 +170,8 @@ interface SessionStartupPreferences {
   voiceEnabled: boolean;
   // GPUI fff 索引搜索：Host 下发 true 且原生库可加载才注入 CodeSearchPort；子会话沿用父值。
   codeSearchEnabled: boolean;
+  // GPUI 语言服务器诊断：Host 下发 true 才注入 DiagnosticsPort；子会话沿用父值。
+  lspDiagnosticsEnabled: boolean;
   toolSearchMode: AppToolSearchMode;
   resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
 }
@@ -3378,6 +3381,7 @@ async function resolveSessionStartupPreferences(
       voiceEnabled: false,
       toolSearchMode: source.parent.toolSearchMode,
       codeSearchEnabled: source.parent.codeSearchEnabled === true,
+      lspDiagnosticsEnabled: source.parent.lspDiagnosticsEnabled === true,
       resolveInitialBashShellSelection: async () => inheritedShellSelection,
     };
   }
@@ -3400,6 +3404,7 @@ async function resolveSessionStartupPreferences(
     nativeSearchEnhancementsEnabled: runtimePreferences.nativeSearchEnhancementsEnabled,
     voiceEnabled: runtimePreferences.voiceEnabled === true,
     codeSearchEnabled: runtimePreferences.codeSearchEnabled === true,
+    lspDiagnosticsEnabled: runtimePreferences.lspDiagnosticsEnabled === true,
     toolSearchMode: runtimePreferences.toolSearchMode,
     resolveInitialBashShellSelection: async () => {
       const executionPreferences = await requestSessionRuntimePreferences(
@@ -3541,6 +3546,7 @@ async function createRecord(
       workspace,
       startupPreferences.codeSearchEnabled,
     )),
+    ...resolveSessionDiagnosticsPort(context, workspace, startupPreferences.lspDiagnosticsEnabled),
     resolveInitialBashShellSelection: startupPreferences.resolveInitialBashShellSelection,
     ...(startupPreferences.subagentRuntimeConfigEnabled &&
     !(workspace.workspaceIdentity && isRemoteWorkspaceIdentity(workspace.workspaceIdentity))
@@ -3594,6 +3600,7 @@ async function createRecord(
     nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
     toolSearchMode: startupPreferences.toolSearchMode,
     codeSearchEnabled: startupPreferences.codeSearchEnabled,
+    lspDiagnosticsEnabled: startupPreferences.lspDiagnosticsEnabled,
     ...(parentSessionId ? { parentSessionId } : {}),
     persistence: "persistence" in params ? (params.persistence ?? "immediate") : "immediate",
     protocolEventSequences: new Map(),

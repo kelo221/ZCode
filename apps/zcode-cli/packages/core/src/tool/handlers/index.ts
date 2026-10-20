@@ -17,6 +17,7 @@ import {
   RESUME_WORKFLOW_RUN_TOOL_NAME,
   SAVE_WORKFLOW_TOOL_NAME,
   SPEAK_TOOL_NAME,
+  DIAGNOSTICS_TOOL_NAME,
   FIND_FILES_TOOL_NAME,
   SEARCH_CODE_TOOL_NAME,
   SUBMIT_RESULT_TOOL_NAME,
@@ -74,6 +75,7 @@ import { listSavedWorkflowsToolEntry } from "./list-saved-workflows.js";
 import { listModelsToolEntry } from "./list-models.js";
 import { speakToolEntry } from "./speak.js";
 import { findFilesToolEntry, searchCodeToolEntry } from "./code-search.js";
+import { diagnosticsToolEntry } from "./diagnostics.js";
 import { evalWorkflowSnippetToolEntry } from "./eval-workflow-snippet.js";
 import { listWorkflowRunsToolEntry } from "./list-workflow-runs.js";
 import { getWorkflowRunToolEntry } from "./get-workflow-run.js";
@@ -157,6 +159,8 @@ export const builtInTools: ToolEntry[] = [
   // GPUI fff 常驻索引搜索：注入了 CodeSearchPort 的会话才注册。
   findFilesToolEntry,
   searchCodeToolEntry,
+  // GPUI 语言服务器诊断：注入了 DiagnosticsPort 的会话才注册。
+  diagnosticsToolEntry,
   // workflowToolEntry,
 ];
 
@@ -209,6 +213,8 @@ interface RegisterBuiltInToolsOptions {
   includeSpeak?: boolean;
   /** FindFiles/SearchCode（GPUI fff 索引）；注入了 CodeSearchPort 的会话才注册。 */
   includeCodeSearch?: boolean;
+  /** Diagnostics（GPUI 语言服务器诊断）；注入了 DiagnosticsPort 的会话才注册。 */
+  includeDiagnostics?: boolean;
   /**
    * 动态工作流灰度门。**只有显式 false
    * 才下架** DYNAMIC_WORKFLOW_TOOL_NAMES：缺席代表调用方不参与灰度（TUI、headless、
@@ -294,9 +300,13 @@ export function registerBuiltInTools(
       continue;
     }
     if (
-      (entry.metadata.name === FIND_FILES_TOOL_NAME || entry.metadata.name === SEARCH_CODE_TOOL_NAME) &&
+      (entry.metadata.name === FIND_FILES_TOOL_NAME ||
+        entry.metadata.name === SEARCH_CODE_TOOL_NAME) &&
       options.includeCodeSearch !== true
     ) {
+      continue;
+    }
+    if (entry.metadata.name === DIAGNOSTICS_TOOL_NAME && options.includeDiagnostics !== true) {
       continue;
     }
     if (

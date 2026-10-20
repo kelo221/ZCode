@@ -284,6 +284,9 @@ impl AppState {
                     code_search_enabled: cx
                         .try_global::<crate::shared::preferences::PreferenceOwner>()
                         .is_none_or(|owner| owner.0.read(cx).snapshot.code_search()),
+                    lsp_diagnostics_enabled: cx
+                        .try_global::<crate::shared::preferences::PreferenceOwner>()
+                        .is_none_or(|owner| owner.0.read(cx).snapshot.lsp_diagnostics()),
                 };
                 let action =
                     crate::backend::reverse_rpc::dispatch_reverse_rpc(&id, &method, &params, prefs);

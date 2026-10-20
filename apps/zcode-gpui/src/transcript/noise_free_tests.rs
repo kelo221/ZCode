@@ -66,7 +66,8 @@ fn tool_runs_fold_between_text_and_keep_todos_and_prompts() {
             Place::Leader(Summary {
                 count: 3,
                 running: 1,
-                failed: 1
+                failed: 1,
+                errors: 0
             }),
             Place::Show,
             Place::Member { leader: 1 },
@@ -76,7 +77,8 @@ fn tool_runs_fold_between_text_and_keep_todos_and_prompts() {
             Place::Leader(Summary {
                 count: 1,
                 running: 0,
-                failed: 0
+                failed: 0,
+                errors: 0
             }),
             Place::Show,
         ]
@@ -212,5 +214,47 @@ fn thinking_shows_open_and_its_header_closes_it() {
     assert!(
         !targets.contains_key("thought-body-2"),
         "the header closes it"
+    );
+}
+
+#[test]
+fn edit_diagnostics_show_on_the_card_and_in_the_fold_line() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut edit = tool(2, "Edit", "success");
+    if let Row::ToolCall { display, .. } = &mut edit {
+        *display = Some(serde_json::json!({
+            "kind": "file_diff",
+            "filePath": "/work/lib.rs",
+            "additions": 1,
+            "deletions": 0,
+            "structuredPatch": [],
+            "diagnostics": {
+                "errors": 2,
+                "warnings": 0,
+                "availability": "ok",
+                "freshness": "confirmed",
+                "check": "not_requested"
+            }
+        }));
+    }
+    let (app, mut window) = open_with_rows(vec![text(1, "Editing."), edit]);
+    window.read(|v, cx| {
+        assert_eq!(
+            v.fold_place(1, cx),
+            Place::Leader(Summary {
+                count: 1,
+                running: 0,
+                failed: 0,
+                errors: 2
+            })
+        );
+    });
+    let targets = app.read(|cx| cx.global::<TestTargets>().0.clone());
+    window.simulate_click(targets["noise-fold-2"].center(), MouseButton::Left);
+    window.draw();
+    let targets = app.read(|cx| cx.global::<TestTargets>().0.clone());
+    assert!(
+        targets.contains_key("edit-diagnostics-2"),
+        "the expanded Edit card shows its diagnostics chip"
     );
 }

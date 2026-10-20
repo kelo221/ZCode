@@ -108,6 +108,9 @@ impl crate::app::root::RootView {
                             .child(label.to_string()),
                     )
                     .child(summary_label(tool, input.as_ref()))
+                    .children(crate::transcript::edit_diagnostics::diagnostics_chip(
+                        display, r_id,
+                    ))
                     .when(is_error, |el| {
                         el.child(
                             div()

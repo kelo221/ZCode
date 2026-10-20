@@ -24,6 +24,7 @@ pub(crate) enum PreferenceChange {
     Voice(crate::shared::voice_settings::VoiceSettings),
     NoiseFree(bool),
     CodeSearch(bool),
+    LspDiagnostics(bool),
     Shortcut(String, Option<Vec<String>>),
     RecentProject(String),
 }
@@ -41,6 +42,7 @@ impl PreferenceChange {
             Self::Voice(voice) => settings.gpui_voice = Some(voice.clone()),
             Self::NoiseFree(on) => settings.gpui_noise_free = Some(*on),
             Self::CodeSearch(on) => settings.gpui_code_search = Some(*on),
+            Self::LspDiagnostics(on) => settings.gpui_lsp_diagnostics = Some(*on),
             Self::Shortcut(id, bindings) => {
                 let overrides = settings.shortcut_bindings.get_or_insert_with(HashMap::new);
                 if let Some(bindings) = bindings {

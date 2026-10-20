@@ -1,5 +1,18 @@
 # Tool Change Chain Spec
 
+## 编辑后语言服务器诊断（Fork，2026-10-20）
+
+GPUI 门控（`lspDiagnosticsEnabled`）的 `Edit`/`Write` 结果尾部追加 `<diagnostics>`，并新增延迟加载、
+只读的 `Diagnostics` 工具。完整合同见 [lsp-diagnostics.md](lsp-diagnostics.md)。链路检查要点：
+
+- 契约：`DiagnosticsPort`（contracts）→ executor deps / ToolExecutionContext → 子代理与工作流子运行时
+  共享端口；未注入端口时不注册工具、不追加尾部，Electron 行为不变。
+- 结果：同一份诊断结果同时进入模型可见尾部与 `file_diff` display 的可选 `diagnostics` 摘要；
+  CLI 契约与 V4 `toolDisplay.ts` 镜像同步，摘要随 tool part metadata 持久化，冷恢复一致。
+- 失败语义：诊断超时、服务器缺失或崩溃都不得让编辑失败；沉默不等于无错误（`timedOut`）。
+- 新鲜度：`freshness`/`check` 分开表达"结果对应的内容"与"编译检查是否完成"，不得把静默窗口或
+  rust-analyzer quiescent 当作检查完成。
+
 ## 自定义 Agent Memory 工具投影（2026-10-15）
 
 Runtime 从当前父轮 Agent definitions 快照派生有效工具，启动配置、注入 reader 和 Host

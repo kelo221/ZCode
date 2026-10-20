@@ -129,6 +129,13 @@ pub struct AppSettings {
         rename = "gpuiCodeSearch"
     )]
     pub gpui_code_search: Option<bool>,
+    /// GPUI-only language-server diagnostics after edits; absent means on.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "gpuiLspDiagnostics"
+    )]
+    pub gpui_lsp_diagnostics: Option<bool>,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -140,6 +147,10 @@ impl AppSettings {
 
     pub fn code_search(&self) -> bool {
         self.gpui_code_search.unwrap_or(true)
+    }
+
+    pub fn lsp_diagnostics(&self) -> bool {
+        self.gpui_lsp_diagnostics.unwrap_or(true)
     }
 
     pub(crate) fn language_preference(&self) -> crate::shared::i18n::LocalePreference {

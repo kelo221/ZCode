@@ -21,6 +21,7 @@ export * from "./automation.js";
 export * from "./off-peak.js";
 export * from "./speak.js";
 export * from "./code-search.js";
+export * from "./diagnostics.js";
 export * from "./target.js";
 export * from "./plan-mode.js";
 export * from "./ask-user-question.js";

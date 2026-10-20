@@ -43,6 +43,7 @@ impl SettingsSection {
             Self::Voice => ("Voice", "语音"),
             Self::SystemPrompt => ("System prompt", "系统提示词"),
             Self::CodeSearch => ("Code search", "代码搜索"),
+            Self::Diagnostics => ("Diagnostics", "诊断"),
             Self::Usage => ("Usage stats", "使用统计"),
             Self::Phone => ("Phone", "手机"),
         }
@@ -64,6 +65,7 @@ impl SettingsSection {
             Self::Voice => IconName::Volume2.path(),
             Self::SystemPrompt => IconName::FileText.path(),
             Self::CodeSearch => IconName::Search.path(),
+            Self::Diagnostics => IconName::TriangleAlert.path(),
             Self::Usage => IconName::ChartColumn.path(),
             Self::Phone => IconName::Smartphone.path(),
         }
@@ -83,6 +85,7 @@ impl SettingsSection {
             Self::Voice => "settings-voice",
             Self::SystemPrompt => "settings-system-prompt",
             Self::CodeSearch => "settings-code-search",
+            Self::Diagnostics => "settings-diagnostics",
             Self::Usage => "settings-usage",
             Self::Phone => "settings-phone",
         }
@@ -112,6 +115,7 @@ pub(crate) fn navigation_sections(query: &str) -> Vec<(SettingsGroup, SettingsSe
         (AgentCapabilities, Voice),
         (AgentCapabilities, SystemPrompt),
         (AgentCapabilities, CodeSearch),
+        (AgentCapabilities, Diagnostics),
         (DataAndStats, Usage),
         (DataAndStats, Phone),
     ]
@@ -283,6 +287,7 @@ impl RootView {
                         | SettingsSection::Voice
                         | SettingsSection::SystemPrompt
                         | SettingsSection::CodeSearch
+                        | SettingsSection::Diagnostics
                 )
             });
         }

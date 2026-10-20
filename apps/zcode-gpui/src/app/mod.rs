@@ -85,6 +85,9 @@ mod settings_code_search;
 mod settings_code_search_tests;
 #[cfg(test)]
 mod settings_language_tests;
+mod settings_lsp_diagnostics;
+#[cfg(test)]
+mod settings_lsp_diagnostics_tests;
 #[cfg(test)]
 mod settings_memory_tests;
 mod settings_models;

@@ -118,6 +118,7 @@ export type {
   OffPeakPort,
   VoicePort,
   CodeSearchPort,
+  DiagnosticsPort,
   TopicResourcePort,
   BackgroundExecutionSnapshot,
   BackgroundTaskCancelResult,

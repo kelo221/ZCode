@@ -2099,6 +2099,9 @@ export const zcodeSessionRuntimePreferencesResultSchema = z
     // GPUI-only fff code search: only `true` gives sessions the FindFiles and SearchCode
     // tools (when the agent can load the fff library). Electron never sends it.
     codeSearchEnabled: z.boolean().optional(),
+    // GPUI-only language-server diagnostics after Edit/Write plus the Diagnostics tool
+    // (apps/zcode-cli/docs/design/v2/tool/lsp-diagnostics.md). Electron never sends it.
+    lspDiagnosticsEnabled: z.boolean().optional(),
   })
   .strict();
 export type ZCodeSessionRuntimePreferencesResult = z.infer<

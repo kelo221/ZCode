@@ -35,6 +35,7 @@ import type { V4InteractionRegistry } from "../zcode-protocol-v4/interaction-reg
 import type { ConversationV4Gateway } from "../zcode-protocol-v4/v4-gateway.js";
 import type { SessionResidentPool, SessionResidentPoolOptions } from "./session-resident-pool.js";
 import type { CodeSearchManager } from "./code-search-manager.js";
+import type { DiagnosticsManager } from "./diagnostics-manager.js";
 import type { DynamicWorkflowMode } from "@zcode/shared";
 
 export interface ParamsSchema<T> {
@@ -91,6 +92,8 @@ export interface ZCodeProtocolSessionRecord {
   toolSearchMode: AppToolSearchMode;
   /** GPUI fff 索引搜索（FindFiles/SearchCode）；继承来源（子会话）沿用父值。 */
   codeSearchEnabled?: boolean;
+  /** GPUI 语言服务器诊断；继承来源（子会话）沿用父值。 */
+  lspDiagnosticsEnabled?: boolean;
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
   createdAt: number;
   deliveryKind?: ZCodeDeliveryKind;
@@ -168,6 +171,8 @@ export interface ZCodeProtocolAgentServerContext {
   sessions: Map<string, ZCodeProtocolSessionRecord>;
   /** GPUI fff 索引的进程级生命周期；首个启用 codeSearch 的会话创建时惰性构造。 */
   codeSearch?: CodeSearchManager;
+  /** GPUI 语言服务器进程池；首个启用诊断的会话创建时惰性构造。 */
+  diagnostics?: DiagnosticsManager;
   /** 仅覆盖异步创建窗口，结束即释放；输入命令仍由 CommandInbox 排队。 */
   sessionCreationIds?: Set<string>;
   notify(notification: ZCodeProtocolNotification): void;

@@ -247,6 +247,7 @@ function createRuntimeDeps(
       }),
     fileSystemPort: deps.appOptions.fileSystemPort ?? createNodeFileSystemAdapter(),
     codeSearchPort: deps.appOptions.codeSearchPort,
+    diagnosticsPort: deps.appOptions.diagnosticsPort,
     httpClientPort:
       deps.httpClientPort ??
       deps.appOptions.httpClientPort ??

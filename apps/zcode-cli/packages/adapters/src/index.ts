@@ -19,3 +19,4 @@ export * from "./mcp/index.js";
 export * from "./workflow/index.js";
 export * from "./tools/index.js";
 export * from "./code-search/fff-engine.js";
+export * from "./lsp/index.js";

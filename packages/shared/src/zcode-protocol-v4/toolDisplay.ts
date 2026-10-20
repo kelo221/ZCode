@@ -38,6 +38,19 @@ export const toolResultDisplaySchema = z.discriminatedUnion("kind", [
       }),
     ),
     truncated: z.boolean().optional(),
+    // Fork（GPUI）：Edit/Write 后的语言服务器诊断摘要。与 CLI contracts 的
+    // fileDiffDiagnosticsDisplaySchema 同步；缺这个字段时 zod 会把它静默剥掉，GPUI 看不到计数。
+    diagnostics: z
+      .object({
+        errors: z.number().int().nonnegative(),
+        warnings: z.number().int().nonnegative(),
+        availability: z.enum(["ok", "unsupported", "unavailable", "starting", "capacity"]),
+        freshness: z.enum(["confirmed", "best_effort"]),
+        check: z.enum(["not_requested", "complete", "incomplete", "not_supported"]),
+        timedOut: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
   }),
   z.object({
     kind: z.literal("local_agent_message"),

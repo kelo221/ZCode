@@ -365,6 +365,7 @@ export function createDefaultSubagentPort(
             executionPort: deps.executionPort,
             fileSystemPort: deps.fileSystemPort,
             codeSearchPort: deps.codeSearchPort,
+            diagnosticsPort: deps.diagnosticsPort,
             // Explore 子运行时会暴露 WebFetch，但之前没有继承主 runtime 的
             // HTTP client port，导致工具在真正发请求前抛出配置错误，而不是网络请求失败。
             httpClientPort: deps.httpClientPort,

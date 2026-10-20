@@ -1,5 +1,10 @@
 import { z } from "zod";
 import { PersistedToolSearchContentSchema } from "./tool-search.js";
+import {
+  DIAGNOSTICS_AVAILABILITY,
+  DIAGNOSTICS_CHECK,
+  DIAGNOSTICS_FRESHNESS,
+} from "../interfaces/diagnostics.port.js";
 import { OFFICIAL_MCP_TOOL_ERROR_CODES } from "@zcode/shared";
 import {
   MCP_APPS_RESOURCE_URI_MAX_CHARS,
@@ -75,6 +80,21 @@ export const toolResultDisplayDiffHunkSchema = z
   })
   .strict();
 
+/**
+ * Edit/Write 之后的语言服务器诊断摘要（Fork，见 docs/design/v2/tool/lsp-diagnostics.md）。
+ * 与 packages/shared/src/zcode-protocol-v4/toolDisplay.ts 的 file_diff 成员必须同步。
+ */
+export const fileDiffDiagnosticsDisplaySchema = z
+  .object({
+    errors: z.number().int().nonnegative(),
+    warnings: z.number().int().nonnegative(),
+    availability: z.enum(DIAGNOSTICS_AVAILABILITY),
+    freshness: z.enum(DIAGNOSTICS_FRESHNESS),
+    check: z.enum(DIAGNOSTICS_CHECK),
+    timedOut: z.boolean().optional(),
+  })
+  .strict();
+
 export const fileDiffToolResultDisplayPayloadSchema = z
   .object({
     kind: z.literal("file_diff"),
@@ -83,6 +103,7 @@ export const fileDiffToolResultDisplayPayloadSchema = z
     deletions: z.number().int().nonnegative(),
     structuredPatch: z.array(toolResultDisplayDiffHunkSchema),
     truncated: z.boolean().optional(),
+    diagnostics: fileDiffDiagnosticsDisplaySchema.optional(),
   })
   .strict();
 

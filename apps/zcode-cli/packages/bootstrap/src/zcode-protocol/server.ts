@@ -435,6 +435,7 @@ export class ZCodeProtocolAgentServer {
     if (this.shutdownPromise) return this.shutdownPromise;
     this.shutdownPromise = this.runtimeResources.close();
     this.context.codeSearch?.close();
+    void this.context.diagnostics?.close();
     const error = new Error("ZCode Protocol runtime stopping");
     this.disconnectClient(error);
     this.messageSink = undefined;
@@ -991,7 +992,7 @@ export class ZCodeProtocolAgentServer {
               PROTOCOL_CLIENT_REQUEST_ERROR_CODES.timedOut,
               `Client request timed out: ${method}`,
               {
-              timeoutMs: options.timeoutMs,
+                timeoutMs: options.timeoutMs,
               },
             ),
           );

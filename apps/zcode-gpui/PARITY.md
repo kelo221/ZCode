@@ -5,6 +5,23 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## Diagnostics after edits (2026-10-20, fork CLI + GPUI)
+
+- No Electron counterpart. Settings › Agent capabilities › Diagnostics, switch "Diagnostics after
+  edits" (`gpuiLspDiagnostics` in `setting.json`, absent = on; desktop only, hidden on the phone).
+  GPUI answers `session/requestRuntimePreferences` with `lspDiagnosticsEnabled`; it applies to
+  new and resumed sessions. CLI spec: `apps/zcode-cli/docs/design/v2/tool/lsp-diagnostics.md`.
+- After an `Edit`/`Write`, the CLI asks the file's language server (rust-analyzer, csharp-ls,
+  typescript-language-server, when on PATH) for that file's errors and warnings and appends them
+  to the model's tool result. A `Diagnostics` tool runs a full check (Rust: `cargo check` through
+  rust-analyzer).
+- Edit/Write cards show a chip next to the summary from the `file_diff` display's `diagnostics`
+  summary: red "N errors", yellow "N warnings", muted "No problems", or muted "Diagnostics
+  pending" while the server starts or all server slots are busy. A "?" suffix marks results that
+  are not confirmed fresh or that timed out. No chip when the language has no server installed.
+- In noise-free mode the fold line adds "· N errors": the latest edit result per file inside that
+  run, so an error fixed by a later edit in the same run is not counted.
+
 ## Subagent IDs survive restarts and failures (2026-10-20, fork CLI + GPUI)
 
 - The CLI spec is `apps/zcode-cli/docs/design/v2/tool/07-subagent.md` ("SendMessage 当前范围").

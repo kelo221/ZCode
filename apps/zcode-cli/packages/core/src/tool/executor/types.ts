@@ -21,6 +21,7 @@ import type {
   OffPeakPort,
   VoicePort,
   CodeSearchPort,
+  DiagnosticsPort,
   TopicResourcePort,
   PdfDocumentPort,
   PermissionBrokerPort,
@@ -112,6 +113,7 @@ export interface ToolExecutorOptions {
   offPeakPort?: OffPeakPort;
   voicePort?: VoicePort;
   codeSearchPort?: CodeSearchPort;
+  diagnosticsPort?: DiagnosticsPort;
   topicResourcePort?: TopicResourcePort;
   sessionStore?: SessionStorePort;
   sessionModePort?: SessionModePort;
@@ -229,6 +231,7 @@ export interface ToolExecutorDeps {
   offPeakPort?: OffPeakPort;
   voicePort?: VoicePort;
   codeSearchPort?: CodeSearchPort;
+  diagnosticsPort?: DiagnosticsPort;
   topicResourcePort?: TopicResourcePort;
   sessionStore?: SessionStorePort;
   sessionModePort?: SessionModePort;
