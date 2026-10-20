@@ -29,7 +29,8 @@ pub struct RootView {
     pub(crate) follow_bottom: Arc<AtomicBool>,
     pub(crate) last_row_count: usize,
     pub(crate) last_first_row_id: u64,
-    pub(crate) expanded_reasonings: HashSet<u64>,
+    /// Thinking rows flipped against the default (open in noise-free mode, closed otherwise).
+    pub(crate) toggled_reasonings: HashSet<u64>,
     pub(crate) expanded_tools: HashSet<u64>,
     /// Expanded noise-free fold runs, keyed by the run's first row id.
     pub(crate) expanded_folds: HashSet<u64>,
@@ -105,7 +106,7 @@ impl RootView {
             follow_bottom,
             last_row_count: 0,
             last_first_row_id: 0,
-            expanded_reasonings: HashSet::new(),
+            toggled_reasonings: HashSet::new(),
             expanded_tools: HashSet::new(),
             expanded_folds: HashSet::new(),
             plan_expanded: false,

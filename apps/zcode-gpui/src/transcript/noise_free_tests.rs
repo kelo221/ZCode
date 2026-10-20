@@ -1,10 +1,11 @@
 use super::*;
+use crate::app::root::RootView;
 use crate::app::{
     store::AppState,
     test_support::{RUNTIME_TEST_LOCK, TestTargets},
 };
 use crate::conversation::model::ConversationState;
-use gpui::{MouseButton, TestApp, px, size};
+use gpui::{MouseButton, TestApp, TestAppWindow, px, size};
 use std::sync::Arc;
 
 fn tool(row_id: u64, name: &str, status: &str) -> Row {
@@ -118,9 +119,7 @@ fn a_growing_run_keeps_its_leader() {
     assert_eq!(now[2], Place::Member { leader: 1 });
 }
 
-#[test]
-fn fold_line_expands_its_run_and_the_toggle_turns_folding_off() {
-    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+fn open_with_rows(rows: Vec<Row>) -> (TestApp, TestAppWindow<RootView>) {
     let mut app = TestApp::with_text_system_and_assets(
         Arc::new(gpui::NoopTextSystem::new()),
         Arc::new(ely_gpui_component::Assets),
@@ -143,24 +142,33 @@ fn fold_line_expands_its_run_and_the_toggle_turns_folding_off() {
             subscribed: true,
             ..Default::default()
         };
-        for row in [
-            text(1, "Looking."),
-            tool(2, "Read", "success"),
-            tool(3, "Bash", "success"),
-        ] {
+        for row in rows {
             let id = match &row {
-                Row::AssistantText { row_id, .. } | Row::ToolCall { row_id, .. } => *row_id,
+                Row::AssistantText { row_id, .. }
+                | Row::ToolCall { row_id, .. }
+                | Row::Reasoning { row_id, .. } => *row_id,
                 _ => unreachable!(),
             };
             conv.rows.insert(id, row);
         }
         s.conversations.insert("s".into(), conv);
     });
-    let mut window = app.open_window(|_, cx| crate::app::root::RootView::new(state.clone(), cx));
+    let mut window = app.open_window(|_, cx| RootView::new(state.clone(), cx));
     window.simulate_resize(size(px(1280.), px(820.)));
     window.update(|_, window, cx| window.bounds_changed(cx));
     window.draw();
     window.draw();
+    (app, window)
+}
+
+#[test]
+fn fold_line_expands_its_run_and_the_toggle_turns_folding_off() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (app, mut window) = open_with_rows(vec![
+        text(1, "Looking."),
+        tool(2, "Read", "success"),
+        tool(3, "Bash", "success"),
+    ]);
     let targets = app.read(|cx| cx.global::<TestTargets>().0.clone());
     assert!(
         targets.contains_key("noise-fold-2"),
@@ -180,4 +188,29 @@ fn fold_line_expands_its_run_and_the_toggle_turns_folding_off() {
         assert_eq!(owner.snapshot.gpui_noise_free, Some(false));
         assert!(!enabled(cx));
     });
+}
+
+#[test]
+fn thinking_shows_open_and_its_header_closes_it() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (mut app, mut window) = open_with_rows(vec![
+        text(1, "Looking."),
+        thinking(2, "Plan the fix first."),
+    ]);
+    let targets = app.read(|cx| cx.global::<TestTargets>().0.clone());
+    assert!(
+        targets.contains_key("thought-body-2"),
+        "noise-free mode shows thinking text without a click"
+    );
+
+    window.simulate_click(targets["thought-toggle-2"].center(), MouseButton::Left);
+    window.read(|v, _| assert!(v.toggled_reasonings.contains(&2)));
+    app.update(|cx| cx.global_mut::<TestTargets>().0.clear());
+    window.draw();
+    let targets = app.read(|cx| cx.global::<TestTargets>().0.clone());
+    assert!(targets.contains_key("thought-toggle-2"));
+    assert!(
+        !targets.contains_key("thought-body-2"),
+        "the header closes it"
+    );
 }

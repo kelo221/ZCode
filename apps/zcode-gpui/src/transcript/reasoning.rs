@@ -1,11 +1,15 @@
 //! Reasoning row (Desktop `ai-elements/reasoning.tsx`): a Brain icon with
 //! "Thought · N seconds"; the chevron shows on hover and stays while open. The
 //! expanded text is plain, capped in height, and indented behind a guide line.
+//! In noise-free mode thinking starts open, uncapped, as a shaded italic block
+//! (PARITY.md "Noise-free transcript").
 
 use crate::app::root::RootView;
 use crate::shared::app_assets::BRAIN_ICON;
 use crate::shared::i18n::{t, t_fmt};
-use crate::shared::theme::{BORDER, I_CHEVRON_DOWN, I_CHEVRON_RIGHT, SUBTLEST, icon, ui_size};
+use crate::shared::theme::{
+    BORDER, I_CHEVRON_DOWN, I_CHEVRON_RIGHT, MUTED, PANEL, SUBTLEST, icon, ui_size,
+};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px,
@@ -38,10 +42,11 @@ impl RootView {
         duration_ms: Option<u64>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let expanded = self.expanded_reasonings.contains(&row_id);
+        let noise_free = crate::transcript::noise_free::enabled(cx);
+        let expanded = noise_free != self.toggled_reasonings.contains(&row_id);
         let muted = rgb(SUBTLEST);
         let body = text.to_owned();
-        div()
+        let row = div()
             .w_full()
             .flex()
             .flex_col()
@@ -87,13 +92,31 @@ impl RootView {
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        if !this.expanded_reasonings.remove(&row_id) {
-                            this.expanded_reasonings.insert(row_id);
+                        if !this.toggled_reasonings.remove(&row_id) {
+                            this.toggled_reasonings.insert(row_id);
                         }
                         cx.notify();
                     })),
             )
-            .when(expanded, |el| {
+            .when(expanded && noise_free, |el| {
+                el.child(
+                    div().pt_2().child(
+                        div()
+                            .id(ElementId::NamedInteger("thought-body".into(), row_id))
+                            .w_full()
+                            .min_w_0()
+                            .px_3()
+                            .py_2()
+                            .rounded_md()
+                            .bg(rgb(PANEL))
+                            .italic()
+                            .text_size(px(ui_size(13.5)))
+                            .text_color(rgb(MUTED))
+                            .child(body.clone()),
+                    ),
+                )
+            })
+            .when(expanded && !noise_free, |el| {
                 el.child(
                     div().pt_3().child(
                         div()
@@ -111,8 +134,16 @@ impl RootView {
                             .child(body),
                     ),
                 )
-            })
-            .into_any_element()
+            });
+        #[cfg(test)]
+        let row = crate::app::test_support::track_children(
+            row,
+            vec![
+                format!("thought-toggle-{row_id}"),
+                format!("thought-body-{row_id}"),
+            ],
+        );
+        row.into_any_element()
     }
 }
 

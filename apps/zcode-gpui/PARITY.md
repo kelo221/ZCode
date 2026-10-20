@@ -78,6 +78,12 @@ limits below take precedence over the retained historical milestone requirements
   are never affected. Other tool calls, and subagent cards not paired to a tool call, fold.
   Rows that render nothing (empty thinking, empty text, paired subagent rows, unknown kinds)
   don't break a run.
+- Thinking that has text shows **open** while it's on (2026-10-20): under the usual
+  "Thought · N seconds" header, the full text (no height cap, live while streaming) in muted
+  italic on a faint panel-colored block, so it reads apart from responses. Clicking the
+  header closes it. With the mode off, thinking stays closed by default as in Electron, and
+  opened text is capped at 240 px. `RootView.toggled_reasonings` holds the rows the user
+  flipped against the current mode's default.
 - Each run of folded rows renders one muted line on its first row: "N tool calls", with
   "· K running" and a spinner while any of them runs, and "K failed" in red. Clicking it
   expands that run in place ("Hide N tool calls"). The expanded state lives per window in
