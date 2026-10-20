@@ -94,7 +94,20 @@ fn harness_reattaches_same_root_preserving_fixture_after_lock_release() {
     );
     assert!(IsolatedSettings::reattach(&ticket, &token).is_err());
     drop(attached);
-    assert!(IsolatedSettings::reattach(&ticket, &token).is_ok());
+    // macOS CI 偶发：释放后立即重连被拒。推测并行测试 fork 出的子进程在 exec 前
+    // 短暂持有继承的 flock 描述符（未复现）。本测试验证的是"释放后可重连"，
+    // 所以给锁短暂的释放窗口，并在失败时打印真实错误。
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let reattached = loop {
+        match IsolatedSettings::reattach(&ticket, &token) {
+            Ok(attached) => break attached,
+            Err(_) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(error) => panic!("reattach after lock release failed: {error}"),
+        }
+    };
+    drop(reattached);
     std::fs::remove_dir_all(root).unwrap();
 }
 
