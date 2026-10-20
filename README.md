@@ -38,7 +38,13 @@ GPUI turns these on through optional runtime preferences. The Electron app never
 - **Compiled backend (prototype).** `apps/zcode-gpui/scripts/build_backend.ts` compiles the CLI app-server into a single executable with `bun build --compile`.
 - **`packages/browser-commands`.** Browser commands moved out of the Electron package so the extension and the desktop app share them.
 
-## Getting started
+## Download (Windows)
+
+Windows x64 builds are on the [Releases page](https://github.com/kelo221/ZCode/releases). Unzip anywhere and run `zcode-gpui.exe`. The zip includes the compiled CLI backend, the browser extension and native host, and the voice program, so no checkout, Node or Bun is needed. The executables are not code-signed.
+
+Releases are built by [gpui-release.yml](.github/workflows/gpui-release.yml). Pushing a tag such as `gpui-v3.16.1-1` (upstream version, then the fork's build number) publishes one; running the workflow by hand only produces a downloadable artifact.
+
+## Building from source
 
 Requirements: Git, [Bun](https://bun.sh/) 1.4.3 and a Rust toolchain (edition 2024).
 

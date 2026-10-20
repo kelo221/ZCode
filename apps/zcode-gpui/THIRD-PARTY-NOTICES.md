@@ -14,7 +14,7 @@ gpui; the `gpui` **crate** is Apache-2.0, unlike the GPL-3.0 Zed app sources.
 | Crate | Version | License | Upstream |
 | --- | --- | --- | --- |
 | gpui / gpui_platform | git rev `1a28cff` (zed, 2026-09-27) | Apache-2.0 | https://github.com/zed-industries/zed |
-| ely-gpui-component | git rev `2f8b2f6` | MIT OR Apache-2.0 | https://github.com/ZacharyZhang-NY/Ely-GPUI-Components |
+| ely-gpui-component | rev `2f8b2f6`, vendored in `vendor/ely-gpui-component` | MIT OR Apache-2.0 | https://github.com/ZacharyZhang-NY/Ely-GPUI-Components (no longer reachable) |
 | syntect | 5.3.0 | MIT | https://github.com/trishume/syntect |
 | pulldown-cmark | 0.13.4 | MIT | https://github.com/pulldown-cmark/pulldown-cmark |
 | portable-pty | 0.9.0 | MIT | https://github.com/wezterm/wezterm |
@@ -28,11 +28,13 @@ gpui; the `gpui` **crate** is Apache-2.0, unlike the GPL-3.0 Zed app sources.
 
 ## ely-gpui-component (MIT OR Apache-2.0)
 
-Used as a git dependency through its public API; the component library embeds
+Vendored unchanged in `vendor/ely-gpui-component` (see its `VENDORED.md`) and used
+through its public API; the component library embeds
 assets that are redistributed with the binary via `ely_gpui_component::Assets`:
 font families Inter, JetBrains Mono, IBM Plex Sans and Noto Sans Hebrew
 (licensed under the SIL Open Font License 1.1) and Lucide icons (ISC). Their
-license texts ship inside the ely-gpui-component source checkout.
+license texts ship under `vendor/ely-gpui-component/assets/`, next to the crate's
+`LICENSE-MIT` and `LICENSE-APACHE`.
 
 ## Apache-2.0 notice (gpui, alacritty_terminal)
 Licensed under the Apache License, Version 2.0 (the "License"); you may not

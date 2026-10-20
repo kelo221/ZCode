@@ -10,7 +10,7 @@ Native Rust/GPUI frontend for the existing ZCode CLI app-server. Chat, project/s
 cargo run --release --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace <absolute_project_path>
 ```
 
-GPUI and `gpui_platform` are git-pinned to Zed revision `1a28cff4b409169bac058bca40dfbfeb7621d19b`; Ely components are pinned to `2f8b2f687cd1e9b98a7cd29d4e882d09406fc547`. The crate uses Rust edition 2024. Dependency versions and platform features are authoritative in `Cargo.toml` and `Cargo.lock`.
+GPUI and `gpui_platform` are git-pinned to Zed revision `1a28cff4b409169bac058bca40dfbfeb7621d19b`; Ely components are vendored at `2f8b2f687cd1e9b98a7cd29d4e882d09406fc547` in `vendor/ely-gpui-component`, because their git repository is no longer reachable. The crate uses Rust edition 2024. Dependency versions and platform features are authoritative in `Cargo.toml` and `Cargo.lock`.
 
 ## Implemented surfaces
 

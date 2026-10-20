@@ -1812,7 +1812,6 @@ checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 [[package]]
 name = "ely-gpui-component"
 version = "0.1.1"
-source = "git+https://github.com/ZacharyZhang-NY/Ely-GPUI-Components?rev=2f8b2f687cd1e9b98a7cd29d4e882d09406fc547#2f8b2f687cd1e9b98a7cd29d4e882d09406fc547"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
