@@ -5,6 +5,25 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## Idle agent unload keeps background work alive (2026-10-20, GPUI-only)
+
+- No Electron counterpart (Electron never unloads an agent). Every 30 s GPUI unloads (kills)
+  the CLI agent of a workspace that is not the active one, has no open phone view, no pending
+  startup/browser command, nothing busy, and no user activity for `ZCODE_GPUI_IDLE_SECS`
+  (default 600 s).
+- "Busy" means any of the workspace's sessions has: an active `phase` (`running`,
+  `prewarming`), `hasBackgroundWork: true` in the sessions index, or, in an open
+  conversation, a running phase, a pending interaction, or running `backgroundWorks` /
+  subagents. Background subagents, shells and workflows live only in that CLI process's
+  in-memory task registry, so killing it ends them and they can't be resumed or read back
+  with `TaskOutput`/`SendMessage` (bug seen 2026-10-19: three background Explore agents were
+  killed 600 s after the user's last command, once the parent turn had ended and the user had
+  switched to another project).
+- Owner of the facts: the CLI. `hasBackgroundWork` is derived from the session snapshot's
+  running `backgroundWorks`; GPUI only reads it. Unloads are only recorded in the in-memory
+  GPUI log (`push_log`), so after the fact an unload shows in the CLI log as the process
+  stopping mid-stream with no shutdown lines.
+
 ## Built-in fff code search (2026-10-19, GPUI-only)
 
 - No Electron counterpart. Sessions started by GPUI get two built-in, read-only tools that

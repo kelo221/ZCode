@@ -50,6 +50,7 @@ mod tests {
             phase: "completedSuccess".into(),
             last_activity_at: None,
             preview: String::new(),
+            has_background_work: false,
         }
     }
 

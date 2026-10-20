@@ -57,17 +57,7 @@ impl AppState {
             if !ws.pending.is_empty() || self.browser.has_pending(&key) {
                 continue; // startup/handshake or a browser command in flight
             }
-            // The sessions-index phase covers sessions this client never
-            // opened (e.g. automations); a waiting interaction also pins the
-            // agent, since unloading it would abort the blocked turn.
-            let running = ws.sessions.iter().any(|s| {
-                crate::conversation::model::phase_is_active(&s.phase)
-                    || self
-                        .conversations
-                        .get(&s.session_id)
-                        .is_some_and(|c| c.phase_running() || !c.pending_interactions.is_empty())
-            });
-            if running
+            if self.workspace_busy(&key)
                 || ws
                     .last_activity
                     .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(idle_secs))
@@ -84,4 +74,30 @@ impl AppState {
             ));
         }
     }
+
+    /// Whether unloading this workspace's agent would kill live work. The
+    /// sessions-index fields cover sessions this client never opened (e.g.
+    /// automations). Background subagents, shells and workflows exist only
+    /// in the agent process's in-memory task registry: killing it ends them
+    /// for good, and after a respawn TaskOutput/SendMessage can't find them.
+    /// A waiting interaction pins the agent too, since unloading it would
+    /// abort the blocked turn.
+    pub(crate) fn workspace_busy(&self, key: &str) -> bool {
+        let Some(ws) = self.ws(key) else {
+            return false;
+        };
+        ws.sessions.iter().any(|s| {
+            crate::conversation::model::phase_is_active(&s.phase)
+                || s.has_background_work
+                || self.conversations.get(&s.session_id).is_some_and(|c| {
+                    c.phase_running()
+                        || !c.pending_interactions.is_empty()
+                        || crate::app::activity::ActivityCounts::from_conversation(c).total() > 0
+                })
+        })
+    }
 }
+
+#[cfg(test)]
+#[path = "maintenance_tests.rs"]
+mod tests;

@@ -26,6 +26,8 @@ pub struct SessionEntry {
     pub phase: String,
     pub last_activity_at: Option<i64>,
     pub preview: String,
+    /// `hasBackgroundWork`: a background subagent, shell or workflow is running.
+    pub has_background_work: bool,
 }
 
 impl SessionEntry {
@@ -49,6 +51,10 @@ impl SessionEntry {
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_string(),
+            has_background_work: v
+                .get("hasBackgroundWork")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         })
     }
 }

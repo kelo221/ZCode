@@ -12,6 +12,7 @@ fn dummy_session(id: &str, title: &str, preview: &str) -> crate::conversation::m
         phase: "idle".to_string(),
         last_activity_at: None,
         preview: preview.to_string(),
+        has_background_work: false,
     }
 }
 
