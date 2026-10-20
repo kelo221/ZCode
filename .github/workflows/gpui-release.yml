@@ -1,0 +1,131 @@
+name: gpui-release
+
+# Builds the Windows GPUI bundle: zcode-gpui.exe, the compiled CLI backend, the
+# browser native host and extension, and the voice sidecar. A pushed tag
+# `gpui-v*` publishes a GitHub Release; a manual run only uploads the zip as a
+# workflow artifact.
+on:
+  push:
+    tags: ["gpui-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gpui-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/zcode-gpui
+            apps/zcode-voice
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      # The compiled backend bundles the CLI packages from their dist/ output.
+      # contracts reports known TS2589/TS2345 errors under Bun's hoisted zod
+      # layout but still emits dist, so only that package may exit non-zero, and
+      # only when its dist entry exists.
+      - name: Build CLI packages
+        shell: bash
+        run: |
+          for p in contracts dynamic-workflow adapters shared-types core dynamic-workflow-runtime i18n telemetry bootstrap; do
+            echo "::group::$p"
+            if ! (cd "apps/zcode-cli/packages/$p" && bun run --bun build); then
+              if [ "$p" = contracts ] && [ -f apps/zcode-cli/packages/contracts/dist/index.js ]; then
+                echo "::warning::contracts reported type errors but emitted dist"
+              else
+                exit 1
+              fi
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: Build GPUI and the browser native host
+        run: cargo build --release --manifest-path apps/zcode-gpui/Cargo.toml
+
+      # espeak-ng needs cmake and libclang; both ship on the Windows runner image.
+      - name: Build the voice sidecar
+        env:
+          LIBCLANG_PATH: C:\Program Files\LLVM\bin
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: cargo build --release --manifest-path apps/zcode-voice/Cargo.toml
+
+      - name: Package
+        run: bun scripts/package-gpui.mjs --skip-build --with-backend
+
+      # package-gpui only warns when voice is missing; a release must be complete.
+      - name: Check the bundle
+        shell: bash
+        run: |
+          cd dist/zcode-gpui
+          for f in zcode-gpui.exe zcode-browser-host.exe zcode-backend.exe \
+                   provider/zcode-builtin.json node_modules/ripgrep/package.json \
+                   browser-extension/manifest.json \
+                   zcode-voice.exe DirectML.dll espeak-ng-data/phontab; do
+            [ -e "$f" ] || { echo "::error::missing $f"; exit 1; }
+          done
+          cp ../../LICENSE LICENSE.txt
+          cp ../../apps/zcode-gpui/THIRD-PARTY-NOTICES.md THIRD-PARTY-NOTICES.md
+
+      - name: Zip
+        id: zip
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = tag ]; then
+            label="${{ github.ref_name }}"
+          else
+            label="gpui-$(git rev-parse --short HEAD)"
+          fi
+          name="zcode-gpui-${label#gpui-}-windows-x64"
+          mkdir -p out
+          (cd dist && mv zcode-gpui "$name" && 7z a -tzip -mx=7 "../out/$name.zip" "$name" > /dev/null)
+          (cd out && sha256sum "$name.zip" > "$name.zip.sha256" && cat "$name.zip.sha256")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.zip.outputs.name }}
+          path: out/*
+          if-no-files-found: error
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'EOF'
+          Unofficial Windows build of the ZCode GPUI client (x64). Unzip anywhere and run `zcode-gpui.exe`.
+
+          - Includes the compiled CLI backend, so no repository checkout, Node or Bun is needed.
+          - Models use API-key providers; GPUI cannot configure providers yet.
+          - Browser Use: load `browser-extension/` unpacked in Helium or Chrome, then click Register in Settings › Browser Use.
+          - Voice downloads its ~350 MB model on first use.
+          - The executables are not code-signed, so SmartScreen may warn on first launch.
+          - Settings › Subagents management needs Bun and a repository checkout, or an installed ZCode Desktop.
+
+          `zcode-voice.exe` is GPL-3.0-or-later (it links eSpeak NG); its source is `apps/zcode-voice` at this tag. Everything else is Apache-2.0.
+
+          Check the download with the `.sha256` file. See the repository README for what the fork adds.
+          EOF
+          gh release create "${{ github.ref_name }}" out/* \
+            --title "ZCode GPUI ${{ github.ref_name }}" \
+            --notes-file notes.md \
+            --verify-tag
