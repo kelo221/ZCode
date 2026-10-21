@@ -17,6 +17,7 @@ use crate::shared::theme::{
     MUTED, TEXT, icon,
 };
 use crate::shared::theme_colors::color as rgb;
+use ely_gpui_component::menus::ContextMenu;
 use gpui::{AnyElement, ClickEvent, Context, SharedString, div, prelude::*, px};
 
 /// One workspace's rendered rows: the visible session rows plus, when the
@@ -26,9 +27,27 @@ struct VisibleRows {
     hidden: usize,
 }
 
-/// One project group in the snapshot: key, display name, agent status, the
-/// filtered session indices, and the active thread's position within them.
-type ProjectGroup = (String, String, String, Vec<usize>, Option<usize>);
+/// One project group in the snapshot: key, folder path, display name, agent
+/// status, the filtered session indices, and the active thread's position
+/// within them.
+type ProjectGroup = (
+    String,
+    std::path::PathBuf,
+    String,
+    String,
+    Vec<usize>,
+    Option<usize>,
+);
+
+/// Header-row facts `project_row` renders.
+struct ProjectRow<'a> {
+    key: &'a str,
+    path: &'a std::path::Path,
+    display: &'a str,
+    status: &'a str,
+    active: bool,
+    expanded: bool,
+}
 
 impl crate::app::root::RootView {
     /// Visible rows for one workspace's filtered session list: the preview
@@ -89,15 +108,15 @@ impl crate::app::root::RootView {
         .detach();
     }
 
-    fn project_row(
-        &self,
-        key: &str,
-        display: &str,
-        status: &str,
-        active: bool,
-        expanded: bool,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn project_row(&self, row: ProjectRow<'_>, cx: &mut Context<Self>) -> AnyElement {
+        let ProjectRow {
+            key,
+            path,
+            display,
+            status,
+            active,
+            expanded,
+        } = row;
         // Idle (not yet spawned) is the normal state with lazy agents, so it
         // stays quiet; only real failures are shown.
         let failed =
@@ -113,15 +132,12 @@ impl crate::app::root::RootView {
             .hover(|s| s.bg(rgb(HOVER)))
             .child(icon(I_ADD, 12., MUTED))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                this.close_settings(window, cx);
                 cx.stop_propagation();
-                this.show_chat_page();
-                this.state
-                    .update(cx, |s, cx| s.set_active_workspace(&key_new, cx));
+                this.start_project_task(&key_new, window, cx);
             }));
         let key_toggle = key.to_string();
         let expanded_at_render = expanded;
-        nav_row(SharedString::from(format!("ws-{key}")), false)
+        let row = nav_row(SharedString::from(format!("ws-{key}")), false)
             .h(px(32.))
             .pl(px(6.))
             .mt_1()
@@ -165,8 +181,16 @@ impl crate::app::root::RootView {
                         .child(status.to_string()),
                 )
             })
-            .child(new_task)
-            .into_any_element()
+            .child(new_task);
+        let menu = self.project_menu(key, path.to_path_buf(), cx);
+        let row =
+            ContextMenu::new(SharedString::from(format!("project-ctx-{key}")), menu).child(row);
+        #[cfg(test)]
+        let row = crate::app::test_support::track_children(
+            div().child(row),
+            vec![format!("project-row-{display}")],
+        );
+        row.into_any_element()
     }
 
     /// Snapshot of all workspaces + their session rows, grouped by Tasks & Projects.
@@ -195,6 +219,7 @@ impl crate::app::root::RootView {
                     WorkspacePurpose::Project => {
                         projects.push((
                             w.key.clone(),
+                            w.path.clone(),
                             w.display.clone(),
                             w.status.clone(),
                             indices,
@@ -231,10 +256,18 @@ impl crate::app::root::RootView {
         }
 
         let mut projects_list: Vec<AnyElement> = Vec::new();
-        for (key, display, status, indices, active_index) in &projects {
+        for (key, path, display, status, indices, active_index) in &projects {
             let active = active_workspace.as_deref() == Some(key.as_str());
             let expanded = self.folders.is_open(key, active);
-            projects_list.push(self.project_row(key, display, status, active, expanded, cx));
+            let row = ProjectRow {
+                key,
+                path,
+                display,
+                status,
+                active,
+                expanded,
+            };
+            projects_list.push(self.project_row(row, cx));
             if expanded {
                 let VisibleRows { mut rows, hidden } =
                     self.visible_session_rows(key, indices, *active_index, cx);
@@ -352,3 +385,7 @@ impl crate::app::root::RootView {
 #[cfg(test)]
 #[path = "sidebar_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "sidebar_render_tests.rs"]
+mod render_tests;

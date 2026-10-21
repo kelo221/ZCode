@@ -4,6 +4,8 @@
 pub(crate) mod chat;
 pub(crate) mod edit_diagnostics;
 pub(crate) mod image_viewer;
+#[cfg(test)]
+mod keyboard_scroll_tests;
 pub(crate) mod list;
 pub(crate) mod message_actions;
 pub(crate) mod noise_free;

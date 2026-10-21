@@ -226,14 +226,7 @@ impl AppState {
                 };
                 let count = rows.as_ref().map(|r| r.len()).unwrap_or(0);
                 if let Some(c) = self.conversations.get_mut(&sid) {
-                    if let Some(rows) = rows {
-                        c.apply_older_rows(&rows);
-                    }
-                    if let Some(true) = has_more {
-                        // has_more false = we reached the beginning; the
-                        // Load-earlier button derives from first_row_id, so
-                        // nothing else to store here.
-                    }
+                    c.apply_older_rows(rows.as_deref().unwrap_or_default(), has_more);
                     // `atRevision` describes when the page was read; it can be
                     // older than the live mirror, so it never overwrites it.
                 }

@@ -4,8 +4,10 @@
 
 use crate::app::root::RootView;
 use gpui::{
-    Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Point, Window, px,
+    Context, KeyDownEvent, Keystroke, ListOffset, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, Window, px,
 };
+use std::sync::atomic::Ordering;
 
 /// Deadzone radius (in pixels) around the anchor where scrolling is neutral (0 speed).
 pub(crate) const AUTOSCROLL_DEADZONE: f32 = 12.0;
@@ -61,6 +63,39 @@ pub(crate) fn follows_after_scroll(current: Pixels, max: Pixels, allowed: Pixels
     } else {
         None
     }
+}
+
+/// Keyboard transcript scrolling (Desktop `timelineKeyboardScrollIntent`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TranscriptKey {
+    PageUp,
+    PageDown,
+    Top,
+    Bottom,
+}
+
+/// PageUp/PageDown bare; Home/End bare or with Ctrl. Editable controls see
+/// the key first, so the composer keeps Home/End for its caret.
+pub(crate) fn transcript_key(keystroke: &Keystroke) -> Option<TranscriptKey> {
+    let m = &keystroke.modifiers;
+    if m.alt || m.shift || m.platform || m.function {
+        return None;
+    }
+    match (keystroke.key.as_str(), m.control) {
+        ("pageup", false) => Some(TranscriptKey::PageUp),
+        ("pagedown", false) => Some(TranscriptKey::PageDown),
+        ("home", _) => Some(TranscriptKey::Top),
+        ("end", _) => Some(TranscriptKey::Bottom),
+        _ => None,
+    }
+}
+
+/// Overlap kept between consecutive pages so the reader keeps their place.
+pub(crate) const PAGE_OVERLAP: f32 = 40.0;
+
+/// One page of the transcript viewport, never less than half of it.
+pub(crate) fn page_step(viewport: Pixels) -> Pixels {
+    (viewport - px(PAGE_OVERLAP)).max(viewport * 0.5)
 }
 
 /// State tracking for middle-mouse-button autoscrolling.
@@ -202,5 +237,115 @@ impl RootView {
         };
         self.follow_bottom
             .store(follow, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Clicking the transcript takes focus from the composer, as clicking
+    /// Desktop's timeline blurs its textarea; Home/End then scroll the
+    /// transcript instead of moving the caret. Inner targets that focus
+    /// themselves (selectable text, card inputs) run first and are kept.
+    pub(crate) fn focus_transcript_on_click(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.state.read(cx).phone_client.enabled
+            || self.transcript_focus.contains_focused(window, cx)
+        {
+            return;
+        }
+        window.focus(&self.transcript_focus, cx);
+    }
+
+    /// Whether a key that reached the root belongs to the transcript: focus
+    /// is in it, in the composer (which only lets PageUp/PageDown through),
+    /// on the neutral handle, or nowhere. Dock, terminal and settings
+    /// controls keep their keys.
+    fn transcript_owns_keys(&self, window: &Window, cx: &Context<Self>) -> bool {
+        if self.settings.open || self.row_index.is_empty() {
+            return false;
+        }
+        let compact = crate::app::mobile_shell::is_compact(f32::from(window.viewport_size().width));
+        if compact && self.mobile_page != crate::app::mobile_shell::MobilePage::Chat {
+            return false;
+        }
+        window.focused(cx).is_none()
+            || self.transcript_focus.contains_focused(window, cx)
+            || self.settings.focus.is_focused(window)
+            || self
+                .state
+                .read(cx)
+                .composer
+                .read(cx)
+                .focus
+                .contains_focused(window, cx)
+    }
+
+    /// PageUp/PageDown/Home/End over the transcript. Returns whether the key was used.
+    pub(crate) fn handle_transcript_scroll_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(key) = transcript_key(&event.keystroke) else {
+            return false;
+        };
+        if !self.transcript_owns_keys(window, cx) {
+            return false;
+        }
+        self.cancel_middle_scroll(cx);
+        self.scroll_transcript_by_key(key);
+        cx.notify();
+        true
+    }
+
+    /// Keyboard paging works in rows, not `scroll_px_offset_for_scrollbar`:
+    /// that offset only sums measured rows, so above the overdraw window it
+    /// under-reports and a pixel clamp would cut pages short.
+    pub(crate) fn scroll_transcript_by_key(&mut self, key: TranscriptKey) {
+        let top = self.list_state.logical_scroll_top();
+        // Content that fits the viewport stays at row 0 and keeps following.
+        let at_top = top.item_ix == 0 && top.offset_in_item <= px(0.);
+        match key {
+            TranscriptKey::PageUp | TranscriptKey::Top if at_top => {}
+            TranscriptKey::PageUp => {
+                let viewport = self.list_state.viewport_bounds().size.height;
+                if viewport > px(0.) {
+                    self.list_state.scroll_by(-page_step(viewport));
+                    self.follow_bottom.store(false, Ordering::Relaxed);
+                }
+            }
+            TranscriptKey::Top => {
+                self.list_state.scroll_to(ListOffset {
+                    item_ix: 0,
+                    offset_in_item: px(0.),
+                });
+                self.follow_bottom.store(false, Ordering::Relaxed);
+            }
+            TranscriptKey::PageDown => {
+                let viewport = self.list_state.viewport_bounds();
+                if viewport.size.height <= px(0.) {
+                    return;
+                }
+                self.list_state.scroll_by(page_step(viewport.size.height));
+                let last = self.row_index.len() - 1;
+                let next = self.list_state.logical_scroll_top();
+                // Past the last row, or its bottom inside the viewport: back at the tail.
+                let at_tail = next.item_ix > last
+                    || self
+                        .list_state
+                        .bounds_for_item(last)
+                        .is_some_and(|b| b.bottom() <= viewport.bottom() + px(BOTTOM_SLACK));
+                if at_tail {
+                    self.scroll_transcript_to_tail();
+                } else {
+                    self.follow_bottom.store(false, Ordering::Relaxed);
+                }
+            }
+            TranscriptKey::Bottom => self.scroll_transcript_to_tail(),
+        }
+    }
+
+    fn scroll_transcript_to_tail(&mut self) {
+        if let Some(pin) = crate::transcript::list::tail_pin(self.row_index.len()) {
+            self.list_state.scroll_to(pin);
+        }
+        self.follow_bottom.store(true, Ordering::Relaxed);
     }
 }

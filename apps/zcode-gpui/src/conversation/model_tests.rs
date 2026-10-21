@@ -21,9 +21,12 @@ fn parses_conversation_snapshot() {
     c.apply_snapshot(&snap);
     assert_eq!(c.revision, 3);
     assert!(c.revision_known);
-    assert_eq!(c.first_row_id, 40);
+    assert_eq!(c.first_row_id, Some(40));
     assert_eq!(c.total_count, 50);
-    assert!(c.has_more_history());
+    assert!(
+        !c.has_more_history(),
+        "the window starts at the conversation's first row"
+    );
     assert_eq!(c.config.model, "m1");
     assert_eq!(
         c.config.thought_levels,
@@ -87,22 +90,6 @@ fn surfaces_backend_errors() {
                              "apiRetry": { "attempt": 2 } }));
     assert!(c.last_error.is_none());
     assert_eq!(c.api_retry.unwrap()["attempt"], json!(2));
-}
-
-#[test]
-fn merges_older_history_pages() {
-    let mut c = ConversationState::default();
-    c.apply_snapshot(&json!({ "rows": { "firstRowId": 40, "totalCount": 50,
-        "window": [ { "rowId": 40, "kind": "userInput", "text": "newest" } ] } }));
-    c.apply_older_rows(&[
-        json!({ "rowId": 38, "kind": "userInput", "text": "older" }),
-        json!({ "rowId": 39, "kind": "userInput", "text": "between" }),
-    ]);
-    assert_eq!(c.first_row_id, 38);
-    assert_eq!(c.rows.len(), 3);
-    // rowId ordering is guaranteed by the BTreeMap.
-    let ids: Vec<u64> = c.rows.keys().copied().collect();
-    assert_eq!(ids, vec![38, 39, 40]);
 }
 
 #[test]

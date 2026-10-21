@@ -4,6 +4,7 @@
 pub(crate) mod attachment;
 mod attachment_input;
 pub(crate) mod autocomplete;
+pub(crate) mod autocomplete_keys;
 pub(crate) mod catalog;
 pub(crate) mod chips;
 pub(crate) mod config_cmds;

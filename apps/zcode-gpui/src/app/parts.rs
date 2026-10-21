@@ -148,26 +148,28 @@ impl RootView {
         if !has_more {
             return None;
         }
-        Some(
-            div()
-                .id("load-earlier")
-                .mx_auto()
-                .px_3()
-                .py_1()
-                .rounded_md()
-                .bg(rgb(PANEL))
-                .border_1()
-                .border_color(rgb(BORDER))
-                .text_size(px(ui_size(11.5)))
-                .text_color(rgb(MUTED))
-                .cursor(CursorStyle::PointingHand)
-                .hover(|s| s.bg(rgb(CARD)).text_color(rgb(TEXT)))
-                .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                    this.state.update(cx, |s, cx| s.fetch_earlier_rows(cx));
-                }))
-                .child("Load earlier messages")
-                .into_any_element(),
-        )
+        let button = div()
+            .id("load-earlier")
+            .mx_auto()
+            .px_3()
+            .py_1()
+            .rounded_md()
+            .bg(rgb(PANEL))
+            .border_1()
+            .border_color(rgb(BORDER))
+            .text_size(px(ui_size(11.5)))
+            .text_color(rgb(MUTED))
+            .cursor(CursorStyle::PointingHand)
+            .hover(|s| s.bg(rgb(CARD)).text_color(rgb(TEXT)))
+            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
+                this.state.update(cx, |s, cx| s.fetch_earlier_rows(cx));
+            }))
+            .child("Load earlier messages");
+        let wrapper = div().flex().child(button);
+        #[cfg(test)]
+        let wrapper =
+            crate::app::test_support::track_children(wrapper, vec!["load-earlier".into()]);
+        Some(wrapper.into_any_element())
     }
 }
 
@@ -253,7 +255,8 @@ impl RootView {
             composer.update(cx, |c, _| c.new_task = new_task);
         }
 
-        div()
+        let container = self.autocomplete_keys(div(), cx);
+        container
             .w_full()
             .min_w_0()
             .flex()

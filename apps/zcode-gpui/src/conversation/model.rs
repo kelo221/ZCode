@@ -79,9 +79,10 @@ pub struct ConversationState {
     pub revision_known: bool,
     pub config: SessionConfig,
     pub subscribed: bool,
-    /// rowId of the first row in the loaded window; >0 means older history
-    /// exists and `v4/conversation/rowsRange` can page it in.
-    pub first_row_id: u64,
+    /// Oldest row of the whole conversation (wire `rows.firstRowId`). The
+    /// snapshot `window` carries only the tail, so rows older than the first
+    /// loaded one page in through `v4/conversation/rowsRange`.
+    pub first_row_id: Option<u64>,
     pub total_count: u64,
     /// Mirror seq seen by the previous freshness probe (`Pending::PollRows`).
     /// Movement between probes means our own deltas are flowing, which
@@ -143,8 +144,20 @@ impl ConversationState {
         self.pending_interactions = self.resolving.reconcile(incoming);
     }
 
+    /// rowId of the oldest row held locally.
+    pub fn loaded_first_row_id(&self) -> Option<u64> {
+        self.rows.keys().next().copied()
+    }
+
+    /// 线协议的 `firstRowId` 是整段对话最早的行（CLI conversation-topic-publisher
+    /// `getWireSnapshotForProfile`：「客户端以 window[0].rowId === firstRowId 判定已到顶」），
+    /// 不是已加载窗口的起点。原先把它当窗口起点：按钮在 rowId>0 时恒显示，
+    /// 点击又以 beforeRowId=最早行请求，永远拿到空页。已加载起点晚于最早行才有更早历史。
     pub fn has_more_history(&self) -> bool {
-        self.first_row_id > 0
+        matches!(
+            (self.first_row_id, self.loaded_first_row_id()),
+            (Some(oldest), Some(loaded)) if loaded > oldest
+        )
     }
 
     pub fn apply_snapshot(&mut self, snap: &Value) {
@@ -202,10 +215,9 @@ impl ConversationState {
                 .collect();
         }
         if let Some(rows) = snap.get("rows") {
-            self.first_row_id = rows
-                .get("firstRowId")
-                .and_then(Value::as_u64)
-                .unwrap_or(self.first_row_id);
+            if let Some(first) = rows.get("firstRowId") {
+                self.first_row_id = first.as_u64();
+            }
             self.total_count = rows
                 .get("totalCount")
                 .and_then(Value::as_u64)
@@ -221,13 +233,17 @@ impl ConversationState {
     }
 
     /// Merge a `v4/conversation/rowsRange` result (rows ascending by rowId).
-    pub fn apply_older_rows(&mut self, rows: &[Value]) {
+    /// `has_more: Some(false)` is the server saying the oldest loaded row is
+    /// the start of the conversation.
+    pub fn apply_older_rows(&mut self, rows: &[Value], has_more: Option<bool>) {
         for r in rows {
             let id = r.get("rowId").and_then(Value::as_u64).unwrap_or(0);
             self.rows.entry(id).or_insert_with(|| Row::from_value(r));
         }
-        if let Some(min) = self.rows.keys().next() {
-            self.first_row_id = (*min).min(self.first_row_id);
+        if has_more == Some(false)
+            && let Some(loaded) = self.loaded_first_row_id()
+        {
+            self.first_row_id = Some(loaded);
         }
     }
 
@@ -250,6 +266,9 @@ impl ConversationState {
                         if appended && crate::conversation::throughput::is_model_output_row(r) {
                             self.throughput.on_model_row();
                         }
+                        if appended {
+                            self.first_row_id.get_or_insert(id);
+                        }
                         self.rows.insert(id, Row::from_value(r));
                     }
                 }
@@ -260,6 +279,11 @@ impl ConversationState {
                         .and_then(Value::as_u64);
                     if let Some(from_id) = from_id {
                         self.rows.retain(|&id, _| id < from_id);
+                        // Shared reducer parity (zcode-protocol-v4/apply.ts):
+                        // removing from the oldest row empties the branch.
+                        if self.first_row_id.is_some_and(|first| from_id <= first) {
+                            self.first_row_id = None;
+                        }
                     }
                 }
                 "row.delta" => {
@@ -356,6 +380,9 @@ impl ConversationState {
     }
 }
 
+#[cfg(test)]
+#[path = "model_history_tests.rs"]
+mod history_tests;
 #[cfg(test)]
 #[path = "model_tests.rs"]
 mod tests;

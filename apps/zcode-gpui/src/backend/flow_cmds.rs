@@ -84,19 +84,17 @@ impl AppState {
         );
     }
 
-    /// Page in history older than the current 60-row tail window
-    /// (`v4/conversation/rowsRange`, cursor = firstRowId of the window).
+    /// Page in history older than the oldest loaded row
+    /// (`v4/conversation/rowsRange`, cursor = that row's id).
     pub fn fetch_earlier_rows(&mut self, cx: &mut Context<Self>) {
         let (Some(sid), Some(ws_key)) = (self.active.clone(), self.active_ws_key()) else {
             return;
         };
-        let (first_row_id, subscribed) = match self.conversations.get(&sid) {
-            Some(c) => (c.first_row_id, c.subscribed),
-            None => return,
+        let (before, subscribed) = match self.conversations.get(&sid) {
+            Some(c) if c.has_more_history() => (c.loaded_first_row_id(), c.subscribed),
+            _ => return,
         };
-        if first_row_id == 0 {
-            return;
-        }
+        let Some(before) = before else { return };
         if !subscribed {
             self.subscribe_conversation(&ws_key, &sid);
             cx.notify();
@@ -114,7 +112,7 @@ impl AppState {
                 "method": "v4/conversation/rowsRange",
                 "params": {
                     "sessionId": sid,
-                    "beforeRowId": first_row_id,
+                    "beforeRowId": before,
                     "limit": 200,
                 }
             })

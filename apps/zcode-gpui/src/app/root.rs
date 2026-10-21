@@ -27,6 +27,8 @@ pub struct RootView {
     /// Session-scoped row IDs require a list reset when switching conversations.
     pub(crate) last_session: Option<String>,
     pub(crate) follow_bottom: Arc<AtomicBool>,
+    /// Transcript area focus: clicking it releases the composer so Home/End scroll.
+    pub(crate) transcript_focus: gpui::FocusHandle,
     pub(crate) last_row_count: usize,
     pub(crate) last_first_row_id: u64,
     /// Thinking rows flipped against the default (open in noise-free mode, closed otherwise).
@@ -70,6 +72,8 @@ pub struct RootView {
     pub(crate) settings: crate::app::settings::SettingsView,
     pub(crate) subagents: crate::app::subagents_settings::SubagentsView,
     pub(crate) composer_compact: bool,
+    /// Suggestion-popup highlight: the composer text it was picked for, and the row.
+    pub(crate) autocomplete_pick: (String, usize),
     /// Conversation column width from the last layout pass (transcript rows).
     pub(crate) conversation_column: f32,
     /// Phone layout page (REMOTE_CONTROL.md "Phone layout"); ignored when wide.
@@ -98,6 +102,7 @@ impl RootView {
         Self {
             state,
             composer_compact: true,
+            autocomplete_pick: Default::default(),
             conversation_column: 672.,
             mobile_page: Default::default(),
             list_state,
@@ -105,6 +110,7 @@ impl RootView {
             last_bounds: (0, 0),
             last_session: None,
             follow_bottom,
+            transcript_focus: cx.focus_handle(),
             last_row_count: 0,
             last_first_row_id: 0,
             toggled_reasonings: HashSet::new(),
@@ -226,7 +232,7 @@ impl Render for RootView {
         let composer = state.composer.clone();
         let first_row_id = state
             .active_conversation()
-            .map(|c| c.first_row_id)
+            .and_then(|c| c.loaded_first_row_id())
             .unwrap_or(0);
         let has_more = state
             .active_conversation()

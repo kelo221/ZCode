@@ -76,6 +76,8 @@ fn blocks(
     let mut out: Vec<AnyElement> = Vec::new();
     while *pos < events.len() {
         match &events[*pos] {
+            // 顶层没有调用方容器：多余的 End 只能是遍历错位，跳过它而不是丢掉后文。
+            Event::End(_) if depth == 0 => *pos += 1,
             Event::End(_) => break, // caller's container end
             Event::Start(Tag::Paragraph) => {
                 *pos += 1;
@@ -383,3 +385,7 @@ fn render_table(
     }
     table.into_any_element()
 }
+
+#[cfg(test)]
+#[path = "mod_tests.rs"]
+mod tests;

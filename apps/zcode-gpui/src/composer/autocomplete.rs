@@ -163,6 +163,7 @@ impl crate::app::root::RootView {
         suggestions: &[AutocompleteSuggestion],
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let highlight = self.autocomplete_highlight(suggestions.len(), cx);
         div()
             .id("autocomplete-popup")
             .w_full()
@@ -197,6 +198,7 @@ impl crate::app::root::RootView {
                     .px_3()
                     .py_1p5()
                     .cursor_pointer()
+                    .when(idx == highlight, |s| s.bg(rgb(CARD_HOVER)))
                     .hover(|s| s.bg(rgb(CARD_HOVER)))
                     .child(
                         div()
@@ -225,6 +227,7 @@ impl crate::app::root::RootView {
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
+                        this.autocomplete_pick = Default::default();
                         if let AutocompleteSuggestion::Slash(command) = &item_clone {
                             if let Some(receipt) = &slash_receipt {
                                 this.state.update(cx, |state, cx| {

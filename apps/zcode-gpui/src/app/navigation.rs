@@ -115,7 +115,7 @@ impl RootView {
                 self.close_settings(window, cx);
                 self.open_project_dialog(cx);
             }
-            _ => return false,
+            _ => return self.handle_transcript_scroll_key(event, window, cx),
         }
         cx.notify();
         true

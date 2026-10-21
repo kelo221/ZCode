@@ -169,11 +169,18 @@ impl RootView {
             .size_full()
             .flex_1()
             .min_h_0()
+            .track_focus(&self.transcript_focus)
             .cursor(if is_middle_scrolling {
                 CursorStyle::ResizeUpDown
             } else {
                 CursorStyle::Arrow
             })
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                    this.focus_transcript_on_click(window, cx);
+                }),
+            )
             .on_mouse_down(
                 MouseButton::Middle,
                 cx.listener(|this, ev: &MouseDownEvent, window, cx| {

@@ -337,6 +337,24 @@ limits below take precedence over the retained historical milestone requirements
   opening a folder that isn't the active project also activates it so its agent loads the
   sessions. A folder opened by a click or by becoming active stays open when another project
   becomes active, until the user closes it (`sessions/folders.rs`).
+- **Project list (2026-10-21).** The Projects section lists every local project in
+  `setting.json`, uncapped: `lastActiveWorkspace` first (so it is the startup project), then
+  `lastWorkspaceSession` (the desktop's projection of every non-deleted local project root,
+  in its order), then `recentProjects`; deduped by canonical path, missing folders, remote
+  entries and the Tasks directory skipped (`backend/workspace_paths.rs`). The launch cwd is
+  not a project; only a folder passed on the command line joins the list. The old 8-entry
+  cap plus the cwd slot hid projects (including the last active one); agents start lazily,
+  so a long list costs nothing until a project is opened.
+- **Project context menu (2026-10-21).** Right-clicking a project row opens New task (same as
+  the row's "+"), Open in File Explorer / Finder / File Manager (the folder itself), Open in
+  editor (VS Code, else the system opener), Copy path, and Remove from sidebar
+  (`sessions/project_menu.rs`, ely `ContextMenu`). Remove stops the project's agent, drops
+  its local session mirrors and drafts, moves the active project to the next one (or Tasks),
+  and forgets the path in `recentProjects`, `lastWorkspaceSession` and `lastActiveWorkspace`.
+  Nothing on disk is deleted. It is refused while the project has live work (running turn,
+  background work, pending question), since stopping the agent would end it. The desktop's
+  pin/edit/delete project actions need its host-owned `tasks-index.sqlite` and are not
+  offered.
 - **Preload.** The first time a workspace's session list arrives in a run (app start for the
   startup project, first open for each other project), its 3 latest sessions are subscribed
   in the background, so opening one shows its transcript at once. Later snapshots (reconnect,
@@ -376,7 +394,13 @@ image cache, composer selection).
   `task_output` display or the tagged text), otherwise a key/value view. Raw text only while
   input is not valid JSON. Outputs drop `<system-reminder>` blocks and reduce TaskOutput and
   `<task-notification>` wrappers to their readable body. Background-result user rows render as
-  a notice card, not XML.
+  a notice card, not XML. An approved ExitPlanMode result keeps only its status line: the CLI
+  appends the whole plan again after `## Approved Plan:`, which the card already renders from
+  the input (desktop's plan card shows the plan, not the result echo).
+- **Nested lists in Markdown (2026-10-21).** A tight list item's text may be followed directly by
+  a nested list. The inline walker stops at any block-level start, so the nested list renders
+  as its own indented list, the parent numbering is untouched, and nothing after it is dropped
+  (previously the plan card stopped rendering after the first nested bullet list).
 - **Images.** Tool results show inline images from `display.images` (`node_repl_images`) and
   `display.media`, and images read by the Read tool from absolute local paths. Images are
   decoded in the background with the Files-pane limits, cached by source, and enlarge on
@@ -651,6 +675,12 @@ Requirements (all wire-backed):
   paste. Thumbnails via `v4/attachment/previewSource`.
 - **Slash commands**: from the `workspace-config` topic's `slashCommands[]`, with
   `workspace/readPresentation` as fallback; popup filtered as you type.
+- **Suggestion keys (2026-10-21)**: while the slash/@ popup is open and the composer has focus
+  (no IME composition), Up/Down move the highlighted row (wrapping) and Tab takes it
+  (desktop `ChatPromptActionMenu` parity). Tab is ely's app-wide `FocusNext` binding and gpui
+  runs a binding's action before key listeners, so the composer container captures
+  `FocusNext`; without a popup Tab passes through untouched (`composer/autocomplete_keys.rs`).
+  The highlight resets when the text changes or a suggestion is taken. Enter still sends.
 - **@mentions**: files (local tree + ripgrep), sessions, skills (`skills/referenceCatalog`),
   plugins; inserted as atomic chips; sent as `context_refs` (≤ 1) / text per the desktop
   mention providers (`packages/ui/src/mentions/providers`).
@@ -689,9 +719,13 @@ Requirements:
   add-project → `PlatformChannels.SelectDirectory` =
   `dialog.showOpenDialog({openDirectory, createDirectory})`). The picked
   folder becomes a project workspace (added, activated, agent spawned) and is
-  best-effort persisted to `setting.json` `recentProjects` via the
-  serialized preference owner — refused while the desktop runs (it rewrites the file
-  whole), in which case the project still exists for the session.
+  best-effort persisted to `setting.json` `recentProjects` (front, capped at the
+  desktop's 10) and `lastWorkspaceSession` (appended once, uncapped, so it never falls
+  off the list) via the serialized preference owner — refused while the desktop runs
+  (it rewrites the file whole), in which case the project still exists for the session.
+  The same applies to "Remove from sidebar". The desktop re-derives both lists from its
+  project table, so a project removed only in GPUI returns once the desktop writes the
+  file again if the desktop still has it.
 - **Settings**: read `~/.zcode/v2/setting.json` for locale, theme, font size, shortcuts,
   keep-awake, etc. **Writes only when the desktop is not running** (see landmines);
   otherwise show "change this in ZCode desktop".
@@ -924,6 +958,24 @@ API-key providers, which work without it.
   (no `revisionAtDecision + 1`), and `rowsRange.atRevision` never overwrites it. The
   stale retry passes `revisionAtDecision` as an explicit base; a stale ack without it
   fails. `cas_fields` enforces both spec lists centrally, whatever the call site.
+- History paging (2026-10-21): snapshot `rows.firstRowId` is the oldest row of the
+  **whole** conversation, while `rows.window` is only its tail. "Load earlier messages"
+  shows while the oldest loaded row is newer than `firstRowId`, and requests
+  `rowsRange {beforeRowId: <oldest loaded row>, limit: 200}`. `hasMore: false` ends
+  paging even if hidden rows leave a gap. `row.appended` sets a missing `firstRowId`,
+  and `row.removed` from at or before it clears it (shared `apply.ts` parity). Before
+  this, GPUI treated `firstRowId` as the window start: the button showed on every
+  conversation and asked for rows before row 1, so it never loaded anything.
+- Transcript keys (2026-10-21, Desktop `timelineKeyboardScrollIntent`): PageUp and
+  PageDown page the transcript (one viewport minus 40 px). Home goes to the top of the
+  loaded rows and End returns to the tail. Ctrl+Home and Ctrl+End do the same. PageUp
+  and Home stop following new output; PageDown that reaches the tail, and End, resume
+  following. Editable controls get the keys first, so the composer keeps Home and End
+  for its caret. PageUp and PageDown still reach the transcript from the composer,
+  because the composer doesn't use them. Clicking the transcript takes focus from the
+  composer, as clicking Desktop's timeline blurs its textarea, so Home and End then
+  scroll. This doesn't apply on the phone build. Settings, the dock and the terminal
+  keep their keys.
 - `resolveInteraction` is idempotent per `interactionId` (`ResolvingInteractions`):
   re-announced cards with an answer in flight stay hidden; a failed answer releases
   the id.
@@ -966,7 +1018,8 @@ API-key providers, which work without it.
   Ctrl+K in a long list). Project folders toggle open/closed on the header
   chevron (desktop `group-item.tsx handleHeaderClick` parity); expansion and
   load-more steps are pure `RootView` view state, never server facts. New
-  projects arrive only through the native directory picker.
+  projects arrive through the native directory picker or a command-line folder
+  argument; the right-click menu removes them.
 - **Secrets**: every sink (in-memory log, agent stderr echo, error banners,
   `lastError` text, panic log, exported log bundle) goes through
   `shared::redact::scrub` (credential keys, `Bearer`/`Basic`, `sk-`/`ghp_`/`AKIA`/JWT

@@ -85,6 +85,78 @@ fn mutations_preserve_unknown_fields_and_other_preferences() {
 }
 
 #[test]
+fn opened_project_joins_the_full_project_list_once() {
+    let mut settings: AppSettings = serde_json::from_str(
+        r#"{"lastWorkspaceSession":[{"kind":"remote","workspacePath":"F:\\p"}]}"#,
+    )
+    .unwrap();
+    PreferenceChange::RecentProject("F:\\p".into()).apply(&mut settings);
+    PreferenceChange::RecentProject("F:\\p".into()).apply(&mut settings);
+    let list = settings.extra["lastWorkspaceSession"].as_array().unwrap();
+    assert_eq!(
+        list.len(),
+        2,
+        "the remote entry stays, one local entry is added"
+    );
+    assert_eq!(list[1]["kind"], "local");
+    assert_eq!(list[1]["workspacePath"], "F:\\p");
+    assert_eq!(list[1]["workspacePurpose"], "project");
+}
+
+#[test]
+fn recent_projects_keep_the_desktop_limit_of_ten() {
+    let mut settings = AppSettings::default();
+    for i in 0..12 {
+        PreferenceChange::RecentProject(format!("p{i}")).apply(&mut settings);
+    }
+    let recents = settings.recent_projects.unwrap();
+    assert_eq!(recents.len(), 10);
+    assert_eq!(recents[0], "p11");
+    let list = settings.extra["lastWorkspaceSession"].as_array().unwrap();
+    assert_eq!(list.len(), 12, "the full list is not capped");
+}
+
+#[test]
+fn removed_project_is_forgotten_everywhere_and_other_entries_stay() {
+    let mut settings: AppSettings = serde_json::from_str(
+        r#"{
+            "recentProjects": ["gone", "kept"],
+            "lastWorkspaceSession": [
+                {"kind":"local","workspacePath":"gone","workspacePurpose":"project"},
+                {"kind":"remote","workspacePath":"gone"},
+                {"kind":"local","workspacePath":"kept","workspacePurpose":"project"}
+            ],
+            "lastActiveWorkspace": {"kind":"local","workspacePath":"gone","workspacePurpose":"project"},
+            "custom": 1
+        }"#,
+    )
+    .unwrap();
+    PreferenceChange::RemoveProject("gone".into()).apply(&mut settings);
+    assert_eq!(settings.recent_projects.unwrap(), ["kept"]);
+    let list = settings.extra["lastWorkspaceSession"].as_array().unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(
+        list[0]["kind"], "remote",
+        "remote entries are another host's"
+    );
+    assert_eq!(list[1]["workspacePath"], "kept");
+    assert!(settings.extra["lastActiveWorkspace"].is_null());
+    assert_eq!(settings.extra["custom"], 1);
+}
+
+#[test]
+fn removing_a_project_keeps_a_different_last_active_one() {
+    let mut settings: AppSettings =
+        serde_json::from_str(r#"{"lastActiveWorkspace":{"kind":"local","workspacePath":"kept"}}"#)
+            .unwrap();
+    PreferenceChange::RemoveProject("gone".into()).apply(&mut settings);
+    assert_eq!(
+        settings.extra["lastActiveWorkspace"]["workspacePath"],
+        "kept"
+    );
+}
+
+#[test]
 fn invalid_size_is_rejected_before_commit() {
     let settings = AppSettings::default();
     for size in [f32::NAN, f32::INFINITY, 11.0, 21.0] {

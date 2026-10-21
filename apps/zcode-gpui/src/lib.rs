@@ -40,6 +40,9 @@ pub use shared::app_assets::AppAssets;
 /// application starts (theme and font size are process globals).
 pub struct Startup {
     workspace: PathBuf,
+    /// The workspace was named on the command line (or is the isolated
+    /// scratch root), so it joins the project list; a cwd fallback does not.
+    explicit_workspace: bool,
     settings: shared::settings::AppSettings,
     settings_section: Option<app::settings::SettingsSection>,
     remote_client: bool,
@@ -71,6 +74,7 @@ pub fn load_startup(workspace: PathBuf) -> Startup {
     }
     Startup {
         workspace,
+        explicit_workspace: false,
         settings,
         settings_section: None,
         remote_client: false,
@@ -145,6 +149,7 @@ pub fn desktop_main() {
         workspace = Some(isolated.workspace());
         isolated.install();
     }
+    let explicit_workspace = workspace.is_some();
     let workspace = workspace
         .and_then(|p| p.canonicalize().ok())
         .or_else(|| std::env::current_dir().ok())
@@ -153,6 +158,7 @@ pub fn desktop_main() {
     // M5: Load settings, locale, theme, and font size on launch
     let mut startup = load_startup(workspace.clone());
     startup.settings_section = settings_section;
+    startup.explicit_workspace = explicit_workspace;
 
     // M6: Single-instance guard and forward-to-first launch request. The mutex
     // name is overridable so a preview build can run beside the primary app.
@@ -195,6 +201,7 @@ pub fn desktop_main() {
 pub fn open_window(cx: &mut App, startup: Startup) {
     let Startup {
         workspace,
+        explicit_workspace,
         settings,
         settings_section,
         remote_client,
@@ -209,7 +216,7 @@ pub fn open_window(cx: &mut App, startup: Startup) {
         (Vec::new(), Vec::new())
     } else {
         (
-            discover_workspaces(&workspace, 8),
+            discover_workspaces(explicit_workspace.then_some(workspace.as_path())),
             resolve_candidates(&workspace),
         )
     };

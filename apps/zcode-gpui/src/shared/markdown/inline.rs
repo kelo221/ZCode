@@ -149,6 +149,12 @@ pub(crate) fn render_inlines(
                 None if is_block_end(end) => return inline, // left for the block walker
                 _ => *pos += 1,
             },
+            // 紧凑列表项的文字后面可以直接跟嵌套列表（`1. 标题` 换行 `   - 子项`），
+            // 中间没有 End(Item)。原先这里把 Start(List)/Start(Item) 当成未知事件跳过，
+            // 子项文字被拼进父项，嵌套列表的 End(List) 又被外层列表误认成自己的结束，
+            // 顶层遍历随之提前停止，后文全部丢失。块级 Start 必须留给块遍历器处理。
+            Event::Start(tag) if stop.is_none() && is_block_start(tag) => return inline,
+            Event::Rule if stop.is_none() => return inline,
             Event::Text(t) => {
                 push_run(&mut inline, t.len(), &st);
                 inline.text.push_str(t);
@@ -233,6 +239,24 @@ pub(crate) fn render_inlines(
         }
     }
     inline
+}
+
+/// Block-level start tags that terminate bare (tight-list) inline content.
+fn is_block_start(tag: &Tag) -> bool {
+    matches!(
+        tag,
+        Tag::Paragraph
+            | Tag::Heading { .. }
+            | Tag::Item
+            | Tag::List(_)
+            | Tag::BlockQuote(_)
+            | Tag::Table(_)
+            | Tag::TableHead
+            | Tag::TableRow
+            | Tag::CodeBlock(_)
+            | Tag::HtmlBlock
+            | Tag::FootnoteDefinition(_)
+    )
 }
 
 /// Block-level end tags that terminate bare (tight-list) inline content.

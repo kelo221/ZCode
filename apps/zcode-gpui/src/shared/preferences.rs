@@ -15,6 +15,61 @@ pub(crate) fn merge_recent_projects(existing: &[String], path: &str, max: usize)
     out
 }
 
+/// Electron `MAX_RECENT_PROJECTS` (packages/services/src/setting/settingService.ts).
+const MAX_RECENT_PROJECTS: usize = 10;
+
+fn same_workspace(persisted: &str, key: &str) -> bool {
+    persisted == key
+        || crate::backend::workspace::canonical_workspace_string(std::path::Path::new(persisted))
+            == key
+}
+
+fn is_local_entry_for(entry: &serde_json::Value, key: &str) -> bool {
+    entry.get("kind").and_then(serde_json::Value::as_str) == Some("local")
+        && entry
+            .get("workspacePath")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|p| same_workspace(p, key))
+}
+
+/// `lastWorkspaceSession` is the full project list (`recentProjects` only
+/// keeps ten), so an opened project is recorded there too or it would drop
+/// off the sidebar once ten newer projects were opened.
+fn record_project_entry(settings: &mut AppSettings, path: &str) {
+    let entries = settings
+        .extra
+        .entry("lastWorkspaceSession")
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+    let Some(list) = entries.as_array_mut() else {
+        return;
+    };
+    if !list.iter().any(|e| is_local_entry_for(e, path)) {
+        list.push(serde_json::json!({
+            "kind": "local",
+            "workspacePath": path,
+            "workspacePurpose": "project",
+        }));
+    }
+}
+
+fn forget_project(settings: &mut AppSettings, key: &str) {
+    if let Some(recents) = settings.recent_projects.as_mut() {
+        recents.retain(|p| !same_workspace(p, key));
+    }
+    if let Some(list) = settings
+        .extra
+        .get_mut("lastWorkspaceSession")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        list.retain(|e| !is_local_entry_for(e, key));
+    }
+    if let Some(active) = settings.extra.get_mut("lastActiveWorkspace")
+        && is_local_entry_for(active, key)
+    {
+        *active = serde_json::Value::Null;
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum PreferenceChange {
     Locale(LocalePreference),
@@ -27,6 +82,8 @@ pub(crate) enum PreferenceChange {
     LspDiagnostics(bool),
     Shortcut(String, Option<Vec<String>>),
     RecentProject(String),
+    /// Forget a project (canonical key) from every persisted project list.
+    RemoveProject(String),
 }
 
 impl PreferenceChange {
@@ -55,9 +112,11 @@ impl PreferenceChange {
                 settings.recent_projects = Some(merge_recent_projects(
                     settings.recent_projects.as_deref().unwrap_or(&[]),
                     path,
-                    8,
+                    MAX_RECENT_PROJECTS,
                 ));
+                record_project_entry(settings, path);
             }
+            Self::RemoveProject(key) => forget_project(settings, key),
         }
     }
 
@@ -153,7 +212,10 @@ impl Preferences {
                 return;
             }
             if this.suspended {
-                if matches!(change, PreferenceChange::RecentProject(_)) && this.deferred.len() < 64
+                if matches!(
+                    change,
+                    PreferenceChange::RecentProject(_) | PreferenceChange::RemoveProject(_)
+                ) && this.deferred.len() < 64
                 {
                     this.deferred.push_back(change);
                 } else {
