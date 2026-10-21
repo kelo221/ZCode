@@ -124,7 +124,7 @@ Known gaps: official plugins are not staged. The compiled binary finds them only
 
 ### Fast advisory type check
 
-`bun run typecheck:fast` runs `bun check -b` (Bun 1.4.3, TypeScript 7 semantics) over the root `typecheck` projects in about 9–16 s. It is advisory; `bun run typecheck` (tsc) remains the gate. TS7 reports two errors that TypeScript 6 accepts (`useGroupedTaskView.ts:1061`, `useCodingPlanProducts.ts:287`); the script lists them as known and fails only on other errors.
+`bun run typecheck:fast` runs `bun check -b` (Bun 1.4.3, TypeScript 7 semantics) over the root `typecheck` projects (`packages/shared`, `packages/browser-commands`, `apps/zcode-browser-extension`) in about 2 s. It is advisory; `bun run typecheck` (tsc) remains the gate. The CLI has its own `bun run typecheck` in `apps/zcode-cli`.
 
 ### Browser Use setup
 

@@ -11,20 +11,22 @@
 
 以下命令从仓库根目录执行：
 
-| 用途             | 命令                                                 |
-| ---------------- | ---------------------------------------------------- |
-| 类型检查         | `pnpm typecheck`                                     |
-| Lint             | `pnpm lint` / `pnpm lint:fix`                        |
-| 格式检查         | `pnpm fmt:check`                                     |
-| 桌面开发         | `pnpm dev:desktop`                                   |
-| Web 开发         | `pnpm dev:web`                                       |
-| 提交前检查       | `pnpm verify:pre-push`（Lint、架构检查与受影响单测） |
-| 架构检查         | `pnpm architecture:check --changed`                  |
-| 模块阅读包       | `pnpm architecture:context <module-id>`              |
-| 未使用依赖与导出 | `pnpm knip`                                          |
-| 导出引用查询     | `pnpm dep:refs --list-exports <file>`                |
+本 fork 用 Bun，根 `package.json` 只保留 GPUI 及其内置 CLI 用到的脚本（2026-10-21）。Electron/Web 的开发、构建与测试脚本已删除。
 
-affected 使用 Vitest 官方选择，只运行选中的根 UT；选中整个套件时说明并跳过 UT，成功退出，不因此阻止 Push；不替代 CLI 测试或桌面 E2E。全量使用 `pnpm test` / `pnpm test:unit`，仅在用户明确要求时调用。范围与输出合同见 [pre-push 说明](docs/testing/pre-push-hook.md)。
+| 用途          | 命令                                                                  |
+| ------------- | --------------------------------------------------------------------- |
+| GPUI 运行     | `bun run dev:gpui`（debug）/ `bun run start:gpui`（release）          |
+| GPUI 打包     | `bun run package:gpui`                                                |
+| 类型检查      | `bun run typecheck`（shared、browser-commands、浏览器扩展）           |
+| CLI 类型检查  | `apps/zcode-cli` 下 `bun run typecheck`                               |
+| Lint          | `bun run lint` / `bun run lint:fix`                                   |
+| 格式检查      | `bun run fmt:check`                                                   |
+| 提交前检查    | `bun run verify:pre-push`（GPUI 的 `cargo fmt --check` 与 clippy）     |
+| 架构检查      | `bun run architecture:check --changed`                                |
+| 模块阅读包    | `bun run architecture:context <module-id>`                            |
+| 导出引用查询  | `bun run dep:refs --list-exports <file>`                              |
+
+GPUI 测试在 `apps/zcode-gpui` 下运行 `cargo test`。
 
 测试入口以目标包当前的 `package.json` 和实际测试文件为准，不假定存在统一的单测或 E2E 命令。
 
@@ -45,7 +47,7 @@ affected 使用 Vitest 官方选择，只运行选中的根 UT；选中整个套
 - 修复 bug 时用中文注释说明原因和修复依据。发现设计缺陷时先与用户对齐，不不断增加兜底分支。
 - PR 描述须说明背景、设计意图与修改前后行为；包含 bugfix 时逐项说明触发场景、根因证据、修复机制及回归验证，并尽量关联已有工单链接。未确认的根因或引入提交如实标注，不根据模块或时间接近推断归因。
 - 涉及状态、时序、远端或异步同步的方案，用图展示所有者及事件顺序。
-- 必须执行 `pnpm typecheck` 和 `pnpm lint`，报告真实结果，不将已有失败写成通过。
+- 必须执行 `bun run typecheck` 和 `bun run lint`，报告真实结果，不将已有失败写成通过。
 - 使用异步文件和网络 IO；跨包导入使用公开入口，遵守现有路径别名。
 - 禁止 UI 直接调用 Repo、Service 引用 Runtime 具体实现、跨域导入实现细节及循环依赖。
 

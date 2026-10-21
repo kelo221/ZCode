@@ -35,6 +35,7 @@ GPUI turns these on through optional runtime preferences. The Electron app never
 ### Tooling
 
 - **Bun instead of pnpm and Node.** The root `package.json` declares `bun@1.4.3`. `bun run typecheck:fast` is an advisory type check with Bun's TypeScript 7 checker; `bun run typecheck` (tsc) stays the gate.
+- **Root scripts are GPUI-only.** The root `package.json` keeps only the scripts GPUI and its bundled CLI use: run/package GPUI, CUA build, typecheck/lint/format, architecture check and `dep:refs`. The Electron, web, E2E and release scripts were removed. `bun run verify:pre-push` (the pre-push hook) runs `cargo fmt --check` and clippy on GPUI.
 - **Compiled backend (prototype).** `apps/zcode-gpui/scripts/build_backend.ts` compiles the CLI app-server into a single executable with `bun build --compile`.
 - **`packages/browser-commands`.** Browser commands moved out of the Electron package so the extension and the desktop app share them.
 

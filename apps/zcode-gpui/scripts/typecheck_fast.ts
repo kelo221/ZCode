@@ -9,11 +9,9 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "../../..");
-// Reported by TS7 only (2026-10-13, bun 1.4.3); exit status ignores them.
-const KNOWN_TS7_ONLY = [
-  "packages/ui/src/hooks/useGroupedTaskView.ts(1061,",
-  "packages/ui/src/settings/model-provider-section/useCodingPlanProducts.ts(287,",
-];
+// Reported by TS7 only; exit status ignores them. Empty since the root
+// `typecheck` stopped covering the Electron packages (2026-10-21).
+const KNOWN_TS7_ONLY: string[] = [];
 
 async function rootProjects(): Promise<string[]> {
   const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as {
