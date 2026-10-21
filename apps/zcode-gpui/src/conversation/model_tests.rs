@@ -64,7 +64,9 @@ fn applies_chat_deltas() {
     ]);
     assert_eq!(c.phase, "completedSuccess");
     assert!(!c.phase_running());
-    assert_eq!(c.config.mode, "plan");
+    // Legacy `mode: plan` is the plan overlay over the previous permission mode.
+    assert!(c.config.plan_enabled);
+    assert_eq!(c.config.mode, "build");
     c.apply_deltas(&[json!({ "op": "row.removed", "rowId": 2 })]);
     assert!(!c.rows.contains_key(&2));
 }

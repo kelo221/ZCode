@@ -31,15 +31,22 @@ fn bare_plan_edits_one_draft_owner_without_command_or_live_mode(cx: &mut TestApp
             s.submit_composer(cx);
             assert!(s.composer.read(cx).text().is_empty());
             assert_eq!(s.submission_override()["planEnabled"], true);
-            assert_eq!(s.effective_config().mode, "plan");
+            assert!(s.effective_config().plan_enabled);
+            assert_ne!(s.effective_config().mode, "plan");
             if parent {
                 assert_eq!(s.conversations["parent"].config.mode, "edit");
             }
             assert!(rx.try_recv().is_err());
             assert!(s.workspaces[0].pending.is_empty());
             assert!(s.held_confirmation.is_none());
-            assert!(s.set_restored_mode("edit"));
+            // Picking a permission keeps the plan overlay; only the check turns it off.
+            assert!(s.set_restored_mode("yolo"));
+            assert_eq!(s.submission_override()["planEnabled"], true);
+            assert_eq!(s.effective_config().mode, "yolo");
+            s.set_plan_enabled(false, cx);
             assert_eq!(s.submission_override()["planEnabled"], false);
+            assert_eq!(s.submission_override()["mode"], "yolo");
+            assert!(rx.try_recv().is_err());
             s.composer.update(cx, |c, _| c.set_text("/plan"));
             s.workspaces[0].started = false;
             s.submit_composer(cx);
@@ -82,13 +89,15 @@ fn plan_new_first_input_and_config_share_frozen_override(cx: &mut TestAppContext
     let state = cx.new(AppState::for_test);
     state.update(cx, |s, cx| {
         let rx = setup(s, false);
-        s.ui_mode = Some("plan".into());
+        s.ui_mode = Some("yolo".into());
+        s.ui_plan = true;
         s.composer.update(cx, |c, _| c.set_text("/plan new task"));
         s.submit_composer(cx);
         let request: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
         assert_eq!(request["params"]["type"], "createSession");
         for target in ["firstInput", "config"] {
-            assert_eq!(request["params"]["payload"][target]["mode"], "build");
+            // Full access + Plan keeps Full access underneath the overlay.
+            assert_eq!(request["params"]["payload"][target]["mode"], "yolo");
             assert_eq!(request["params"]["payload"][target]["planEnabled"], true);
         }
         assert_eq!(

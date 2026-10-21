@@ -130,6 +130,6 @@ fn slash_catalog_init_selection_refresh_and_submission_are_pointer_keyboard_reac
     assert!(rx.try_recv().is_err());
     app.read_entity(&state, |s, cx| {
         assert!(s.composer.read(cx).text().is_empty());
-        assert_eq!(s.effective_config().mode, "plan");
+        assert!(s.effective_config().plan_enabled);
     });
 }

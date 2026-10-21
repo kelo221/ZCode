@@ -8,15 +8,13 @@ impl AppState {
         let mut config = self.submission_override();
         // planEnabled 的展示值会变成 plan；重复准备必须保留已冻结的底层 edit/yolo 模式。
         let effective = self.effective_config();
-        let mode = match config
-            .get("mode")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or(&effective.mode)
-        {
-            "edit" => "edit",
-            "yolo" => "yolo",
-            _ => "build",
-        };
+        let mode = crate::composer::plan_mode::permission_mode(
+            config
+                .get("mode")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(&effective.mode),
+        )
+        .to_string();
         if !config.is_object() {
             config = json!({});
         }

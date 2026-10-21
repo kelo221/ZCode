@@ -237,39 +237,6 @@ impl ConversationState {
         self.context_window = crate::conversation::context_usage::ContextWindow::from_usage(usage);
     }
 
-    /// Whole-key replacement of the `config` region (sessionConfigStateSchema).
-    pub fn apply_config(&mut self, config: &Value) {
-        let str_field = |k: &str| {
-            config
-                .get(k)
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string()
-        };
-        if config.get("provider").is_some() {
-            self.config.provider = str_field("provider");
-        }
-        if config.get("model").is_some() {
-            self.config.model = str_field("model");
-        }
-        if config.get("thought").is_some() {
-            self.config.thought = str_field("thought");
-        }
-        if let Some(levels) = config.get("thoughtLevels").and_then(Value::as_array) {
-            self.config.thought_levels = levels
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect();
-        }
-        if config.get("mode").is_some() {
-            self.config.mode = str_field("mode");
-        }
-        if config.get("followupMode").is_some() {
-            self.config.followup_mode = str_field("followupMode");
-        }
-    }
-
     pub fn apply_deltas(&mut self, deltas: &[Value]) {
         for d in deltas {
             match d.get("op").and_then(Value::as_str).unwrap_or("") {

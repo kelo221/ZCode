@@ -19,7 +19,8 @@ fn plan_only_override_preserves_draft_model_selection_in_selectors(cx: &mut Test
         let config = s.effective_config();
         assert_eq!(config.provider, "test");
         assert_eq!(config.model, "model");
-        assert_eq!(config.mode, "plan");
+        assert!(config.plan_enabled);
+        assert_eq!(config.mode, "build");
         assert!(s.set_restored_model("test", "other", "high"));
         assert_eq!(s.effective_config().model, "other");
         assert_eq!(s.submission_override()["planEnabled"], true);

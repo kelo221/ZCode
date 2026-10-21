@@ -31,6 +31,7 @@ impl AppState {
         self.draft = true;
         self.ui_model_value = None;
         self.ui_mode = None;
+        self.ui_plan = false;
         self.ui_thought = None;
         self.restore_draft(
             &format!("draft:{}", self.active_workspace.as_deref().unwrap_or("")),
@@ -55,6 +56,7 @@ impl AppState {
             workspace_configs: Default::default(),
             ui_model_value: None,
             ui_mode: None,
+            ui_plan: false,
             ui_thought: None,
             composer: cx.new(crate::composer::input::Composer::new),
             session_drafts: Default::default(),

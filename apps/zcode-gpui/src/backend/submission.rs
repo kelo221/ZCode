@@ -110,6 +110,7 @@ impl AppState {
                     self.active = Some(sid.into());
                     self.ui_model_value = None;
                     self.ui_mode = None;
+                    self.ui_plan = false;
                     self.ui_thought = None;
                 }
                 self.push_log("session created".into());

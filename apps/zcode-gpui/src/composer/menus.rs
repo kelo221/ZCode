@@ -10,17 +10,11 @@
 use crate::app::root::RootView;
 use crate::composer::catalog::{ModelOption, group_models};
 use crate::composer::config_cmds::{EffectiveConfig, title_case};
-use ely_gpui_component::buttons::ButtonVariant;
+use crate::composer::plan_mode::{PERMISSION_MODES, mode_label};
+use ely_gpui_component::buttons::{Button, ButtonVariant};
 use ely_gpui_component::menus::{DropdownMenu, Menu, MenuItem};
 use ely_gpui_component::primitives::IconName;
 use gpui::{Context, Entity, IntoElement, ParentElement, Styled, div, prelude::*};
-
-pub const MODES: [(&str, &str); 4] = [
-    ("build", "Ask before changes"),
-    ("edit", "Edit automatically"),
-    ("plan", "Plan mode"),
-    ("yolo", "Full access"),
-];
 
 impl RootView {
     /// Model + thinking-level pickers for the composer's bottom row.
@@ -102,21 +96,50 @@ impl RootView {
         row
     }
 
-    /// Mode picker (left of the composer row); Full access is highlighted by
-    /// the selected row's radio state.
+    /// Mode picker (left of the composer row): the trigger names the
+    /// permission mode; an active plan overlay adds a "Plan" chip that turns
+    /// it off (Desktop `v4-composer-plan-marker`).
     pub(crate) fn mode_menu(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let effective: EffectiveConfig = self.state.read(cx).effective_config();
-        let current = effective.mode.clone();
-        let label = MODES
-            .iter()
-            .find(|(id, _)| *id == current)
-            .map(|(_, l)| *l)
-            .unwrap_or("Ask before changes");
         let root = cx.entity();
-
-        DropdownMenu::new("mode-menu", label, mode_menu(&current, root))
-            .icon(IconName::Shield)
-            .variant(ButtonVariant::Ghost)
+        let chip_root = root.clone();
+        let row = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_1()
+            .child(
+                DropdownMenu::new(
+                    "mode-menu",
+                    mode_label(&effective.mode),
+                    mode_menu(&effective, root),
+                )
+                .icon(IconName::Shield)
+                .variant(ButtonVariant::Ghost),
+            )
+            .children(effective.plan_enabled.then(|| {
+                Button::new("plan-marker", crate::shared::i18n::t("mode.plan"))
+                    .icon(IconName::Lightbulb)
+                    .variant(ButtonVariant::Ghost)
+                    .on_click(move |_, _, cx| {
+                        chip_root.update(cx, |root, cx| {
+                            root.state.update(cx, |s, cx| s.set_plan_enabled(false, cx));
+                        });
+                    })
+            }));
+        #[cfg(test)]
+        let row = crate::app::test_support::track_children(
+            row,
+            [
+                Some("mode-menu"),
+                effective.plan_enabled.then_some("plan-marker"),
+            ]
+            .into_iter()
+            .flatten()
+            .map(str::to_string)
+            .collect(),
+        );
+        row
     }
 }
 
@@ -193,25 +216,34 @@ fn thought_menu(effective: &EffectiveConfig, root: Entity<RootView>) -> Menu {
     menu
 }
 
-/// Collaboration-mode menu (build | edit | plan | yolo).
-fn mode_menu(current: &str, root: Entity<RootView>) -> Menu {
-    let mut menu = Menu::new();
-    for (id, label) in MODES {
-        let selected = current == id;
+/// Desktop `V4ComposerModeSwitch`: a Plan check row, then the permission
+/// radios. Legacy Edit is listed only while it is the current mode.
+fn mode_menu(effective: &EffectiveConfig, root: Entity<RootView>) -> Menu {
+    let plan_on = effective.plan_enabled;
+    let plan_root = root.clone();
+    let mut menu = Menu::new()
+        .item(
+            MenuItem::check(crate::shared::i18n::t("mode.label.glm.plan"), plan_on)
+                .icon(IconName::Lightbulb)
+                .on_click(move |_, cx| {
+                    plan_root.update(cx, |root, cx| {
+                        root.state
+                            .update(cx, |s, cx| s.set_plan_enabled(!plan_on, cx));
+                    });
+                }),
+        )
+        .separator();
+    let legacy_edit = (effective.mode == "edit").then_some("edit");
+    for id in PERMISSION_MODES.into_iter().chain(legacy_edit) {
         let root = root.clone();
-        menu = menu.item(MenuItem::radio(label, selected).on_click(move |_, cx| {
-            root.update(cx, |root, cx| {
-                root.state.update(cx, |s, cx| {
-                    if s.set_restored_mode(id) {
-                        cx.notify();
-                    } else if s.effective_config().has_session {
-                        s.switch_mode(id, cx);
-                    } else {
-                        s.ui_mode = Some(id.to_string());
-                    }
+        menu = menu.item(
+            MenuItem::radio(mode_label(id), effective.mode == id).on_click(move |_, cx| {
+                root.update(cx, |root, cx| {
+                    root.state
+                        .update(cx, |s, cx| s.select_permission_mode(id, cx));
                 });
-            });
-        }));
+            }),
+        );
     }
     menu
 }

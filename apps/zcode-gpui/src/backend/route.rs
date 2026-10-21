@@ -62,6 +62,7 @@ impl AppState {
             }
             FrameDecision::Apply => {
                 let voice_before = self.voice_before_frame(&frame.topic);
+                let plan_before = self.plan_transition_before_frame(&frame.topic);
                 // The cursor advances only after a successful, complete
                 // application (review finding 3).
                 if let Err(e) = self.apply_payload(&frame, &kind) {
@@ -77,6 +78,7 @@ impl AppState {
                     && let Some(key) = self.ws_for_topic(&frame.topic)
                 {
                     self.reconcile_workflow_settings(&key, sid, kind == "snapshot");
+                    self.reconcile_plan_override(sid, plan_before);
                 }
             }
         }

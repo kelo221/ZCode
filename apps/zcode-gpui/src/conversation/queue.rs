@@ -101,68 +101,76 @@ pub fn render_queue_panel(
     let count = queue.items.len();
     let auto_drain = queue.auto_drain;
 
-    Some(
-        div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .bg(rgb(CARD))
-            .border_1()
-            .border_color(rgb(BORDER))
-            .rounded_md()
-            .p_2()
-            .my_2()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
+    let panel = div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .bg(rgb(CARD))
+        .border_1()
+        .border_color(rgb(BORDER))
+        .rounded_md()
+        .p_2()
+        .my_2()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(gpui::FontWeight::BOLD)
+                                .text_color(rgb(TEXT))
+                                .child(format!("Queued ({count})")),
+                        )
+                        .when(!auto_drain, |el| {
+                            el.child(
                                 div()
-                                    .text_xs()
-                                    .font_weight(gpui::FontWeight::BOLD)
-                                    .text_color(rgb(TEXT))
-                                    .child(format!("Queued ({count})")),
+                                    .text_size(px(ui_size(10.)))
+                                    .px_1()
+                                    .rounded_sm()
+                                    .bg(rgb(BORDER))
+                                    .text_color(rgb(MUTED))
+                                    .child("Paused"),
                             )
-                            .when(!auto_drain, |el| {
-                                el.child(
-                                    div()
-                                        .text_size(px(ui_size(10.)))
-                                        .px_1()
-                                        .rounded_sm()
-                                        .bg(rgb(BORDER))
-                                        .text_color(rgb(MUTED))
-                                        .child("Paused"),
-                                )
-                            }),
-                    )
-                    .child(
-                        div()
-                            .id("toggle-drain-btn")
-                            .px_2()
-                            .py_0p5()
-                            .rounded_sm()
-                            .bg(rgb(BORDER))
-                            .text_size(px(ui_size(10.)))
-                            .text_color(rgb(TEXT))
-                            .cursor_pointer()
-                            .child(if auto_drain { "Pause" } else { "Resume" })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                let new_val = !auto_drain;
-                                this.state.update(cx, |app, cx| {
-                                    app.set_auto_drain(new_val, cx);
-                                });
-                            })),
-                    ),
-            )
-            .child(div().flex().flex_col().gap_1().pt_2().children(
-                queue.items.iter().enumerate().map(|(idx, item)| {
+                        }),
+                )
+                .child(
+                    div()
+                        .id("toggle-drain-btn")
+                        .px_2()
+                        .py_0p5()
+                        .rounded_sm()
+                        .bg(rgb(BORDER))
+                        .text_size(px(ui_size(10.)))
+                        .text_color(rgb(TEXT))
+                        .cursor_pointer()
+                        .child(if auto_drain { "Pause" } else { "Resume" })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            let new_val = !auto_drain;
+                            this.state.update(cx, |app, cx| {
+                                app.set_auto_drain(new_val, cx);
+                            });
+                        })),
+                ),
+        )
+        .child(
+            div()
+                .id("queue-items")
+                .flex()
+                .flex_col()
+                .gap_1()
+                .mt_2()
+                .max_h(px(QUEUE_LIST_MAX_HEIGHT))
+                .min_h_0()
+                .overflow_y_scroll()
+                .children(queue.items.iter().enumerate().map(|(idx, item)| {
                     let item_id = item.queue_item_id.clone();
                     let item_id_del = item.queue_item_id.clone();
 
@@ -176,12 +184,16 @@ pub fn render_queue_panel(
                         .py_1()
                         .rounded_sm()
                         .bg(rgb(BORDER))
+                        .flex_none()
+                        .gap_2()
                         .child(
                             div()
                                 .flex_1()
+                                .min_w_0()
+                                .truncate()
                                 .text_xs()
                                 .text_color(rgb(TEXT))
-                                .child(item.text.clone()),
+                                .child(queue_preview(&item.text)),
                         )
                         .child(
                             div()
@@ -292,8 +304,47 @@ pub fn render_queue_panel(
                                         })),
                                 ),
                         )
-                }),
-            ))
-            .into_any_element(),
-    )
+                })),
+        );
+    #[cfg(test)]
+    let panel = crate::app::test_support::track_children(
+        panel,
+        vec!["queue-header".into(), "queue-items".into()],
+    );
+    Some(panel.into_any_element())
 }
+
+/// Row list cap: one-line rows keep this to about six items before scrolling.
+const QUEUE_LIST_MAX_HEIGHT: f32 = 200.;
+const QUEUE_PREVIEW_MAX_CHARS: usize = 200;
+
+/// One-line queue row text (Desktop `ConversationQueuePanel` `truncate`):
+/// whitespace runs collapse to one space and long text is capped, so a huge
+/// paste neither wraps the panel to window height nor shapes 15k chars a frame.
+pub(crate) fn queue_preview(text: &str) -> SharedString {
+    let mut out = String::new();
+    let mut chars = 0;
+    for word in text.split_whitespace() {
+        if chars >= QUEUE_PREVIEW_MAX_CHARS {
+            out.push('…');
+            return out.into();
+        }
+        if !out.is_empty() {
+            out.push(' ');
+            chars += 1;
+        }
+        for ch in word.chars() {
+            if chars >= QUEUE_PREVIEW_MAX_CHARS {
+                out.push('…');
+                return out.into();
+            }
+            out.push(ch);
+            chars += 1;
+        }
+    }
+    out.into()
+}
+
+#[cfg(test)]
+#[path = "queue_tests.rs"]
+mod tests;

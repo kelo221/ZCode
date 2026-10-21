@@ -99,14 +99,13 @@ impl AppState {
                 "options": { "reasoningLevel": draft.thought },
             });
         }
-        if let Some(mode) = &self.ui_mode {
-            if mode == "plan" {
-                // Desktop parity: plan is submitted as build + planEnabled
-                // (packages/ui/src/v4/composer/composerSubmissionConfig.ts).
-                config["mode"] = json!("build");
+        if self.ui_mode.is_some() || self.ui_plan {
+            // Desktop parity (composerSubmissionConfig.ts): the permission mode
+            // and the plan overlay travel separately. 原来 plan 一律提交为 build，
+            // 批准计划后会话回到“变更前确认”，丢掉了用户选的完全访问。
+            config["mode"] = json!(draft.mode);
+            if draft.plan_enabled {
                 config["planEnabled"] = json!(true);
-            } else {
-                config["mode"] = json!(mode);
             }
         }
         config
@@ -156,15 +155,16 @@ impl AppState {
                     .map(|m| m.thought_levels.clone())
                     .unwrap_or_else(|| base.thought_levels.clone()),
                 model_label: base.model_label,
-                mode: if config.get("planEnabled").and_then(Value::as_bool) == Some(true) {
-                    "plan".into()
-                } else {
-                    config
-                        .get("mode")
-                        .and_then(Value::as_str)
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| base.mode.clone())
-                },
+                mode: config
+                    .get("mode")
+                    .and_then(Value::as_str)
+                    .filter(|mode| *mode != "plan")
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| base.mode.clone()),
+                plan_enabled: config
+                    .get("planEnabled")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(base.plan_enabled),
                 has_session: self.active.is_some(),
             };
         }
@@ -175,7 +175,8 @@ impl AppState {
                 model_label: String::new(),
                 thought: c.config.thought.clone(),
                 thought_levels: c.config.thought_levels.clone(),
-                mode: c.config.mode.clone(),
+                mode: crate::composer::plan_mode::permission_mode(&c.config.mode).into(),
+                plan_enabled: c.config.plan_enabled,
                 has_session: true,
             };
         }
@@ -215,11 +216,13 @@ impl AppState {
             } else {
                 (String::new(), String::new(), String::new(), vec![])
             };
-        let mode = self
+        let source = self
             .ui_mode
-            .clone()
-            .or_else(|| cfg.map(|c| c.default_mode.clone()))
-            .unwrap_or_else(|| "build".into());
+            .as_deref()
+            .or_else(|| cfg.map(|c| c.default_mode.as_str()))
+            .unwrap_or("");
+        let mode = crate::composer::plan_mode::permission_mode(source).to_string();
+        let plan_enabled = self.ui_plan || source == "plan";
         let thought = self
             .ui_thought
             .clone()
@@ -232,6 +235,7 @@ impl AppState {
             thought,
             thought_levels,
             mode,
+            plan_enabled,
             has_session: false,
         }
     }
@@ -244,7 +248,10 @@ pub struct EffectiveConfig {
     pub model_label: String,
     pub thought: String,
     pub thought_levels: Vec<String>,
+    /// Permission mode (build | guarded | yolo, legacy edit); never "plan".
     pub mode: String,
+    /// Plan overlay on top of `mode`.
+    pub plan_enabled: bool,
     pub has_session: bool,
 }
 

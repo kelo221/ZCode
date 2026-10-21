@@ -9,7 +9,9 @@ use serde_json::Value;
 
 /// Session-level effective config projection (sessionConfigStateSchema):
 /// `provider`/`model`/`thought` are the UI-facing values, `thoughtLevels`
-/// are what the CURRENT model supports, `mode` ∈ build|edit|plan|yolo.
+/// are what the CURRENT model supports. `mode` is the permission mode
+/// (build|guarded|yolo, legacy edit); plan is the separate `plan_enabled`
+/// overlay (packages/shared/src/execution-state.ts).
 #[derive(Clone, Debug, Default)]
 pub struct SessionConfig {
     pub provider: String,
@@ -17,6 +19,9 @@ pub struct SessionConfig {
     pub thought: String,
     pub thought_levels: Vec<String>,
     pub mode: String,
+    pub plan_enabled: bool,
+    /// `planTransition.toolCallId` of the last agent EnterPlanMode/ExitPlanMode.
+    pub plan_transition_id: Option<String>,
     pub followup_mode: String,
 }
 

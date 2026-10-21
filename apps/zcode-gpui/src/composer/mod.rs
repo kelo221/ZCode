@@ -17,6 +17,7 @@ mod keys;
 pub(crate) mod menus;
 mod noise_toggle;
 pub(crate) mod pasted_text;
+pub(crate) mod plan_mode;
 mod plan_shortcut;
 pub(crate) mod reference_view;
 pub(crate) mod references;

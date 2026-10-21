@@ -62,8 +62,15 @@ impl AppState {
         let Some(config) = self.draft_submission_overrides.get_mut(&key) else {
             return false;
         };
-        config["mode"] = json!(if mode == "plan" { "build" } else { mode });
-        config["planEnabled"] = json!(mode == "plan");
+        // plan 是叠加层：选 plan 只开启 planEnabled，选权限模式不再顺带关闭计划模式。
+        if mode == "plan" {
+            if config.get("mode").is_none() {
+                config["mode"] = json!("build");
+            }
+            config["planEnabled"] = json!(true);
+        } else {
+            config["mode"] = json!(mode);
+        }
         true
     }
 }

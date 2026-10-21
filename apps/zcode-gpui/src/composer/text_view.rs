@@ -9,8 +9,8 @@ use crate::shared::theme::{MUTED, TEXT, ui_size};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{
     Bounds, Context, CursorStyle, HighlightStyle, MouseButton, MouseDownEvent, MouseMoveEvent,
-    Pixels, Point, Render, StyledText, TextLayout, UnderlineStyle, Window, canvas, div, fill,
-    prelude::*, px, size,
+    Pixels, Point, Render, ScrollHandle, StyledText, TextLayout, UnderlineStyle, Window, canvas,
+    div, fill, prelude::*, px, size,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -24,6 +24,30 @@ pub(crate) struct TextViewState {
     /// Caret rectangle from the last paint (IME candidate window anchor).
     pub(crate) caret_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     dragging: bool,
+    /// Viewport of the height-capped input (Desktop `max-h-40 overflow-y-auto`).
+    pub(crate) scroll: ScrollHandle,
+    /// Caret and content length at the last render; a change scrolls the caret into view.
+    last_caret: usize,
+    last_len: usize,
+}
+
+/// Desktop LexicalChatInput `max-h-40`: the input grows to 160px, then scrolls.
+pub(crate) const COMPOSER_MAX_HEIGHT: f32 = 160.;
+
+/// Vertical scroll offset that brings `caret` inside `viewport`, if it is outside.
+fn reveal_offset(
+    caret: Bounds<Pixels>,
+    viewport: Bounds<Pixels>,
+    offset: Point<Pixels>,
+) -> Option<Point<Pixels>> {
+    let y = if caret.bottom() > viewport.bottom() {
+        offset.y - (caret.bottom() - viewport.bottom())
+    } else if caret.top() < viewport.top() {
+        offset.y + (viewport.top() - caret.top())
+    } else {
+        return None;
+    };
+    Some(Point::new(offset.x, y.min(px(0.))))
 }
 
 impl Composer {
@@ -95,6 +119,11 @@ impl Render for Composer {
         let painted = Rc::new(Cell::new(false));
         self.view.painted = painted.clone();
         let caret_slot = self.view.caret_bounds.clone();
+        let scroll = self.view.scroll.clone();
+        let reveal = caret != self.view.last_caret || self.content.len() != self.view.last_len;
+        self.view.last_caret = caret;
+        self.view.last_len = self.content.len();
+        let notify_target = entity.clone();
 
         let mut highlights = Vec::new();
         let marked = self.marked_bytes().filter(|r| !r.is_empty());
@@ -156,47 +185,76 @@ impl Render for Composer {
             .on_key_down(cx.listener(Self::on_key_down))
             .child(
                 div()
-                    .id("composer-canvas-host")
-                    .relative()
+                    .id("composer-scroll")
                     .w_full()
                     .min_w_0()
-                    .map(|el| match text {
-                        Some(text) => el.child(div().w_full().min_w_0().child(text)),
-                        None => el.child(div().text_color(rgb(MUTED)).child(placeholder)),
-                    })
+                    .max_h(px(ui_size(COMPOSER_MAX_HEIGHT)))
+                    .overflow_y_scroll()
+                    .track_scroll(&self.view.scroll)
                     .child(
-                        canvas(
-                            |_, _, _| {},
-                            move |bounds, _, window, cx| {
-                                window.handle_input(
-                                    &focus,
-                                    gpui::ElementInputHandler::new(bounds, entity.clone()),
-                                    cx,
-                                );
-                                // Prepaint has run for the text by now, so its layout can be read.
-                                let (origin, line_h) = match &layout {
-                                    Some(l) => {
-                                        painted.set(true);
-                                        let at =
-                                            l.position_for_index(caret).unwrap_or(bounds.origin);
-                                        (at, l.line_height())
-                                    }
-                                    None => (bounds.origin, window.line_height()),
-                                };
-                                let caret_rect = Bounds::new(origin, size(px(1.5), line_h));
-                                caret_slot.set(Some(caret_rect));
-                                if focused {
-                                    window.paint_quad(fill(caret_rect, rgb(TEXT)));
-                                }
-                            },
-                        )
-                        // 缺少 top/left 时绝对定位元素落在静态位置，即占位文字的下一行；
-                        // 空输入的光标取 canvas 原点，因此会画在占位文字下方而非其起点。
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full(),
+                        div()
+                            .id("composer-canvas-host")
+                            .relative()
+                            .w_full()
+                            .min_w_0()
+                            .map(|el| match text {
+                                Some(text) => el.child(div().w_full().min_w_0().child(text)),
+                                None => el.child(div().text_color(rgb(MUTED)).child(placeholder)),
+                            })
+                            .child(
+                                canvas(
+                                    |_, _, _| {},
+                                    move |bounds, _, window, cx| {
+                                        window.handle_input(
+                                            &focus,
+                                            gpui::ElementInputHandler::new(bounds, entity.clone()),
+                                            cx,
+                                        );
+                                        // Prepaint has run for the text by now, so its layout can be read.
+                                        let (origin, line_h) = match &layout {
+                                            Some(l) => {
+                                                painted.set(true);
+                                                let at = l
+                                                    .position_for_index(caret)
+                                                    .unwrap_or(bounds.origin);
+                                                (at, l.line_height())
+                                            }
+                                            None => (bounds.origin, window.line_height()),
+                                        };
+                                        let caret_rect = Bounds::new(origin, size(px(1.5), line_h));
+                                        caret_slot.set(Some(caret_rect));
+                                        if reveal
+                                            && let Some(next) = reveal_offset(
+                                                caret_rect,
+                                                scroll.bounds(),
+                                                scroll.offset(),
+                                            )
+                                        {
+                                            // 输入框限高后，键入/粘贴/方向键会把光标移出可视区；
+                                            // 绘制期 refresh 无效，只能下一帧通知重绘以应用新偏移。
+                                            scroll.set_offset(next);
+                                            let target = notify_target.clone();
+                                            window.on_next_frame(move |_, cx| {
+                                                target.update(cx, |_, cx| cx.notify())
+                                            });
+                                        }
+                                        if focused {
+                                            window.paint_quad(fill(caret_rect, rgb(TEXT)));
+                                        }
+                                    },
+                                )
+                                // 缺少 top/left 时绝对定位元素落在静态位置，即占位文字的下一行；
+                                // 空输入的光标取 canvas 原点，因此会画在占位文字下方而非其起点。
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .size_full(),
+                            ),
                     ),
             )
     }
 }
+
+#[cfg(test)]
+#[path = "text_view_tests.rs"]
+mod tests;

@@ -3,6 +3,7 @@
 //! the interaction cards.
 
 pub(crate) mod background_controls;
+pub(crate) mod config_apply;
 pub(crate) mod context_usage;
 pub(crate) mod control;
 pub(crate) mod goal;

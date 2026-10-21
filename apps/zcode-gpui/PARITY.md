@@ -5,6 +5,37 @@ implemented; the broader parity backlog is not complete. This file is the domain
 for `apps/zcode-gpui`: update it before changing behavior. Current status and evidence
 limits below take precedence over the retained historical milestone requirements.
 
+## Plan overlay, long text in queue and composer (2026-10-21)
+
+- **Queued rows are one line.** Each queued row shows its text collapsed to a single line
+  (newlines become spaces), capped at 200 characters and ellipsized at the row width
+  (Desktop `ConversationQueuePanel.tsx` `truncate`). The row list is capped at 200px and
+  scrolls with the wheel. Edit still loads the full text into the composer.
+- **Composer caps its height.** The input grows up to 160px (Desktop `LexicalChatInput.tsx`
+  `max-h-40 overflow-y-auto`), then scrolls with the wheel. Typing, pasting and caret keys keep
+  the caret visible. Pastes of 15,360 UTF-16 units or more still become a text attachment.
+- **Plan is an overlay, not a mode.** The CLI keeps `config.mode` as the permission mode
+  (`build | guarded | yolo`, legacy `edit`) and toggles `config.planEnabled` separately
+  (`packages/shared/src/execution-state.ts`). GPUI mirrors both. The mode trigger always shows the
+  permission label; when plan is on, a "Plan" chip next to it turns plan off on click. The menu is
+  Desktop's (`V4ComposerModeControls.tsx`): a "Plan mode" check row, a separator, then the
+  permission radios Ask before changes / Autonomous mode / Full access. Edit automatically is
+  listed only while it is the current mode.
+- **Commands.** In a live session, plan on sends `switchCollaborationMode{mode:"plan"}` and plan
+  off sends `switchCollaborationMode{mode:<current permission>}`. A permission pick while plan is
+  off sends `{mode:X}`. A permission pick while plan is on only updates the draft submission
+  override `{mode:X, planEnabled:true}`, which rides on the next send, because `{mode:X}` alone
+  would also clear plan. New-task drafts submit the chosen (or workspace default) permission mode
+  plus `planEnabled`, never a forced `build`.
+- **Leaving plan keeps the permission mode.** ExitPlanMode approval only clears `planEnabled`, so
+  a session in Full access + Plan returns to Full access. Approval never escalates a session to
+  Full access by itself.
+- **Agent-driven transitions win.** When `config.planTransition.toolCallId` changes
+  (EnterPlanMode/ExitPlanMode), any `mode`/`planEnabled` left in that session's draft override is
+  dropped (Desktop `useDraftConfigControl.ts` planTransition rebase).
+- Not ported: menu row descriptions, and the warning colour on the Full access trigger (the
+  vendored ely menu host has neither).
+
 ## Diagnostics after edits (2026-10-20, fork CLI + GPUI)
 
 - No Electron counterpart. Settings › Agent capabilities › Diagnostics, switch "Diagnostics after

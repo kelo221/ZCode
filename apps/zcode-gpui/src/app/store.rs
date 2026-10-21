@@ -45,6 +45,8 @@ pub struct AppState {
     /// createSession.config since CAS config commands need a live session.
     pub ui_model_value: Option<String>,
     pub ui_mode: Option<String>,
+    /// Draft plan overlay (Desktop `planEnabled`), independent of `ui_mode`.
+    pub ui_plan: bool,
     pub ui_thought: Option<String>,
     pub composer: Entity<crate::composer::input::Composer>,
     /// Per-session draft text saved when navigating between conversations.
@@ -153,6 +155,7 @@ impl AppState {
             workspace_configs: HashMap::new(),
             ui_model_value: None,
             ui_mode: None,
+            ui_plan: false,
             ui_thought: None,
             composer: cx.new(crate::composer::input::Composer::new),
             session_drafts: HashMap::new(),
