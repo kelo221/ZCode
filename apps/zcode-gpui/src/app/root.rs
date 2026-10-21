@@ -42,6 +42,7 @@ pub struct RootView {
     pub(crate) question_picks: HashMap<String, HashMap<usize, Vec<String>>>,
     /// Question stepper position per interaction (interactionId → question index).
     pub(crate) question_steps: HashMap<String, usize>,
+    pub(crate) interaction_input: crate::conversation::interaction_input::InteractionInput,
     pub(crate) tool_images: crate::transcript::tool_images::ToolImageCache,
     pub(crate) dock_open: bool,
     pub(crate) dock_tab: DockTab,
@@ -114,6 +115,7 @@ impl RootView {
             confirm: None,
             question_picks: HashMap::new(),
             question_steps: HashMap::new(),
+            interaction_input: crate::conversation::interaction_input::InteractionInput::new(cx),
             tool_images: Default::default(),
             commit_input,
             dock_open: false,

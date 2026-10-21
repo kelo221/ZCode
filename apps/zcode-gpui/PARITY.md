@@ -36,6 +36,34 @@ limits below take precedence over the retained historical milestone requirements
 - Not ported: menu row descriptions, and the warning colour on the Full access trigger (the
   vendored ely menu host has neither).
 
+## Answering agent questions in the card (2026-10-21)
+
+- **The card replaces the composer.** While a blocking interaction (any `permission` or
+  `userInput`, not `workspaceHookReview`) is pending, its card sits in the composer's slot,
+  under the queue panel, and the composer is hidden. The composer entity keeps its draft, and
+  Enter can no longer queue a normal message that leaves the question unanswered (Desktop
+  `ConversationComposer.tsx` `display:none` while `blockingRequestId` is set). Only the first
+  blocking interaction shows (Desktop `V4InteractionDialogs.tsx`); workspace hook reviews still
+  show alongside it.
+- **Typed answers live in the card.** One single-line input sits in the card, under the options:
+  - Questions: placeholder "Enter your answer...", one draft per question that survives
+    Back/Continue. The typed text is sent along with the picked options, joined into
+    `answers[question]` and `answer_<i>` (an array for multi-select; `answer` too when there is
+    only one question). For single-select questions, typed text replaces the picked option,
+    and picking an option clears the typed text (Desktop `ElicitationDialog.tsx`
+    `getQuestionAnswers` / `updateElicitationDraftsForOption`). Enter goes to the next
+    question, or submits on the last one.
+  - Plan approval: the input is the change request; "Request changes" or Enter sends it as
+    feedback.
+  - Permission with `freeText`: placeholder "Tell the model what to do instead...";
+    "Deny with feedback" or Enter denies with that text (Desktop `PermissionDialog.tsx`).
+  - Questionless `userInput` with `freeText`: "Send answer" or Enter sends the text.
+- On the desktop the input takes focus when the card appears, and focus returns to the
+  composer once the card is answered. The phone never focuses it automatically (soft keyboard
+  rule).
+- Empty-text Enter on plan approval and permission cards does nothing; Approve and Deny stay
+  explicit buttons.
+
 ## Diagnostics after edits (2026-10-20, fork CLI + GPUI)
 
 - No Electron counterpart. Settings › Agent capabilities › Diagnostics, switch "Diagnostics after
@@ -163,7 +191,7 @@ limits below take precedence over the retained historical milestone requirements
   `PreferenceChange::NoiseFree`.
 - Rows shown while it's on: user input, turn headers, assistant text that has text, thinking
   that has text, and tool cards for `TodoWrite`, `AskUserQuestion` and `ExitPlanMode`, plus any
-  tool waiting on `pendingApproval`. Permission and question prompts live by the composer and
+  tool waiting on `pendingApproval`. Permission and question prompts replace the composer and
   are never affected. Other tool calls, and subagent cards not paired to a tool call, fold.
   Rows that render nothing (empty thinking, empty text, paired subagent rows, unknown kinds)
   don't break a run.

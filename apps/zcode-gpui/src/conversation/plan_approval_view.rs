@@ -1,13 +1,11 @@
 //! ExitPlanMode approval card (Desktop `V4InteractionDialogs.tsx` plan
-//! branch): the plan rendered as markdown, a one-click Approve, feedback
-//! from the message box, and Decline.
+//! branch): the plan rendered as markdown, a one-click Approve, a change
+//! request typed in the card, and Decline.
 
 use crate::app::root::RootView;
-use crate::conversation::interactions::{
-    PendingInteraction, decline_answer, free_text_answer, plan_approve_answer,
-};
+use crate::conversation::interactions::{PendingInteraction, decline_answer, plan_approve_answer};
 use crate::shared::markdown::render_markdown;
-use crate::shared::theme::{ACCENT, BORDER, CODE_BG, DANGER, MUTED, TEXT};
+use crate::shared::theme::{ACCENT, BORDER, CODE_BG, DANGER, MUTED};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{AnyElement, Context, ElementId, FontWeight, div, prelude::*, px};
 
@@ -53,24 +51,7 @@ impl RootView {
             plan_approve_answer(pi),
             cx,
         );
-        let iid_fb = iid.to_string();
-        let feedback = crate::conversation::interaction_view::action_btn(
-            format!("ia-{iid}-feedback"),
-            "Request changes (message text)",
-            crate::shared::theme::CARD,
-            TEXT,
-        )
-        .border_1()
-        .border_color(rgb(BORDER))
-        .on_click(cx.listener(move |this, _, _, cx| {
-            cx.stop_propagation();
-            let iid = iid_fb.clone();
-            this.state.update(cx, |app, cx| {
-                if let Some(text) = app.take_composer_answer(cx) {
-                    app.resolve_interaction(&iid, free_text_answer(None, &text), cx);
-                }
-            });
-        }));
+        let feedback = self.typed_answer_btn(pi, "Request changes", cx);
         let decline = self.answer_btn(
             iid,
             "decline",
@@ -110,6 +91,7 @@ impl RootView {
                 )
             })
             .child(body)
+            .child(self.interaction_input_row())
             .child(
                 div()
                     .flex()

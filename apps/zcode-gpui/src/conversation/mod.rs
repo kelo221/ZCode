@@ -8,6 +8,7 @@ pub(crate) mod context_usage;
 pub(crate) mod control;
 pub(crate) mod goal;
 pub(crate) mod interaction_actions;
+pub(crate) mod interaction_input;
 pub(crate) mod interaction_view;
 pub(crate) mod interactions;
 pub(crate) mod model;

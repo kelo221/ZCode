@@ -1,9 +1,10 @@
 //! Interaction cards: permission requests, agent questions (single/multi
-//! question, multi-select), free-text answers taken from the message box.
+//! question, multi-select), and typed answers/feedback from the card's input
+//! (conversation/interaction_input.rs).
 
 use crate::app::root::RootView;
 use crate::conversation::interactions::{
-    FULL_ACCESS_OPTION_ID, PendingInteraction, decline_answer, free_text_answer, option_answer,
+    FULL_ACCESS_OPTION_ID, PendingInteraction, decline_answer, option_answer,
 };
 use crate::shared::theme::{ACCENT, AMBER, BORDER, CARD, DANGER, MUTED, TEXT};
 use crate::shared::theme_colors::color as rgb;
@@ -41,8 +42,7 @@ impl RootView {
         action_btn(format!("ia-{iid}-{key}"), label, colors.0, colors.1).on_click(cx.listener(
             move |this, _, _, cx| {
                 cx.stop_propagation();
-                this.question_picks.remove(&iid);
-                this.question_steps.remove(&iid);
+                this.clear_interaction_drafts(&iid, cx);
                 let answer = answer.clone();
                 let iid = iid.clone();
                 this.state
@@ -51,28 +51,21 @@ impl RootView {
         ))
     }
 
-    /// Free-text button: the message box text becomes the answer/feedback.
-    fn free_text_btn(
+    /// Sends the text typed in the card's input (answer, plan change request
+    /// or deny feedback).
+    pub(crate) fn typed_answer_btn(
         &self,
-        iid: &str,
+        pi: &PendingInteraction,
         label: &str,
-        option_id: Option<String>,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let iid = iid.to_string();
-        action_btn(format!("ia-{iid}-text"), label, CARD, TEXT)
+        let pi = pi.clone();
+        action_btn(format!("ia-{}-text", pi.interaction_id), label, CARD, TEXT)
             .border_1()
             .border_color(rgb(BORDER))
             .on_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();
-                let iid = iid.clone();
-                let option_id = option_id.clone();
-                this.state.update(cx, |app, cx| {
-                    if let Some(text) = app.take_composer_answer(cx) {
-                        let answer = free_text_answer(option_id.as_deref(), &text);
-                        app.resolve_interaction(&iid, answer, cx);
-                    }
-                });
+                this.send_typed_answer_or_hint(&pi, cx);
             }))
     }
 
@@ -131,16 +124,9 @@ impl RootView {
                     );
                     actions = actions.child(btn);
                 }
-                if pi.free_text
-                    && let Some(deny) = pi.deny_option()
-                {
-                    let deny_id = Some(deny.option_id.clone());
-                    actions = actions.child(self.free_text_btn(
-                        iid,
-                        "Deny with message as feedback",
-                        deny_id,
-                        cx,
-                    ));
+                if pi.free_text && pi.deny_option().is_some() {
+                    body = body.child(self.interaction_input_row());
+                    actions = actions.child(self.typed_answer_btn(pi, "Deny with feedback", cx));
                 }
             }
             "userInput" => {
@@ -156,16 +142,12 @@ impl RootView {
                         );
                         actions = actions.child(btn);
                     }
+                    if pi.free_text {
+                        body = body.child(self.interaction_input_row());
+                        actions = actions.child(self.typed_answer_btn(pi, "Send answer", cx));
+                    }
                 } else {
                     body = body.child(self.question_stepper(pi, cx));
-                }
-                if pi.free_text || !pi.questions.is_empty() {
-                    actions = actions.child(self.free_text_btn(
-                        iid,
-                        "Answer with message text",
-                        None,
-                        cx,
-                    ));
                 }
                 actions = actions.child(self.answer_btn(
                     iid,

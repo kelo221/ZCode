@@ -103,10 +103,39 @@ fn questions_answer_keys_by_question_text() {
     toggle_pick(picks.entry(1).or_default(), "b", true);
     toggle_pick(picks.entry(1).or_default(), "a", true);
     assert_eq!(
-        questions_answer(&questions, &picks),
+        questions_answer(&questions, &picks, &HashMap::new()),
         json!({ "action": "accept",
                 "content": { "answers": { "Which DB?": "pg", "Extras?": "b" },
                              "answer_0": "pg", "answer_1": ["b"] } })
+    );
+}
+
+#[test]
+fn typed_answers_join_picks_and_replace_single_select_picks() {
+    let q = |question: &str, multi_select| Question {
+        question: question.into(),
+        header: String::new(),
+        options: vec![],
+        multi_select,
+    };
+    let questions = vec![q("Which DB?", false), q("Extras?", true), q("Name?", false)];
+    let picks = HashMap::from([(0, vec!["pg".to_string()]), (1, vec!["a".to_string()])]);
+    let custom = HashMap::from([
+        (0, "  sqlite  ".to_string()),
+        (1, "c".to_string()),
+        (2, "   ".to_string()),
+    ]);
+    assert_eq!(
+        questions_answer(&questions, &picks, &custom),
+        json!({ "action": "accept",
+                "content": { "answers": { "Which DB?": "sqlite", "Extras?": "a, c" },
+                             "answer_0": "sqlite", "answer_1": ["a", "c"] } })
+    );
+    let one = vec![q("Which DB?", false)];
+    let custom = HashMap::from([(0, "duckdb".to_string())]);
+    assert_eq!(
+        questions_answer(&one, &HashMap::new(), &custom)["content"]["answer"],
+        "duckdb"
     );
 }
 

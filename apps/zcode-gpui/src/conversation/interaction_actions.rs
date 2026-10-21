@@ -45,17 +45,4 @@ impl AppState {
         }
         cx.notify();
     }
-
-    /// Composer text used as an interaction's free-text answer/feedback;
-    /// clears the composer on use.
-    pub(crate) fn take_composer_answer(&mut self, cx: &mut Context<Self>) -> Option<String> {
-        let text = self.composer.read(cx).text().trim().to_string();
-        if text.is_empty() {
-            self.push_error("Type your answer in the message box first".into());
-            cx.notify();
-            return None;
-        }
-        self.composer.update(cx, |c, _ccx| c.set_text(""));
-        Some(text)
-    }
 }

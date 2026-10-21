@@ -183,18 +183,30 @@ pub fn free_text_answer(option_id: Option<&str>, text: &str) -> Value {
 /// Question answer in the shape of Desktop `buildElicitationResponseContent`
 /// (packages/ui/src/ElicitationDialog.tsx): `answers` keyed by question text
 /// (comma-joined), plus `answer_<i>` per question and `answer` for a single
-/// question. `picks` holds option *values*.
+/// question. `picks` holds option *values*; `custom` the text typed per
+/// question, appended after the picks (for single-select it replaces them,
+/// as typing clears the pick in Desktop `updateCustomAnswer`).
 ///
 // 修复：ExitPlanMode 的问题文本是投影层的 `reason`，与 broker 固定的问题文案不同，
 // broker 只能经 `answer_0`/`answer` 取到审批值；此前只发 `answers[label]`（"Approve"
 // 而非 value "approve"），每次批准都落成 "Permission denied for ExitPlanMode"。
-pub fn questions_answer(questions: &[Question], picks: &HashMap<usize, Vec<String>>) -> Value {
+pub fn questions_answer(
+    questions: &[Question],
+    picks: &HashMap<usize, Vec<String>>,
+    custom: &HashMap<usize, String>,
+) -> Value {
     let mut answers = Map::new();
     let mut content = Map::new();
     for (i, q) in questions.iter().enumerate() {
-        let Some(values) = picks.get(&i).filter(|v| !v.is_empty()) else {
-            continue;
+        let typed = custom.get(&i).map(|t| t.trim()).filter(|t| !t.is_empty());
+        let mut values = match (q.multi_select, typed) {
+            (false, Some(_)) => Vec::new(),
+            _ => picks.get(&i).cloned().unwrap_or_default(),
         };
+        values.extend(typed.map(str::to_string));
+        if values.is_empty() {
+            continue;
+        }
         answers.insert(q.question.clone(), json!(values.join(", ")));
         let positional = if q.multi_select {
             json!(values)
@@ -223,7 +235,7 @@ pub fn plan_approve_answer(pi: &PendingInteraction) -> Value {
         pi.questions.clone()
     };
     let picks = HashMap::from([(0, vec![PLAN_APPROVE_VALUE.to_string()])]);
-    questions_answer(&questions[..1], &picks)
+    questions_answer(&questions[..1], &picks, &HashMap::new())
 }
 
 pub fn decline_answer() -> Value {

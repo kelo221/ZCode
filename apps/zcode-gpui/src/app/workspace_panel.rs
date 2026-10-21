@@ -75,6 +75,24 @@ impl RootView {
             running,
             ..
         } = input;
+        // Desktop hides the composer behind a blocking interaction, so typed
+        // text can only answer it (ConversationComposer `display:none`).
+        let blocking = if is_read_only {
+            None
+        } else {
+            crate::conversation::interaction_input::blocking(&pending_interactions).cloned()
+        };
+        self.sync_interaction_input(blocking.as_ref(), window, cx);
+        let shown: Vec<_> = blocking
+            .iter()
+            .cloned()
+            .chain(
+                pending_interactions
+                    .iter()
+                    .filter(|pi| !is_read_only && pi.kind == "workspaceHookReview")
+                    .cloned(),
+            )
+            .collect();
         let panel = |el: gpui::Div| {
             el.rounded(px(PANEL_RADIUS))
                 .overflow_hidden()
@@ -93,7 +111,10 @@ impl RootView {
             .when(!is_read_only, |el| {
                 el.children(self.queue_panel(queue.as_ref(), cx))
                     .children(self.intent_banner(&intent, cx))
-                    .child(self.composer_card(composer, running, cx))
+                    .children(self.interaction_cards(&shown, cx))
+                    .when(blocking.is_none(), |el| {
+                        el.child(self.composer_card(composer, running, cx))
+                    })
             })
             .when(is_read_only, |el| {
                 el.child(self.subagent_read_only_banner(cx))
@@ -130,8 +151,8 @@ impl RootView {
                     .flex_1()
                     .min_h_0()
                     .children(self.error_banners(errors, phase_error, cx))
-                    // Pinned strip above the transcript: history paging, subagent
-                    // navigation and pending interaction cards.
+                    // Pinned strip above the transcript: history paging and subagent
+                    // navigation.
                     .child(
                         div()
                             .w(px(column))
@@ -140,12 +161,7 @@ impl RootView {
                             .flex_col()
                             .gap_1()
                             .children(self.subagent_back_bar(cx))
-                            .children(self.load_earlier_btn(has_more, cx))
-                            .children(if is_read_only {
-                                Vec::new()
-                            } else {
-                                self.interaction_cards(&pending_interactions, cx)
-                            }),
+                            .children(self.load_earlier_btn(has_more, cx)),
                     )
                     .child(body)
                     // Narrow windows keep the side pane as an overlay.

@@ -5,9 +5,7 @@
 
 use crate::app::root::RootView;
 use crate::conversation::interaction_view::action_btn;
-use crate::conversation::interactions::{
-    PendingInteraction, Question, questions_answer, step_question, toggle_pick,
-};
+use crate::conversation::interactions::{PendingInteraction, Question, step_question, toggle_pick};
 use crate::shared::theme::{ACCENT, BORDER, CARD, CARD_HOVER, MUTED, TAG, TEXT};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{Context, Div, FontWeight, SharedString, div, prelude::*};
@@ -22,8 +20,10 @@ impl RootView {
         cx: &mut Context<Self>,
     ) -> Div {
         let mut rows = div().flex().flex_col().gap_1().w_full().min_w_0();
+        // Typed text replaces a single-select pick (Desktop updateCustomAnswer).
+        let typed = !q.multi_select && !self.typed_text(iid, qi, cx).is_empty();
         for (oi, opt) in q.options.iter().enumerate() {
-            let on = selected.contains(&opt.value);
+            let on = !typed && selected.contains(&opt.value);
             let (iid_c, value, multi) = (iid.to_string(), opt.value.clone(), q.multi_select);
             rows = rows.child(
                 div()
@@ -71,6 +71,9 @@ impl RootView {
                         cx.stop_propagation();
                         let picks = this.question_picks.entry(iid_c.clone()).or_default();
                         toggle_pick(picks.entry(qi).or_default(), &value, multi);
+                        if !multi {
+                            this.clear_typed_text(&iid_c, qi, cx);
+                        }
                         cx.notify();
                     })),
             );
@@ -149,7 +152,7 @@ impl RootView {
             );
         }
         let primary = if last { "Submit" } else { "Continue" };
-        let questions = pi.questions.clone();
+        let pi_submit = pi.clone();
         nav = nav.child(
             action_btn(format!("ia-{iid}-next"), primary, ACCENT, 0x000000).on_click(cx.listener(
                 move |this, _, _, cx| {
@@ -160,12 +163,7 @@ impl RootView {
                         cx.notify();
                         return;
                     }
-                    let picks = this.question_picks.remove(&iid).unwrap_or_default();
-                    this.question_steps.remove(&iid);
-                    let answer = questions_answer(&questions, &picks);
-                    let iid = iid.clone();
-                    this.state
-                        .update(cx, |app, cx| app.resolve_interaction(&iid, answer, cx));
+                    this.submit_questions(&pi_submit, cx);
                 },
             )),
         );
@@ -185,6 +183,7 @@ impl RootView {
                     .child(q.question.clone()),
             )
             .child(self.question_option_rows(&pi.interaction_id, qi, q, &selected, cx))
+            .child(self.interaction_input_row())
             .child(nav)
     }
 }
