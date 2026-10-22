@@ -354,4 +354,42 @@ describe("main agent tool pool", () => {
       "using `find`/Glob, `grep`/Grep, and Read",
     );
   });
+
+  it("keeps the code-search Bash guidance after the session shell refresh re-registers Bash", () => {
+    const runtime = createTestAgentRuntime(
+      createSessionId("runtime-main-code-search-bash-guidance"),
+      {
+        mode: "build",
+        workingDirectory: "/workspace/project",
+      },
+      {
+        eventStore: createTestSessionEventStore(),
+        codeSearchPort: {
+          findFiles: async () => ({ ok: true as const, files: [], totalMatched: 0 }),
+          searchCode: async () => ({
+            ok: true as const,
+            matches: [],
+            mode: "plain" as const,
+            fuzzyFallback: false,
+          }),
+        },
+      },
+    );
+
+    runtime.initializeSessionShellEnvironmentIfNeeded({
+      dialect: "cmd",
+      display: { name: "CMD" },
+      id: "cmd",
+      label: "CMD",
+      path: "cmd.exe",
+      source: "user-config",
+    });
+
+    const byName = new Map(runtime.getTools().map((tool) => [tool.name, tool]));
+    expect(byName.has("FindFiles")).toBe(true);
+    expect(byName.has("SearchCode")).toBe(true);
+    expect(byName.get("Bash")?.description ?? "").toContain(
+      "use FindFiles for file names and SearchCode for file contents",
+    );
+  });
 });

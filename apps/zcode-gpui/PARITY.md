@@ -199,6 +199,14 @@ limits below take precedence over the retained historical milestone requirements
   the fff native library loads, so Electron (which never sends the field) and any failed load
   leave the tools unregistered and the agent searches with Bash. Subagents and workflow child
   agents share their parent's port; the Explore subagent may use both tools.
+- Steering (2026-10-22): when both tools are registered for an agent, its prompts point at them
+  instead of shell search. The Bash description lists `find`, `grep` and `rg` among the commands
+  to avoid and names FindFiles/SearchCode as the replacement; the Explore system prompt tells it
+  to search with FindFiles/SearchCode and keep Bash for other read-only commands. A custom agent
+  profile whose `tools:` list names `Glob` or `Grep` also gets `FindFiles` or `SearchCode`
+  respectively, because the Bash-search branch unregisters Glob/Grep and such a profile would
+  otherwise be left with Bash `find`/`grep` only. An explicit `disallowedTools` entry still wins.
+  The shared Agent tool description and agent listing stay host-neutral (no FindFiles/SearchCode).
 - Owner: the CLI process (`bootstrap/src/zcode-protocol/code-search-manager.ts`). One fff
   index per workspace key, shared by every session, subagent and workflow agent in the
   process. It opens on the first query and closes once the workspace has had no active agent

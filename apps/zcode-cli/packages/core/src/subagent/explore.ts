@@ -8,6 +8,8 @@ export const EXPLORE_AGENT_TYPE = "Explore" as const;
 
 export interface ExploreAgentPromptOptions {
   embeddedSearchEnabled?: boolean;
+  /** 子 runtime 注册了 FindFiles/SearchCode（注入了 CodeSearchPort）。 */
+  codeSearchEnabled?: boolean;
 }
 
 export interface LegacyExploreSystemPromptOptions extends ExploreAgentPromptOptions {
@@ -18,18 +20,28 @@ export interface LegacyExploreSystemPromptOptions extends ExploreAgentPromptOpti
 }
 
 export function buildExploreAgentPrompt(options: ExploreAgentPromptOptions): string {
-  const searchGuidelines = options.embeddedSearchEnabled
+  // 修复原因：fff 索引在场时这里仍只写「Bash 跑 find/grep」，子代理照着 system prompt
+  // 走、绕开了已注册的 FindFiles/SearchCode。工具在场就把搜索指引指向它们。
+  const searchGuidelines = options.codeSearchEnabled
     ? [
-        "- Use `find` via Bash for broad file pattern matching",
-        "- Use `grep` via Bash for searching file contents with regex",
+        "- Use FindFiles to locate files by name or path (fuzzy, typo-tolerant, always-up-to-date index)",
+        "- Use SearchCode for searching file contents (plain text, or regex when the query has regex syntax); narrow both with constraint tokens such as `src/`, `*.ts` or `!test`",
+        "- Do NOT use `find`, `grep` or `rg` via Bash for searching; FindFiles and SearchCode are faster and cover the workspace",
       ]
-    : [
-        "- Use Glob for broad file pattern matching",
-        "- Use Grep for searching file contents with regex",
-      ];
-  const bashReadOnlyCommands = options.embeddedSearchEnabled
-    ? "ls, git status, git log, git diff, find, grep, cat, head, tail"
-    : "ls, git status, git log, git diff, find, cat, head, tail";
+    : options.embeddedSearchEnabled
+      ? [
+          "- Use `find` via Bash for broad file pattern matching",
+          "- Use `grep` via Bash for searching file contents with regex",
+        ]
+      : [
+          "- Use Glob for broad file pattern matching",
+          "- Use Grep for searching file contents with regex",
+        ];
+  const bashReadOnlyCommands = options.codeSearchEnabled
+    ? "ls, git status, git log, git diff, cat, head, tail"
+    : options.embeddedSearchEnabled
+      ? "ls, git status, git log, git diff, find, grep, cat, head, tail"
+      : "ls, git status, git log, git diff, find, cat, head, tail";
 
   return [
     "You are ZCode Explore, a file search and codebase research specialist for ZCode CLI. You excel at thoroughly navigating and exploring codebases.",
@@ -68,5 +80,8 @@ export function buildExploreAgentPrompt(options: ExploreAgentPromptOptions): str
 }
 
 export function buildExploreSystemPrompt(options: LegacyExploreSystemPromptOptions): string {
-  return buildExploreAgentPrompt({ embeddedSearchEnabled: options.embeddedSearchEnabled });
+  return buildExploreAgentPrompt({
+    embeddedSearchEnabled: options.embeddedSearchEnabled,
+    codeSearchEnabled: options.codeSearchEnabled,
+  });
 }

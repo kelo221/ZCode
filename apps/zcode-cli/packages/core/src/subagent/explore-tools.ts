@@ -17,6 +17,27 @@ export const EXPLORE_AGENT_ALLOWED_TOOLS = [
 // 其余宿主（Electron）的允许列表与事件载荷保持不变。
 export const EXPLORE_AGENT_CODE_SEARCH_TOOLS = ["FindFiles", "SearchCode"] as const;
 
+const CODE_SEARCH_EQUIVALENTS: ReadonlyMap<string, string> = new Map([
+  ["Glob", "FindFiles"],
+  ["Grep", "SearchCode"],
+]);
+
+/**
+ * 修复原因：自定义 agent profile 的 `tools:` 写的是 Glob/Grep，而 embedded search 分支会注销
+ * 这两个工具，子代理就只剩 Bash find/grep，即便父会话有 fff 索引。只读搜索能力等价，
+ * 所以按名单里的 Glob/Grep 补上 FindFiles/SearchCode；调用方只在父工具面确有这对工具时调用。
+ */
+export function withCodeSearchEquivalents(toolNames: readonly string[]): readonly string[] {
+  const present = new Set(toolNames);
+  const added = toolNames.flatMap((toolName) => {
+    const equivalent = CODE_SEARCH_EQUIVALENTS.get(toolName);
+    if (!equivalent || present.has(equivalent)) return [];
+    present.add(equivalent);
+    return [equivalent];
+  });
+  return added.length > 0 ? [...toolNames, ...added] : toolNames;
+}
+
 export type ExploreAgentAllowedTool =
   | (typeof EXPLORE_AGENT_ALLOWED_TOOLS)[number]
   | (typeof EXPLORE_AGENT_CODE_SEARCH_TOOLS)[number];

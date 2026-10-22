@@ -1,6 +1,8 @@
 /* eslint-disable max-lines -- subagent runtime wiring 集中衔接 child runtime、tool pool、权限、MCP 与 activity watchdog，拆分需单独迁移。 */
 import {
+  FIND_FILES_TOOL_NAME,
   RESPOND_TO_COORDINATOR_TOOL_NAME,
+  SEARCH_CODE_TOOL_NAME,
   SESSION_ENTRY_MODEL_SELECTION,
   parseModelSelectionValue,
 } from "@zcode/contracts";
@@ -46,6 +48,7 @@ import {
   buildSubagentChildDisallowRules,
   filterSubagentChildToolNames,
 } from "../../subagent/tool-policy.js";
+import { withCodeSearchEquivalents } from "../../subagent/explore-tools.js";
 import { isSubagentDispatchToolName } from "../../tool/compat.js";
 import { resolveEmbeddedSearchBranchCapability } from "../../embedded-search/capability.js";
 import { getSessionShellEnvironment } from "./session-shell-environment.js";
@@ -171,7 +174,11 @@ export function createDefaultSubagentPort(
         };
         const baseAgentPrompt =
           builtInExplore && request.systemPrompt?.trim() === ""
-            ? buildExploreAgentPrompt({ embeddedSearchEnabled })
+            ? buildExploreAgentPrompt({
+                embeddedSearchEnabled,
+                // 与子 runtime 注册 FindFiles/SearchCode 的门一致（includeCodeSearch 看的就是这个 port）。
+                codeSearchEnabled: childCodeSearchPort !== undefined,
+              })
             : request.systemPrompt?.trim();
         const persistentMemory = await loadPersistentAgentMemory({
           fileSystemPort: deps.fileSystemPort,
@@ -657,8 +664,13 @@ function resolveSubagentToolAllowlist(
     );
   }
   if (request.allowedTools.length > 0) {
+    const parentHasCodeSearch =
+      this.registry.has(FIND_FILES_TOOL_NAME) && this.registry.has(SEARCH_CODE_TOOL_NAME);
+    const explicitTools = parentHasCodeSearch
+      ? withCodeSearchEquivalents(request.allowedTools)
+      : request.allowedTools;
     return appendCoordinatorResponseTool(
-      filterSubagentChildToolNames(request.allowedTools, disallowedRules),
+      filterSubagentChildToolNames(explicitTools, disallowedRules),
     );
   }
   return appendCoordinatorResponseTool([]);

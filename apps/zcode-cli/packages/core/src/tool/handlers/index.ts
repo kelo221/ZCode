@@ -240,6 +240,12 @@ export function registerBuiltInTools(
 ): void {
   const allowedTools = options.allowedTools ? new Set(options.allowedTools) : undefined;
   const disallowedTools = createToolRuleNameSet(options.disallowedTools);
+  // Bash 描述只在这对搜索工具确实会注册进同一工具面时才点名它们，与下方注册过滤同一判据。
+  const codeSearchVisible =
+    options.includeCodeSearch === true &&
+    [FIND_FILES_TOOL_NAME, SEARCH_CODE_TOOL_NAME].every(
+      (name) => (!allowedTools || allowedTools.has(name)) && !disallowedTools?.has(name),
+    );
 
   for (const entry of builtInTools) {
     if (
@@ -318,7 +324,7 @@ export function registerBuiltInTools(
     if (entry.metadata.name === "js" && options.includeNodeRepl !== true) {
       continue;
     }
-    registry.register(resolveBuiltInToolEntryForBranch(entry, options), {
+    registry.register(resolveBuiltInToolEntryForBranch(entry, options, codeSearchVisible), {
       silentDuplicateWarning: options.silentDuplicateWarnings,
     });
   }
@@ -327,10 +333,12 @@ export function registerBuiltInTools(
 function resolveBuiltInToolEntryForBranch(
   entry: ToolEntry,
   options: RegisterBuiltInToolsOptions,
+  codeSearchVisible: boolean,
 ): ToolEntry {
   if (entry.metadata.name === "Bash") {
     return createBashToolEntry({
       bashTimeoutPolicy: options.bashTimeoutPolicy,
+      codeSearchEnabled: codeSearchVisible,
       embeddedSearchEnabled: options.embeddedSearchEnabled,
     });
   }

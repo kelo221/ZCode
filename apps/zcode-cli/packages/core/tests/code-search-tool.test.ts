@@ -5,7 +5,11 @@ import { findFilesToolEntry, searchCodeToolEntry } from "../src/tool/handlers/co
 import {
   buildExploreAllowedTools,
   formatExploreAllowedToolsForAgentDescription,
+  withCodeSearchEquivalents,
 } from "../src/subagent/explore-tools.js";
+import { buildExploreAgentPrompt } from "../src/subagent/explore.js";
+
+type RegisterBuiltInToolsOptions = NonNullable<Parameters<typeof registerBuiltInTools>[1]>;
 import type { ToolExecutionContext } from "../src/tool/types.js";
 
 function createContext(port?: CodeSearchPort): ToolExecutionContext {
@@ -55,6 +59,64 @@ describe("FindFiles / SearchCode tools", () => {
       expect(description).not.toContain("FindFiles");
       expect(description).not.toContain("SearchCode");
     }
+  });
+
+  it("point the Bash description at the index only when both tools register", () => {
+    const bashDescription = (options: RegisterBuiltInToolsOptions) => {
+      const registry = createToolRegistry();
+      registerBuiltInTools(registry, options);
+      return registry.toContracts().find((contract) => contract.name === "Bash")?.description ?? "";
+    };
+
+    const withIndex = bashDescription({ includeCodeSearch: true, embeddedSearchEnabled: true });
+    expect(withIndex).toContain(
+      "Avoid using this tool to run `find`, `grep`, `rg`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands",
+    );
+    expect(withIndex).toContain("use FindFiles for file names and SearchCode for file contents");
+
+    for (const options of [
+      { embeddedSearchEnabled: true },
+      { includeCodeSearch: true, embeddedSearchEnabled: true, allowedTools: ["Bash", "Read"] },
+      { includeCodeSearch: true, embeddedSearchEnabled: true, disallowedTools: ["SearchCode"] },
+    ] satisfies RegisterBuiltInToolsOptions[]) {
+      const description = bashDescription(options);
+      expect(description).not.toContain("FindFiles");
+      expect(description).toContain(
+        "Avoid using this tool to run `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands",
+      );
+    }
+  });
+
+  it("make the Explore prompt search through the index instead of Bash", () => {
+    const prompt = buildExploreAgentPrompt({
+      embeddedSearchEnabled: true,
+      codeSearchEnabled: true,
+    });
+    expect(prompt).toContain("Use FindFiles to locate files");
+    expect(prompt).toContain("Use SearchCode for searching file contents");
+    expect(prompt).not.toContain("Use `grep` via Bash");
+    expect(prompt).not.toContain("Use `find` via Bash");
+    expect(prompt).toContain(
+      "Use Bash ONLY for read-only operations (ls, git status, git log, git diff, cat, head, tail)",
+    );
+
+    const bashOnly = buildExploreAgentPrompt({ embeddedSearchEnabled: true });
+    expect(bashOnly).toContain("Use `grep` via Bash for searching file contents with regex");
+    expect(bashOnly).not.toContain("FindFiles");
+  });
+
+  it("map a profile's Glob/Grep to FindFiles/SearchCode without duplicates", () => {
+    expect(withCodeSearchEquivalents(["Read", "Grep", "Glob", "Bash"])).toEqual([
+      "Read",
+      "Grep",
+      "Glob",
+      "Bash",
+      "SearchCode",
+      "FindFiles",
+    ]);
+    expect(withCodeSearchEquivalents(["Grep", "SearchCode"])).toEqual(["Grep", "SearchCode"]);
+    const untouched = ["Read", "Bash"];
+    expect(withCodeSearchEquivalents(untouched)).toBe(untouched);
   });
 
   it("are read-only, need no approval and expose flat JSON schemas", () => {

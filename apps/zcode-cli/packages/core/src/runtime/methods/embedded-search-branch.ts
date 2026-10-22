@@ -1,3 +1,4 @@
+import { FIND_FILES_TOOL_NAME, SEARCH_CODE_TOOL_NAME } from "@zcode/contracts";
 import type { ModelToolContract } from "../deps.js";
 import { registerBuiltInTools } from "../deps.js";
 import type { AgentRuntimeInternal } from "../internal.js";
@@ -29,6 +30,10 @@ export function refreshBranchAwareBuiltInTools(runtime: AgentRuntimeInternal): v
     bashTimeoutPolicy: runtime.config.bashTimeoutPolicy,
     includeSkill: Boolean(runtime.skillPort),
     includeAgent: Boolean(runtime.subagentPort),
+    // 修复原因：这里会重新注册 Bash，漏传就把首次装配写进描述的 FindFiles/SearchCode 指引冲掉。
+    // 本函数从不注销这两个工具，registry 里它们的在场就是首次装配（port + 允许名单）的结论。
+    includeCodeSearch:
+      runtime.registry.has(FIND_FILES_TOOL_NAME) && runtime.registry.has(SEARCH_CODE_TOOL_NAME),
     embeddedSearchEnabled,
     // 本函数是**第二个**
     // 注册入口，且刻意只传一个精简选项集。对「只有 true 才注册」的门（OffPeak / Cron / Workflow…）

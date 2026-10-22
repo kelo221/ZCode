@@ -1503,6 +1503,108 @@ describe("Explore subagent", () => {
     expect(childToolNames).not.toContain("Task");
   });
 
+  it("gives a custom profile listing Grep/Glob the indexed search tools when the parent has them", async () => {
+    const codeSearchPort = {
+      findFiles: async () => ({ ok: true as const, files: [], totalMatched: 0 }),
+      searchCode: async () => ({
+        ok: true as const,
+        matches: [],
+        mode: "plain" as const,
+        fuzzyFallback: false,
+      }),
+    };
+    const childToolNamesFor = async (input: {
+      label: string;
+      withIndex: boolean;
+      disallowedTools?: string[];
+    }) => {
+      const childRequests: any[] = [];
+      let parentCalls = 0;
+      const runtime = createTestAgentRuntime(
+        createSessionId(`runtime-custom-profile-code-search-${input.label}`),
+        {
+          mode: "build",
+          workingDirectory: "/workspace/project",
+          subagents: {
+            profiles: [
+              {
+                name: "searcher",
+                description: "Searches code.",
+                source: "project",
+                systemPrompt: "Search.",
+                tools: ["Read", "Grep", "Glob", "Bash"],
+                ...(input.disallowedTools ? { disallowedTools: input.disallowedTools } : {}),
+                maxTurns: 1,
+              },
+            ],
+          },
+        },
+        {
+          eventStore: createTestSessionEventStore(),
+          ...(input.withIndex ? { codeSearchPort } : {}),
+          modelFactory: createTestModelFactory({
+            async generateText(request: any) {
+              const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
+              if (toolNames.includes("Agent")) {
+                parentCalls += 1;
+                return parentCalls === 1
+                  ? {
+                      finishReason: "tool-calls",
+                      providerMetadata: undefined,
+                      text: "",
+                      toolCalls: [
+                        {
+                          id: `call_searcher_${input.label}`,
+                          name: "Agent",
+                          input: {
+                            description: "Search",
+                            prompt: "Find x.",
+                            subagent_type: "searcher",
+                          },
+                        },
+                      ],
+                      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                    }
+                  : {
+                      finishReason: "stop",
+                      providerMetadata: undefined,
+                      text: "done",
+                      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                    };
+              }
+              childRequests.push(request);
+              return {
+                finishReason: "stop",
+                providerMetadata: undefined,
+                text: "found",
+                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+              };
+            },
+          } as never),
+        },
+      );
+      await runtime.executeTurn("search");
+      return childRequests[0].tools.map((tool: any) => tool.name) as string[];
+    };
+
+    const indexed = await childToolNamesFor({ label: "indexed", withIndex: true });
+    expect(indexed).toEqual(expect.arrayContaining(["Read", "Bash", "FindFiles", "SearchCode"]));
+    expect(indexed).not.toContain("Grep");
+    expect(indexed).not.toContain("Glob");
+
+    const denied = await childToolNamesFor({
+      label: "denied",
+      withIndex: true,
+      disallowedTools: ["SearchCode"],
+    });
+    expect(denied).toContain("FindFiles");
+    expect(denied).not.toContain("SearchCode");
+
+    const noIndex = await childToolNamesFor({ label: "no-index", withIndex: false });
+    expect(noIndex).not.toContain("FindFiles");
+    expect(noIndex).not.toContain("SearchCode");
+  });
+
   it("runs a custom Explore with its own prompt, main tools, MCP descriptor, and parent permissions", async () => {
     const sessionId = createSessionId("runtime-custom-explore-profile");
     const eventStore = createTestSessionEventStore();

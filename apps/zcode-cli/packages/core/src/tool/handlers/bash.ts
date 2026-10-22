@@ -542,6 +542,7 @@ export const bashToolEntry: ToolEntry = {
 export function createBashToolEntry(
   options: {
     bashTimeoutPolicy?: BashTimeoutPolicy;
+    codeSearchEnabled?: boolean;
     embeddedSearchEnabled?: boolean;
   } = {},
 ): ToolEntry {
@@ -554,6 +555,7 @@ export function createBashToolEntry(
     metadata: {
       ...bashToolEntry.metadata,
       description: createBashProviderDescription({
+        codeSearchEnabled: options.codeSearchEnabled,
         defaultTimeoutMs: timeoutPolicy.defaultTimeoutMs,
         embeddedSearchEnabled: options.embeddedSearchEnabled,
         maxTimeoutMs: timeoutPolicy.maxTimeoutMs,
