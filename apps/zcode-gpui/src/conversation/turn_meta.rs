@@ -35,7 +35,7 @@ impl FileChanges {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PlanItem {
     pub id: String,
     pub content: String,

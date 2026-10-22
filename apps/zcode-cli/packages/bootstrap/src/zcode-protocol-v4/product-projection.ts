@@ -96,6 +96,7 @@ import type {
   HookInvocationRow,
   MutableConversationSnapshotAccumulator,
   PendingInteraction,
+  PlanItem,
   QueueItem,
   ReasoningRow,
   RunningSubagentSummary,
@@ -459,6 +460,10 @@ export class ProductProjection {
   // 冷恢复 transcript 可能含旧版本先发布、后持久化失败的 ghost child。store seed 后
   // 必须持续排除，而不是只覆盖一次 snapshot；否则下一条无关事件会从历史 row 再物化它。
   private invalidSubagentChildSessionIds = new Set<string>();
+  // running subagent 摘要的 model/todos 来源，按 childSessionId。model 来自持久化的
+  // SubagentSpawned（冷恢复可重建）；todos 来自只在 live 下镜像的 child TodoWrite。
+  private subagentModelByChildSessionId = new Map<string, string>();
+  private subagentTodosByChildSessionId = new Map<string, PlanItem[]>();
   // rowId → 权威 messageId 侧表。forkAssistant/editUserQuery 的命令载荷用 rowId
   // 定位，但旧 fork/rewind operations 用 messageId（history target）——桥接层经本表翻译。
   // 不进 row schema（客户端只发 rowId，messageId 是服务端内部锚点，避免污染冻结的行结构）。
@@ -1159,6 +1164,8 @@ export class ProductProjection {
     );
     clone.rewoundHookInvocationIds = new Set(this.rewoundHookInvocationIds);
     clone.invalidSubagentChildSessionIds = new Set(this.invalidSubagentChildSessionIds);
+    clone.subagentModelByChildSessionId = new Map(this.subagentModelByChildSessionId);
+    clone.subagentTodosByChildSessionId = new Map(this.subagentTodosByChildSessionId);
     clone.messageIdByRowId = new Map(this.messageIdByRowId);
     clone.outputContinuationRowIdByMessageId = new Map(this.outputContinuationRowIdByMessageId);
     clone.entityIdByRowId = new Map(this.entityIdByRowId);
@@ -1211,6 +1218,8 @@ export class ProductProjection {
     this.pendingSessionHookInvocations = candidate.pendingSessionHookInvocations;
     this.rewoundHookInvocationIds = candidate.rewoundHookInvocationIds;
     this.invalidSubagentChildSessionIds = candidate.invalidSubagentChildSessionIds;
+    this.subagentModelByChildSessionId = candidate.subagentModelByChildSessionId;
+    this.subagentTodosByChildSessionId = candidate.subagentTodosByChildSessionId;
     this.messageIdByRowId = candidate.messageIdByRowId;
     this.outputContinuationRowIdByMessageId = candidate.outputContinuationRowIdByMessageId;
     this.entityIdByRowId = candidate.entityIdByRowId;
@@ -3117,7 +3126,13 @@ export class ProductProjection {
   }
 
   private onToolCallScheduled(event: SessionEvent): ConversationDelta[] {
-    if (this.isMirroredSubagentToolEvent(event) || !this.isRunning()) return [];
+    if (this.isMirroredSubagentToolEvent(event)) {
+      // child 工具不进父 timeline，但 child TodoWrite 是该 running subagent 的进度事实；
+      // 只记入侧表，由同一事务的 subagent materialization 写进 running 摘要。
+      this.recordMirroredSubagentTodos(event);
+      return [];
+    }
+    if (!this.isRunning()) return [];
     const payload = event.payload as ToolCallScheduledPayload;
     const toolCallId = String(payload.toolCallId);
     this.fileToolInputPreviewByCallId.delete(toolCallId);
@@ -3174,6 +3189,19 @@ export class ProductProjection {
     };
     this.toolRowIdByCallId.set(toolCallId, row.rowId);
     return [{ op: "row.appended", row }, ...planDeltas];
+  }
+
+  private recordMirroredSubagentTodos(event: SessionEvent): void {
+    const payload = event.payload as unknown as Record<string, unknown>;
+    const childSessionId = payload.childSessionId;
+    const toolName = payload.toolName;
+    if (typeof childSessionId !== "string" || typeof toolName !== "string") return;
+    const steps = extractPlanStepsFromToolInput({
+      title: toolName,
+      kind: toolName,
+      input: payload.input,
+    });
+    if (steps) this.subagentTodosByChildSessionId.set(childSessionId, planItemsFromSteps(steps));
   }
 
   private onToolCallActivity(event: SessionEvent): ConversationDelta[] {
@@ -3288,16 +3316,7 @@ export class ProductProjection {
     steps: ReturnType<typeof extractPlanStepsFromToolInput>,
   ): ConversationDelta[] {
     if (!steps) return [];
-    const items = steps.map((step, index) => ({
-      id: step.id || `todo-${index + 1}`,
-      content: step.title,
-      status:
-        step.status === "in_progress"
-          ? ("inProgress" as const)
-          : step.status === "completed"
-            ? ("completed" as const)
-            : ("pending" as const),
-    }));
+    const items = planItemsFromSteps(steps);
     const updatedAt = this.ms(event);
     const goal = this.snapshot.goal;
     if (!goal) {
@@ -4324,6 +4343,8 @@ export class ProductProjection {
       if (row.status !== "running") continue;
       const previousItem = previousRunningById.get(childSessionId);
       const title = previousItem?.title || row.summaryText.trim() || row.subagentType;
+      const model = this.subagentModelByChildSessionId.get(childSessionId);
+      const todos = this.subagentTodosByChildSessionId.get(childSessionId);
       running.push({
         childSessionId,
         agentId: row.entityId,
@@ -4336,6 +4357,8 @@ export class ProductProjection {
             ? "blocked"
             : "running",
         ...(row.startedAt !== undefined ? { startedAt: row.startedAt } : {}),
+        ...(model ? { model } : {}),
+        ...(todos ? { todos } : {}),
       });
     }
     running.sort(
@@ -4424,6 +4447,8 @@ export class ProductProjection {
     const existing = this.findSubagentLifecycleRow(agentId, payload, event);
     if (existing) this.subagentRowIdByAgentId.set(agentId, existing.rowId);
     const childSessionId = this.stringPayload(payload, "childSessionId");
+    const model = this.stringPayload(payload, "model");
+    if (childSessionId && model) this.subagentModelByChildSessionId.set(childSessionId, model);
     const parentToolCallId = this.stringPayload(payload, "parentToolCallId");
     const resumedBackgroundWork = this.resumedSubagentBackgroundWorkDelta(
       event,
@@ -4546,6 +4571,10 @@ export class ProductProjection {
     const agentId = this.subagentAgentId(payload, event);
     const existing = this.findSubagentLifecycleRow(agentId, payload, event);
     const parentToolCallId = this.stringPayload(payload, "parentToolCallId");
+    const stoppedChildSessionId =
+      this.stringPayload(payload, "childSessionId") ?? existing?.childSessionId;
+    // 清单只描述这一次运行；resume 后的新 TodoWrite 会重新写入。
+    if (stoppedChildSessionId) this.subagentTodosByChildSessionId.delete(stoppedChildSessionId);
     const status = this.mapSubagentStatus(this.stringPayload(payload, "status"));
     const summaryText =
       this.stringPayload(payload, "summaryText") ??
@@ -5915,4 +5944,20 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/** TodoWrite 步骤 → 协议 PlanItem；主会话 plan 与 running subagent todos 共用。 */
+function planItemsFromSteps(
+  steps: NonNullable<ReturnType<typeof extractPlanStepsFromToolInput>>,
+): PlanItem[] {
+  return steps.map((step, index) => ({
+    id: step.id || `todo-${index + 1}`,
+    content: step.title,
+    status:
+      step.status === "in_progress"
+        ? ("inProgress" as const)
+        : step.status === "completed"
+          ? ("completed" as const)
+          : ("pending" as const),
+  }));
 }

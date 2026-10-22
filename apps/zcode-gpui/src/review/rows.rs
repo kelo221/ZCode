@@ -1,11 +1,11 @@
-//! Review pane row/header/commit-bar rendering (split from review/pane.rs
+//! Review pane file row and commit-bar rendering (split from review/pane.rs
 //! for the 400-line cap).
 
 use crate::app::root::RootView;
 use crate::review::controls::side_btn;
 use crate::review::git::DiffSide;
 use crate::shared::theme::ui_size;
-use crate::shared::theme::{ACCENT, BORDER, CARD, DANGER, HOVER, MUTED, SUCCESS, icon};
+use crate::shared::theme::{BORDER, CARD, DANGER, HOVER, MUTED, SUCCESS, icon};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, Context, CursorStyle, IntoElement, ParentElement, SharedString, Styled, div,
@@ -13,111 +13,6 @@ use gpui::{
 };
 
 impl RootView {
-    /// Branch chip, totals, side filter, stage-all and refresh controls.
-    pub(crate) fn review_header(
-        &self,
-        branch: &str,
-        files_n: usize,
-        add: u32,
-        del: u32,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let side = self.git.side;
-        let compare = self.git.target.is_compare();
-        div()
-            .flex()
-            .flex_col()
-            .gap_1p5()
-            .p_2()
-            .border_b_1()
-            .border_color(rgb(BORDER))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .id("branch-chip")
-                            .px_1p5()
-                            .py_0p5()
-                            .rounded_sm()
-                            .bg(rgb(CARD))
-                            .hover(|h| h.bg(rgb(HOVER)))
-                            .cursor(CursorStyle::PointingHand)
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
-                            .text_size(px(ui_size(11.)))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.cycle_branch(cx);
-                            }))
-                            .child(if branch.is_empty() {
-                                "no branch".to_string()
-                            } else {
-                                branch.to_string()
-                            }),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(ui_size(11.)))
-                            .text_color(rgb(MUTED))
-                            .child(format!("{files_n} files")),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(ui_size(11.)))
-                            .text_color(rgb(SUCCESS))
-                            .child(format!("+{add}")),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(ui_size(11.)))
-                            .text_color(rgb(DANGER))
-                            .child(format!("-{del}")),
-                    )
-                    .child(div().flex_1())
-                    .child(self.review_primary_button(cx))
-                    .child(side_btn(
-                        "git-refresh",
-                        "Refresh",
-                        cx.listener(|this, _, _, cx| {
-                            cx.stop_propagation();
-                            this.refresh_git(cx);
-                        }),
-                    )),
-            )
-            .when(!compare, |el| {
-                el.child(
-                    div()
-                        .flex()
-                        .gap_1()
-                        .children([DiffSide::Unstaged, DiffSide::Staged].map(|s| {
-                            let selected = s == side;
-                            div()
-                                .id(SharedString::from(format!("side-{}", s.label())))
-                                .px_3()
-                                .py_0p5()
-                                .rounded_sm()
-                                .text_size(px(ui_size(11.)))
-                                .cursor(CursorStyle::PointingHand)
-                                .when(selected, |el| el.bg(rgb(CARD)).text_color(rgb(ACCENT)))
-                                .when(!selected, |el| {
-                                    el.text_color(rgb(MUTED)).hover(|h| h.bg(rgb(HOVER)))
-                                })
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    this.git.side = s;
-                                    // Expanded rows need this side's diff too.
-                                    this.load_missing_diffs(cx);
-                                    cx.notify();
-                                }))
-                                .child(s.label())
-                        })),
-                )
-            })
-            .into_any_element()
-    }
-
     pub(crate) fn review_row(
         &self,
         path: &str,

@@ -93,6 +93,15 @@ fn agent_branch_comparison_is_read_only_and_returns_to_the_working_tree() {
     app.update(|cx| cx.global_mut::<TestTargets>().0.clear());
     window.draw();
     let t = targets(&app);
+    // The working tree starts as a summary row; staging and commit sit behind it.
+    assert!(t.contains_key("git-summary"));
+    assert!(!t.contains_key("stage-all"));
+    assert!(!t.contains_key("review-commit-bar"));
+    window.simulate_click(t["git-summary"].center(), MouseButton::Left);
+    window.read(|v, _| assert!(v.git.list_open));
+    app.update(|cx| cx.global_mut::<TestTargets>().0.clear());
+    window.draw();
+    let t = targets(&app);
     assert!(t.contains_key("stage-all"));
     assert!(t.contains_key("review-commit-bar"));
 }

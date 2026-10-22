@@ -1,34 +1,17 @@
-//! Agents dock section: list of currently running subagents with status,
-//! elapsed duration, summary preview, and Stop/Open controls.
+//! Agents dock section: the running subagents (cards in review/agent_card.rs:
+//! model, elapsed time, current todo, Stop/Open) and the ended-agents list.
 
 use crate::app::root::RootView;
+use crate::composer::catalog::ModelOption;
 use crate::shared::theme::ui_size;
-use crate::shared::theme::{
-    ACCENT, BORDER, CARD, CARD_HOVER, DANGER, HOVER, MUTED, PANEL, SUCCESS, TEXT, WARNING,
-};
+use crate::shared::theme::{ACCENT, BORDER, HOVER, MUTED, TEXT};
 use crate::shared::theme_colors::color as rgb;
-use gpui::{
-    AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px,
-};
+use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div, prelude::*, px};
 
 /// Format title or type fallback for an agent item.
 pub fn format_agent_title<'a>(title: &'a str, subagent_type: &'a str) -> &'a str {
     let t = title.trim();
     if !t.is_empty() { t } else { subagent_type }
-}
-
-/// Truncate long summary text with an ellipsis.
-pub fn truncate_summary(summary: Option<&str>, max_chars: usize) -> Option<String> {
-    let text = summary?.trim();
-    if text.is_empty() {
-        return None;
-    }
-    if text.chars().count() > max_chars {
-        let prefix: String = text.chars().take(max_chars).collect();
-        Some(format!("{prefix}..."))
-    } else {
-        Some(text.to_string())
-    }
 }
 
 /// Format ended subagent count summary label.
@@ -56,6 +39,11 @@ impl RootView {
                 .then(a.child_session_id.cmp(&b.child_session_id))
         });
         let owner = state.active_ws_key().zip(state.active.clone());
+        let models: Vec<ModelOption> = state
+            .active_ws_key()
+            .and_then(|k| state.workspace_configs.get(&k))
+            .map(|c| c.models.clone())
+            .unwrap_or_default();
         let running_count = running.len();
         let ended_count = conv
             .and_then(|c| c.subagents.as_ref())
@@ -117,9 +105,6 @@ impl RootView {
         } else {
             let mut list = div()
                 .id("agents-running-list")
-                .max_h(px(240.))
-                .min_h_0()
-                .overflow_y_scroll()
                 .flex()
                 .flex_col()
                 .gap_1p5()
@@ -127,155 +112,7 @@ impl RootView {
                 .pb_1p5();
 
             for (idx, agent) in running.iter().enumerate() {
-                let dot_color = match agent.status.as_str() {
-                    "running" => ACCENT,
-                    "blocked" => WARNING,
-                    "failed" | "error" => DANGER,
-                    "success" | "completed" => SUCCESS,
-                    _ => MUTED,
-                };
-
-                let title = format_agent_title(&agent.title, &agent.subagent_type);
-                let elapsed = agent.started_at.map(|t| {
-                    let now_ms = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(t);
-                    let diff = now_ms.saturating_sub(t);
-                    crate::conversation::turn_meta::format_duration(diff)
-                });
-
-                let stop_button = agent
-                    .work_id
-                    .clone()
-                    .filter(|_| agent.cancellable)
-                    .and_then(|wid| {
-                        self.activity_cancel_button(format!("dock-stop-subagent-{idx}"), wid, cx)
-                    });
-
-                let open_button = if !agent.child_session_id.is_empty() {
-                    let sid_clone = agent.child_session_id.clone();
-                    let owner = owner.clone();
-                    let element = div().child(
-                        div()
-                            .id(ElementId::NamedInteger(
-                                "dock-open-subagent".into(),
-                                idx as u64,
-                            ))
-                            .px_2()
-                            .py_0p5()
-                            .rounded_sm()
-                            .bg(rgb(PANEL))
-                            .border_1()
-                            .border_color(rgb(BORDER))
-                            .text_size(px(ui_size(10.5)))
-                            .text_color(rgb(ACCENT))
-                            .hover(|h| h.bg(rgb(CARD_HOVER)))
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                cx.stop_propagation();
-                                if let Some((workspace, parent)) = &owner {
-                                    this.open_child_conversation(
-                                        workspace, parent, &sid_clone, window, cx,
-                                    );
-                                }
-                            }))
-                            .child(crate::shared::i18n::label("Open", "打开")),
-                    );
-                    #[cfg(test)]
-                    let element = crate::app::test_support::track_children(
-                        element,
-                        vec![format!("agent-open-{}", agent.child_session_id)],
-                    );
-                    Some(element)
-                } else {
-                    None
-                };
-
-                let id_chip = agent
-                    .agent_id
-                    .as_deref()
-                    .filter(|id| id.starts_with("agent_"))
-                    .or_else(|| {
-                        crate::transcript::subagent_card::agent_id_from_child_session(
-                            &agent.child_session_id,
-                        )
-                    })
-                    .map(|agent_id| self.agent_id_copy_chip(agent_id, cx));
-
-                let summary_node = truncate_summary(agent.summary.as_deref(), 160).map(|txt| {
-                    div()
-                        .text_size(px(ui_size(11.)))
-                        .text_color(rgb(MUTED))
-                        .child(txt)
-                });
-
-                // Desktop `SubagentStatusSection`: the title gets its own
-                // line-clamped block and the meta/controls row sits below it,
-                // so a long title can never push Stop / Open out of the card.
-                let item = div()
-                    .w_full()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .bg(rgb(CARD))
-                    .border_1()
-                    .border_color(rgb(BORDER))
-                    .rounded_md()
-                    .p_1p5()
-                    .child(
-                        div()
-                            .min_w_0()
-                            .flex()
-                            .items_start()
-                            .gap_1p5()
-                            .child(
-                                div()
-                                    .flex_none()
-                                    .mt(px(5.))
-                                    .w(px(6.5))
-                                    .h(px(6.5))
-                                    .rounded_full()
-                                    .bg(rgb(dot_color)),
-                            )
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .line_clamp(2)
-                                    .text_ellipsis()
-                                    .font_family(crate::shared::theme::MONO_FONT)
-                                    .text_size(px(ui_size(11.5)))
-                                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                                    .text_color(rgb(TEXT))
-                                    .child(title.to_string()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .flex()
-                            .flex_wrap()
-                            .items_center()
-                            .gap_1()
-                            .pl(px(12.5))
-                            .when_some(elapsed, |el, dur| {
-                                el.child(
-                                    div()
-                                        .text_size(px(ui_size(10.5)))
-                                        .text_color(rgb(MUTED))
-                                        .child(dur),
-                                )
-                            })
-                            .child(div().flex_1())
-                            .children(id_chip)
-                            .children(stop_button)
-                            .children(open_button),
-                    )
-                    .children(summary_node.map(|node| node.pl(px(12.5))));
-
-                list = list.child(item);
+                list = list.child(self.running_agent_card(idx, agent, owner.clone(), &models, cx));
             }
 
             if let Some(ended_msg) = format_ended_summary(ended_count) {

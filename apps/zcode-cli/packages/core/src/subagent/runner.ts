@@ -79,6 +79,12 @@ import {
   type RuntimeTaskSnapshot,
 } from "../runtime-task/registry.js";
 
+/** child runtime 就绪时已确定的执行事实。 */
+export interface SubagentSessionReadyInfo {
+  /** 实际执行模型 `provider/model`；profile 未固定模型时它来自父会话继承。 */
+  model?: string;
+}
+
 export interface ExploreSubagentRuntimeRequest {
   agentId: string;
   agentType: string;
@@ -90,7 +96,7 @@ export interface ExploreSubagentRuntimeRequest {
   description: string;
   maxTurns?: number;
   /** child session 已持久化且可被 projection/query 读取后、首次模型执行前调用。 */
-  onSessionReady?: () => Promise<void>;
+  onSessionReady?: (ready?: SubagentSessionReadyInfo) => Promise<void>;
   permissionMode?: AgentProfile["permissionMode"];
   prompt: string;
   profile: AgentProfile;
@@ -258,7 +264,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
           reportActivity: activityWatchdog.reportActivity,
         },
         {
-          onSessionReady: async () => {
+          onSessionReady: async (ready) => {
             await emitSubagentEvent(
               options,
               SessionEventType.SubagentSpawned,
@@ -273,9 +279,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
                 parentToolCallId: request.parentToolCallId,
                 status: "running",
                 allowedTools: [...resolveAllowedTools(profile, options)],
-                model: profile.modelSelection
-                  ? `${profile.modelSelection.providerId}/${profile.modelSelection.modelId}`
-                  : undefined,
+                model: spawnedModel(profile, ready),
               },
             );
             readyGate.resolve();
@@ -513,7 +517,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
           ...(startOptions?.modelOverride ? { modelOverride: startOptions.modelOverride } : {}),
         },
         {
-          onSessionReady: async () => {
+          onSessionReady: async (ready) => {
             await emitSubagentEvent(
               options,
               SessionEventType.SubagentSpawned,
@@ -530,9 +534,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
                 status: "running",
                 allowedTools: [...resolveAllowedTools(profile, options)],
                 outputFile: lifecycle.outputFile,
-                model: profile.modelSelection
-                  ? `${profile.modelSelection.providerId}/${profile.modelSelection.modelId}`
-                  : undefined,
+                model: spawnedModel(profile, ready),
               },
             );
             readyGate.resolve();
@@ -1159,7 +1161,7 @@ async function resumeTerminalAgentInBackground(
     },
     {
       resumeFromStore: true,
-      onSessionReady: async () => {
+      onSessionReady: async (ready) => {
         await emitSubagentEvent(
           options,
           SessionEventType.SubagentSpawned,
@@ -1176,6 +1178,7 @@ async function resumeTerminalAgentInBackground(
             prompt: resumeRequest.prompt,
             resumed: true,
             status: "running",
+            ...(ready?.model ? { model: ready.model } : {}),
           },
         );
         readyGate.resolve();
@@ -1262,9 +1265,9 @@ async function runAgentToCompletion(
   executionOptions: SubagentExecutionOptions = {},
 ): Promise<{ events: SessionEvent[]; output: AgentCompletedOutput }> {
   let sessionReady = false;
-  const notifySessionReady = async () => {
+  const notifySessionReady = async (ready?: SubagentSessionReadyInfo) => {
     if (sessionReady) return;
-    await executionOptions.onSessionReady?.();
+    await executionOptions.onSessionReady?.(ready);
     sessionReady = true;
   };
   const isolation = lifecycle.isolation;
@@ -1563,8 +1566,8 @@ async function runBackgroundAgent(
       {},
       {
         ...executionOptions,
-        onSessionReady: async () => {
-          await executionOptions.onSessionReady?.();
+        onSessionReady: async (ready) => {
+          await executionOptions.onSessionReady?.(ready);
           sessionReady = true;
         },
       },
@@ -1583,8 +1586,22 @@ async function runBackgroundAgent(
 
 interface SubagentExecutionOptions {
   resumeFromStore?: boolean;
-  onSessionReady?: () => Promise<void>;
+  onSessionReady?: (ready?: SubagentSessionReadyInfo) => Promise<void>;
   onSessionStartFailed?: (error: unknown) => void;
+}
+
+/**
+ * SubagentSpawned 的 `model`：优先用 child runtime 实际解析的模型。
+ * 过去只在 profile 固定模型时填写，继承父模型的 child 在 UI 上看不到模型。
+ */
+function spawnedModel(
+  profile: AgentProfile,
+  ready: SubagentSessionReadyInfo | undefined,
+): string | undefined {
+  if (ready?.model) return ready.model;
+  return profile.modelSelection
+    ? `${profile.modelSelection.providerId}/${profile.modelSelection.modelId}`
+    : undefined;
 }
 
 function createSubagentSessionReadyGate(): {

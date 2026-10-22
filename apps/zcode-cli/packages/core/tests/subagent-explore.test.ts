@@ -171,6 +171,43 @@ describe("Explore subagent", () => {
     },
   );
 
+  it("publishes the child's resolved model on SubagentSpawned", async () => {
+    const sessionId = createSessionId("parent-spawned-model");
+    const traceId = createTraceId();
+    const outputRootDir = await mkdtemp(join(tmpdir(), "zcode-subagent-model-"));
+    const emittedEvents: SessionEvent[] = [];
+    const port = createExploreSubagentPort({
+      outputRootDir,
+      async emitParentEvent(event) {
+        emittedEvents.push(event);
+      },
+      async runExploreAgent(request) {
+        await request.onSessionReady?.({ model: "zai/glm-5" });
+        return {
+          response: "done",
+          traceId,
+          events: [
+            createSessionEvent(SessionEventType.ModelComplete, request.sessionId, {
+              content: "done",
+              stopReason: "stop",
+            }),
+          ],
+        };
+      },
+    });
+    await port.run({
+      agentType: "Explore",
+      description: "Inherited model",
+      prompt: "Inspect",
+      sessionId,
+      trace: { traceId, sessionId },
+      workingDirectory: outputRootDir,
+      workspaceRoot: outputRootDir,
+    });
+    const spawned = emittedEvents.find((event) => event.type === SessionEventType.SubagentSpawned);
+    expect((spawned?.payload as { model?: string } | undefined)?.model).toBe("zai/glm-5");
+  });
+
   it("fails a foreground run after the child runner stays inactive", async () => {
     const outputRootDir = await mkdtemp(join(tmpdir(), "zcode-subagent-inactive-"));
     const emittedEvents: any[] = [];

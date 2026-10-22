@@ -35,9 +35,17 @@ pub struct GitState {
     pub agent_branches: Vec<AgentBranch>,
     /// Generation of the agent-branch listing (independent of `generation`).
     pub branches_generation: u64,
+    /// The dock shows only the branch/count summary until the user opens the
+    /// file list, staging and commit controls.
+    pub list_open: bool,
 }
 
 impl GitState {
+    /// File list and its controls are visible: opened by the user, or an
+    /// agent-branch comparison (which is nothing but its file list).
+    pub fn list_visible(&self) -> bool {
+        self.list_open || self.target.is_compare()
+    }
     /// Adopt a fresh status for `root`, invalidating every cached diff (the
     /// working tree may have changed since they were loaded).
     pub fn apply_status(&mut self, root: std::path::PathBuf, status: GitStatus) {

@@ -1,13 +1,11 @@
-//! Review pane: unstaged/staged filters, per-file +/− stats with expandable
-//! diffs, stage/commit/push. All git I/O runs on the background executor.
+//! Review pane git effects: status refresh, per-file diffs, stage/commit/push.
+//! All git I/O runs on the background executor; the layout lives in
+//! review/git_summary.rs.
 
 use crate::app::root::RootView;
 use crate::review::agent_branches::{self, ReviewTarget};
 use crate::review::git::{self, DiffSide};
-use crate::shared::theme::ui_size;
-use crate::shared::theme::{MUTED, TEXT};
-use crate::shared::theme_colors::color as rgb;
-use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div, prelude::*, px};
+use gpui::{Context, prelude::*};
 
 /// What to do with a finished `run_git` result.
 #[derive(Clone)]
@@ -324,64 +322,5 @@ impl RootView {
 
     pub(crate) fn push(&mut self, cx: &mut Context<Self>) {
         self.run_git_action(vec!["push".into()], GitAction::ThenRefresh("Push"), cx);
-    }
-
-    pub(crate) fn review_pane(&mut self, cx: &mut Context<Self>) -> AnyElement {
-        // Plan progress capsule (desktop parity: a section in the side panel,
-        // not an overlay on the transcript).
-        let plan = self
-            .state
-            .read(cx)
-            .active_conversation()
-            .and_then(|c| c.plan.clone());
-        let branch = self.git.status.branch.clone();
-        let (files_n, add, del) = self.git.totals();
-        let side = self.git.side;
-        let rows: Vec<String> = self
-            .git
-            .files_for_side()
-            .iter()
-            .map(|f| f.path.clone())
-            .collect();
-        let commit_bar = (!self.git.target.is_compare()).then(|| self.commit_bar(cx));
-
-        div()
-            .flex()
-            .flex_col()
-            .size_full()
-            .min_h_0()
-            .text_color(rgb(TEXT))
-            .children(plan.as_ref().map(|p| {
-                crate::conversation::turn_meta::render_plan_checklist(p, self.plan_expanded, cx)
-            }))
-            .children(self.goal_section(cx))
-            .child(self.render_agents_section(cx))
-            .child(self.render_background_activity(cx))
-            .children(self.render_agent_branches(cx))
-            .child(self.review_header(&branch, files_n, add, del, cx))
-            .children(self.notice_banner())
-            .child(
-                div()
-                    .id("review-list")
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .children(
-                        rows.into_iter()
-                            .map(|path| self.review_row(&path, side, cx)),
-                    ),
-            )
-            .children(self.git.busy.then(|| {
-                div()
-                    .px_2()
-                    .py_0p5()
-                    .text_size(px(ui_size(11.)))
-                    .text_color(rgb(MUTED))
-                    .child("git running…")
-            }))
-            .children(commit_bar)
-            .into_any_element()
     }
 }

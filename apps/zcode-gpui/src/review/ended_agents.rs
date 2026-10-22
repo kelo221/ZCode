@@ -1,4 +1,5 @@
 use crate::app::root::RootView;
+use crate::review::agent_card::summary_preview;
 use crate::shared::theme_colors::color as rgb;
 use crate::shared::{
     i18n::label,
@@ -42,16 +43,28 @@ impl RootView {
                 .items_center()
                 .justify_between()
                 .gap_2()
-                .child(div().flex().flex_col().min_w_0().child(title).children(
-                    agent.summary.clone().map(|summary| {
-                        div()
-                            .text_size(px(ui_size(10.)))
-                            .text_color(rgb(MUTED))
-                            .child(summary)
-                    }),
-                ))
                 .child(
                     div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().truncate().child(title))
+                        .children(
+                            // The summary is the child's whole markdown report; the
+                            // list shows one line of it and Open shows the rest.
+                            summary_preview(agent.summary.as_deref(), 140).map(|summary| {
+                                div()
+                                    .truncate()
+                                    .text_size(px(ui_size(10.)))
+                                    .text_color(rgb(MUTED))
+                                    .child(summary)
+                            }),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_none()
                         .text_size(px(ui_size(10.)))
                         .text_color(rgb(MUTED))
                         .child(agent.status.clone())

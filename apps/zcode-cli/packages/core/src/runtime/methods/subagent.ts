@@ -282,7 +282,9 @@ export function createDefaultSubagentPort(
         let sessionReadyNotified = false;
         const notifySessionReady = async () => {
           if (sessionReadyNotified) return;
-          await request.onSessionReady?.();
+          await request.onSessionReady?.({
+            model: `${childSelection.providerId}/${childSelection.modelId}`,
+          });
           sessionReadyNotified = true;
         };
         this.logger?.debug("Starting subagent child runtime", {

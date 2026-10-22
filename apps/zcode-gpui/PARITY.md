@@ -138,6 +138,32 @@ limits below take precedence over the retained historical milestone requirements
   "resume agent_…". Electron has no counterpart. The ID comes from the dock's `agentId` when
   present, else from the child session name `sess_subagent_<agentId>`.
 
+## Review dock: running agents first, git behind a summary (2026-10-22, fork CLI + GPUI)
+
+- Protocol (`packages/shared/src/zcode-protocol-v4/snapshot.ts`): each `subagents.running[]` item
+  may carry `model` (`provider/model` the child actually runs on) and `todos` (the child's latest
+  TodoWrite list, same shape as `plan.items`). Both are optional; older CLIs omit them.
+- CLI: the child runtime reports its resolved model through `onSessionReady`, so `SubagentSpawned`
+  carries `model` even when the agent inherits the parent's model (before, only a profile-pinned
+  model was sent). The parent projection records each child's mirrored TodoWrite
+  (`source: "subagent"`, keyed by `childSessionId`) and emits it with the running item; it never
+  enters the parent's plan or timeline, and is dropped when the child stops. Todos are live only:
+  after a cold reload they reappear with the child's next TodoWrite. The model survives because
+  `SubagentSpawned` is persisted.
+- GPUI dock order: Progress (the main session's plan), Goal, Agents, background activity, agent
+  branches; this area scrolls and takes the whole dock while the git list is closed. Each running
+  agent card (`review/agent_card.rs`) shows the title, a model chip (catalog name when the
+  workspace knows the model, else the model id), elapsed time, the ID chip, Stop / Open, then the
+  current todo (in progress, else next pending; "All todos done" once complete) with a
+  `completed/total` counter and a thin progress bar, and a one-line preview of the summary.
+- Ended agents show one line of their report (first line with text, markdown markers stripped)
+  instead of the whole report.
+- Git (`review/git_summary.rs`): one summary row with the branch chip (click cycles branches), the
+  file count, +/- totals and Refresh. Clicking the row opens the Unstaged/Staged tabs, Stage all,
+  the file list and the Commit/Push bar, which then take the lower half; it starts closed and the
+  choice is kept per window (`GitState.list_open`). An agent-branch comparison is always open.
+- Electron's side panel still lists files directly; this layout is GPUI-only.
+
 ## Idle agent unload keeps background work alive (2026-10-20, GPUI-only)
 
 - No Electron counterpart (Electron never unloads an agent). Every 30 s GPUI unloads (kills)
@@ -811,8 +837,9 @@ Requirements:
   - **Transcript Card Pairing**: `transcript/subagent_card.rs` pairs `Row::Subagent` beneath its
     parent `Row::ToolCall` when `tool_call_id == parent_tool_call_id` (matching web/desktop layout),
     and falls back to standalone rendering when unpaired.
-  - **Dock Agents Section**: Collapsible Agents section in `review/pane.rs` (`agents_section.rs`)
-    displaying running count badge, status dot, elapsed duration, truncated summary preview,
+  - **Dock Agents Section**: Collapsible Agents section in the Review dock (`agents_section.rs`,
+    cards in `agent_card.rs`) displaying running count badge, status dot, model chip, elapsed
+    duration, current todo with `completed/total`, one-line summary preview,
     Stop button (sends session command `cancelBackgroundWork { workId }`), and Open button. Displays
     `ended_total` counter when completed subagents exist. Layout follows Desktop
     `SubagentStatusSection`: the title is a 2-line clamped block and elapsed / Stop / Open sit

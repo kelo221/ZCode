@@ -5,6 +5,7 @@
 //! - packages/ui/src/v4/conversationStatusPanelModel.ts (subagent × backgroundWorks join)
 
 use crate::conversation::model::{ConversationState, Row};
+use crate::conversation::turn_meta::PlanItem;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -27,6 +28,13 @@ pub struct RunningSubagent {
     pub summary: Option<String>,
     pub status: String,
     pub started_at: Option<u64>,
+    /// `provider/model` the child actually runs on.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// The child's latest TodoWrite list (live only; empty after a cold reload
+    /// until the child writes its todos again).
+    #[serde(default)]
+    pub todos: Vec<PlanItem>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -54,6 +62,8 @@ pub struct JoinedRunningSubagent {
     pub summary: Option<String>,
     pub status: String,
     pub started_at: Option<u64>,
+    pub model: Option<String>,
+    pub todos: Vec<PlanItem>,
     pub work_id: Option<String>,
     pub cancellable: bool,
 }
@@ -114,6 +124,16 @@ impl RunningSubagent {
             .unwrap_or("running")
             .to_string();
         let started_at = v.get("startedAt").and_then(Value::as_u64);
+        let model = v
+            .get("model")
+            .and_then(Value::as_str)
+            .filter(|m| !m.trim().is_empty())
+            .map(str::to_string);
+        let todos = v
+            .get("todos")
+            .and_then(Value::as_array)
+            .map(|arr| arr.iter().filter_map(PlanItem::from_value).collect())
+            .unwrap_or_default();
 
         Some(Self {
             child_session_id,
@@ -124,6 +144,8 @@ impl RunningSubagent {
             summary,
             status,
             started_at,
+            model,
+            todos,
         })
     }
 }
@@ -210,6 +232,8 @@ pub fn join_running_subagents(
                 summary: sub.summary.clone(),
                 status: sub.status.clone(),
                 started_at: sub.started_at,
+                model: sub.model.clone(),
+                todos: sub.todos.clone(),
                 work_id,
                 cancellable,
             });
@@ -233,6 +257,8 @@ pub fn join_running_subagents(
                     "running".to_string()
                 },
                 started_at: Some(work.started_at),
+                model: None,
+                todos: Vec::new(),
                 work_id: Some(work.work_id.clone()),
                 cancellable: work.cancellable != Some(false),
             });

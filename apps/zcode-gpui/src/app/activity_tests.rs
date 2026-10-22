@@ -226,6 +226,13 @@ fn composer_activity_pointer_child_and_back_preserve_parent_input() {
         conv.subagents.as_mut().unwrap().running[0].title =
             "Port stb_vorbis to Rust bit-exact with every decoder path verified".into();
         conv.subagents.as_mut().unwrap().running[0].started_at = Some(0);
+        conv.subagents.as_mut().unwrap().running[0].model = Some("zai/glm-4.6".into());
+        conv.subagents.as_mut().unwrap().running[0].todos =
+            vec![crate::conversation::turn_meta::PlanItem {
+                id: "a".into(),
+                content: "Read pane".into(),
+                status: "inProgress".into(),
+            }];
         s.conversations.insert("parent".into(), conv);
         s.composer.update(cx, |c, cx| {
             c.set_text("parent draft");
@@ -265,6 +272,17 @@ fn composer_activity_pointer_child_and_back_preserve_parent_input() {
     });
     window.draw();
     let open = app.update(|cx| cx.global::<TestTargets>().0["agent-open-child"]);
+    app.update(|cx| {
+        let targets = &cx.global::<TestTargets>().0;
+        assert!(
+            targets.contains_key("agent-model-child"),
+            "card shows the child's model"
+        );
+        assert!(
+            targets.contains_key("agent-todo-child"),
+            "card shows the child's todo"
+        );
+    });
     let dock_right = 1280. - crate::app::layout::PANEL_GAP;
     assert!(
         f32::from(open.right()) <= dock_right,

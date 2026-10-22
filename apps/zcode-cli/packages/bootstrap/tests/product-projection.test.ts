@@ -4900,6 +4900,69 @@ describe("结构性4：两 profile 终态一致", () => {
     ]);
   });
 
+  it("running subagent 摘要携带 child 模型与最近一次镜像 TodoWrite，不进父 plan/timeline", () => {
+    const turnId = "turn-subagent-progress";
+    const agentId = "agent-progress";
+    const childSessionId = "session-child-progress";
+    const log = new EventLog();
+    log.push(SessionEventType.SessionCreated, { mode: "default", contextWindow: 1000 });
+    log.push(SessionEventType.TurnStarted, { turnNumber: 1, input: "spawn" }, { turnId });
+    log.push(
+      SessionEventType.SubagentSpawned,
+      {
+        agentId,
+        agentType: "Explore",
+        childSessionId,
+        description: "Map the sidebar",
+        parentToolCallId: "toolu_progress_agent",
+        status: "running",
+        model: "zai/glm-5",
+      },
+      { turnId },
+    );
+    const childTodoWrite = (childToolCallId: string, todos: unknown[]) =>
+      log.push(
+        SessionEventType.ToolCallScheduled,
+        {
+          agentId,
+          childSessionId,
+          childToolCallId,
+          parentToolCallId: "toolu_progress_agent",
+          source: "subagent",
+          toolCallId: `tool_subagent_${agentId}_${childToolCallId}`,
+          toolName: "TodoWrite",
+          input: { todos },
+        },
+        { turnId },
+      );
+    childTodoWrite("todo-1", [{ content: "Read pane", status: "in_progress" }]);
+    childTodoWrite("todo-2", [
+      { content: "Read pane", status: "completed" },
+      { content: "Write report", status: "in_progress" },
+    ]);
+
+    const running = runAll(log.events).projection.getSnapshot();
+    expect(running.subagents.running).toEqual([
+      expect.objectContaining({
+        childSessionId,
+        model: "zai/glm-5",
+        todos: [
+          { id: "Read pane", content: "Read pane", status: "completed" },
+          { id: "Write report", content: "Write report", status: "inProgress" },
+        ],
+      }),
+    ]);
+    expect(running.plan?.items ?? []).toEqual([]);
+    expect(running.rows.window.some((row) => row.kind === "toolCall")).toBe(false);
+
+    log.push(
+      SessionEventType.SubagentStopped,
+      { agentId, childSessionId, status: "completed", result: "done" },
+      { turnId },
+    );
+    expect(runAll(log.events).projection.getSnapshot().subagents.running).toEqual([]);
+  });
+
   it("tool 输入流到一半被 stop（cancelled 收口，inputStreaming 不悬挂）", () => {
     const turnId = "turn-1";
     const log = new EventLog();

@@ -36,6 +36,39 @@ fn parses_subagents_state_snapshot() {
     assert_eq!(sub.summary.as_deref(), Some("found 5 files"));
     assert_eq!(sub.status, "running");
     assert_eq!(sub.started_at, Some(1000));
+    assert_eq!(sub.model, None);
+    assert!(sub.todos.is_empty());
+}
+
+#[test]
+fn parses_child_model_and_todos_and_carries_them_through_the_join() {
+    let sub = RunningSubagent::from_value(&json!({
+        "childSessionId": "child-1",
+        "title": "Explore",
+        "status": "running",
+        "model": "anthropic/claude-sonnet",
+        "todos": [
+            { "id": "a", "content": "Read pane", "status": "completed" },
+            { "id": "b", "content": "Write report", "status": "inProgress" }
+        ]
+    }))
+    .expect("should parse");
+    assert_eq!(sub.model.as_deref(), Some("anthropic/claude-sonnet"));
+    assert_eq!(sub.todos.len(), 2);
+    assert_eq!(sub.todos[1].content, "Write report");
+    assert_eq!(sub.todos[1].status, "inProgress");
+
+    let state = SubagentsState {
+        running: vec![sub],
+        ..Default::default()
+    };
+    let joined = join_running_subagents(Some(&state), &[]);
+    assert_eq!(joined[0].model.as_deref(), Some("anthropic/claude-sonnet"));
+    assert_eq!(joined[0].todos.len(), 2);
+
+    let blank = RunningSubagent::from_value(&json!({ "childSessionId": "c", "model": "  " }))
+        .expect("should parse");
+    assert_eq!(blank.model, None, "a blank model is no model");
 }
 
 #[test]
@@ -77,6 +110,7 @@ fn joins_running_subagents_with_background_works() {
                 summary: None,
                 status: "running".into(),
                 started_at: Some(1000),
+                ..Default::default()
             },
             RunningSubagent {
                 child_session_id: "child-2".into(),
@@ -87,6 +121,7 @@ fn joins_running_subagents_with_background_works() {
                 summary: Some("searching".into()),
                 status: "running".into(),
                 started_at: Some(2000),
+                ..Default::default()
             },
         ],
         ended_total: 0,
@@ -168,6 +203,7 @@ fn duplicate_child_session_ids_in_background_works_are_not_cancellable() {
             summary: None,
             status: "running".into(),
             started_at: Some(100),
+            ..Default::default()
         }],
         ended_total: 0,
     };

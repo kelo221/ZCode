@@ -384,6 +384,14 @@ export const backgroundWorkSummarySchema = z.object({
 });
 export type BackgroundWorkSummary = z.infer<typeof backgroundWorkSummarySchema>;
 
+// ── goal / plan ──
+export const planItemSchema = z.object({
+  id: z.string(),
+  content: z.string(),
+  status: z.enum(["pending", "inProgress", "completed"]),
+});
+export type PlanItem = z.infer<typeof planItemSchema>;
+
 // subagent 运行态属于 conversation 权威投影，而不是 renderer 查询缓存。
 // ended 详情保持 cursor query；snapshot 只携带目录总数，避免运行中并发数量依赖查询时序。
 export const runningSubagentSummarySchema = z.object({
@@ -395,6 +403,10 @@ export const runningSubagentSummarySchema = z.object({
   summary: z.string().optional(),
   status: z.enum(["running", "waiting", "blocked"]),
   startedAt: timestampSchema.optional(),
+  /** child 实际执行的模型（`provider/model`），来自 SubagentSpawned。 */
+  model: z.string().optional(),
+  /** child 最近一次 TodoWrite 的清单；仅 live 镜像可得，冷恢复后要等下一次 TodoWrite。 */
+  todos: z.array(planItemSchema).optional(),
 });
 export type RunningSubagentSummary = z.infer<typeof runningSubagentSummarySchema>;
 
@@ -405,14 +417,6 @@ export const subagentProjectionStateSchema = z.object({
   endedTotal: z.number().int().nonnegative(),
 });
 export type SubagentProjectionState = z.infer<typeof subagentProjectionStateSchema>;
-
-// ── goal / plan ──
-export const planItemSchema = z.object({
-  id: z.string(),
-  content: z.string(),
-  status: z.enum(["pending", "inProgress", "completed"]),
-});
-export type PlanItem = z.infer<typeof planItemSchema>;
 
 export const goalIterationStateSchema = z.object({
   iteration: z.number().int().positive(),
