@@ -67,7 +67,7 @@ limits below take precedence over the retained historical milestone requirements
 ## Diagnostics after edits (2026-10-20, fork CLI + GPUI)
 
 - No Electron counterpart. Settings › Agent capabilities › Diagnostics, switch "Diagnostics after
-  edits" (`gpuiLspDiagnostics` in `setting.json`, absent = on; desktop only, hidden on the phone).
+  edits" (`gpuiLspDiagnostics` in `gpui_settings.json`, absent = on; desktop only, hidden on the phone).
   GPUI answers `session/requestRuntimePreferences` with `lspDiagnosticsEnabled`; it applies to
   new and resumed sessions. CLI spec: `apps/zcode-cli/docs/design/v2/tool/lsp-diagnostics.md`.
 - After an `Edit`/`Write`, the CLI asks the file's language server (rust-analyzer, csharp-ls,
@@ -194,7 +194,7 @@ limits below take precedence over the retained historical milestone requirements
   return paths relative to the workspace root. They replace the user-configured `fff` MCP
   server, which had one fixed root for every project.
 - Gate: GPUI answers `session/requestRuntimePreferences` with `codeSearchEnabled`
-  (Settings › Code search, stored as `gpuiCodeSearch` in `setting.json`, absent = on; desktop
+  (Settings › Code search, stored as `gpuiCodeSearch` in `gpui_settings.json`, absent = on; desktop
   only, hidden on the phone). The CLI injects a `CodeSearchPort` only when that is `true` and
   the fff native library loads, so Electron (which never sends the field) and any failed load
   leave the tools unregistered and the agent searches with Bash. Subagents and workflow child
@@ -213,7 +213,7 @@ limits below take precedence over the retained historical milestone requirements
 - No single Electron counterpart. Electron has two separate switches: `messageStreamShowReasoning`
   and `messageStreamShowTodos`. GPUI adds a filter button to the composer's bottom row, next
   to the mode menu (the phone gets it too, through the shared composer). It is **on by
-  default** and stored as `gpuiNoiseFree` in `setting.json` (absent = on) through
+  default** and stored as `gpuiNoiseFree` in `gpui_settings.json` (absent = on) through
   `PreferenceChange::NoiseFree`.
 - Rows shown while it's on: user input, turn headers, assistant text that has text, thinking
   that has text, and tool cards for `TodoWrite`, `AskUserQuestion` and `ExitPlanMode`, plus any

@@ -1,4 +1,4 @@
-//! `setting.json` `gpuiVoice`: the GPUI-only voice preferences (VOICE.md).
+//! `gpui_settings.json` `gpuiVoice`: the GPUI-only voice preferences (VOICE.md).
 
 use serde::{Deserialize, Serialize};
 

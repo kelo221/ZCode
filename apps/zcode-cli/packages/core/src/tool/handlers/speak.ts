@@ -71,7 +71,10 @@ export const speakToolEntry: ToolEntry = {
     concurrentSafe: true,
     timeoutMs: SPEAK_TIMEOUT_MS,
     maxOutputBytes: SPEAK_MODEL_BYTES,
-    sideEffectScope: "userInteraction",
+    // 修复原因：`userInteraction` 会让 PermissionService 在任何模式下都直接 ask（规则
+    // tool.userInteraction，且先于 yolo 与 always-allow 判断），所以每次 Speak 都弹审批、
+    // 「总是允许」也不生效。Speak 只把一句话交回客户端，和 submit_result 一样属于 `session`。
+    sideEffectScope: "session",
     riskLevel: "low",
     needsApproval: false,
   },
@@ -85,7 +88,7 @@ export const speakToolEntry: ToolEntry = {
     permission: "speak",
     reason: "Speak plays a short sentence through the user's speakers",
     riskLevel: "low",
-    sideEffectScope: "userInteraction",
+    sideEffectScope: "session",
     needsApproval: false,
     patternSources: ["toolName"],
     alwaysAllowPatternSources: ["toolName"],

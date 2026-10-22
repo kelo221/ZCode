@@ -58,10 +58,6 @@ impl Preferences {
 }
 
 pub(crate) fn reload(path: &std::path::Path) -> Result<AppSettings, String> {
-    match std::fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map_err(|_| "Settings reload failed; preferences remain suspended".into()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(AppSettings::default()),
-        Err(_) => Err("Settings reload failed; preferences remain suspended".into()),
-    }
+    super::settings::read_settings_strict(path)
+        .map_err(|_| "Settings reload failed; preferences remain suspended".into())
 }

@@ -12,12 +12,17 @@ Status: spec for the 2026-10-16 slice. GPUI-only feature; Electron does not enab
   responses and owned `v4/conversation/frame` lines), so a turn started from the phone still
   speaks on the PC and the phone stays silent.
 - **Subagents never get the tool**, so parallel workers can't talk over each other.
+- **Speak never asks for permission**, in any mode. It is read-only with side-effect scope
+  `session` (it only hands a line back to the client). It must not use `userInteraction`: the
+  permission service asks for every tool in that scope before checking modes or saved
+  "always allow" rules, so each Speak call used to show an approval prompt.
 - **Fallback lines.** When a session shows a permission request, an AskUserQuestion, or a
   plan approval (ExitPlanMode), and that session has not had a Speak call accepted since its
   current turn started, GPUI itself says a fixed line: "Permission needed", "Question
   waiting" or "Plan ready". Each interaction id is announced at most once.
 - Settings › Voice (desktop only, hidden on the phone like Browser). Stored as one
-  GPUI-only object `gpuiVoice` in `setting.json`, so Electron ignores it:
+  GPUI-only object `gpuiVoice` in `gpui_settings.json`, a file Electron never rewrites
+  (SETTINGS.md "GPUI-only preferences file"):
   - **Let agents speak** (`enabled`, default off).
   - **Voice** (`voice`, default `af_sky`). Only English Kokoro voices are listed
     (`a*` American, `b*` British): the ones the engine reports, else a built-in list.
@@ -35,7 +40,7 @@ Status: spec for the 2026-10-16 slice. GPUI-only feature; Electron does not enab
 | State                                                                | Owner                                                                                    |
 | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | Whether a session's tool list contains `Speak`                       | CLI, from `voiceEnabled` in the session's runtime preferences reply (main sessions only) |
-| Voice settings                                                       | `setting.json` via GPUI `Preferences` (`gpuiVoice` object)                               |
+| Voice settings                                                       | `gpui_settings.json` via GPUI `Preferences` (`gpuiVoice` object)                         |
 | Speak acceptance, "spoke this turn" flags, announced interaction ids | GPUI `VoiceService` (global, desktop only)                                               |
 | Sidecar process, model, playback queue                               | `zcode-voice.exe`, owned and spawned by `VoiceService`                                   |
 

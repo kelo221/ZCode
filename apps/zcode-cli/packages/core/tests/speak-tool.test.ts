@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TraceId, VoicePort } from "@zcode/contracts";
 import { createToolRegistry, registerBuiltInTools } from "../src/tool/index.js";
+import { PermissionService } from "../src/permission/service.js";
+import { resolveRuntimePermissionCapability } from "../src/tool/executor/permission-capability.js";
 import { speakToolEntry } from "../src/tool/handlers/speak.js";
 import type { ToolExecutionContext } from "../src/tool/types.js";
 
@@ -47,6 +49,27 @@ describe("Speak tool", () => {
     const instructions = speakToolEntry.metadata.modelInstructions?.join("\n") ?? "";
     expect(instructions).toContain("one plain spoken sentence");
     expect(instructions).toContain("Do not narrate progress");
+  });
+
+  it("runs without a permission prompt in every mode", () => {
+    const capability = resolveRuntimePermissionCapability(
+      speakToolEntry,
+      { message: "Task done", kind: "done" },
+      { workingDirectory: "/workspace", workspaceRoot: "/workspace" },
+    );
+    const service = new PermissionService();
+    for (const mode of ["build", "edit", "plan", "yolo", "guarded"] as const) {
+      const decision = service.checkPermission(
+        {
+          input: { message: "Task done", kind: "done" },
+          mode,
+          riskLevel: "low",
+          toolName: "Speak",
+        },
+        capability,
+      );
+      expect(decision, mode).toMatchObject({ allowed: true, decision: "allow" });
+    }
   });
 
   it("forwards the message and kind and reports success", async () => {

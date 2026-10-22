@@ -327,10 +327,34 @@ Memory reply for real runtime materialization and user execution. This protocol 
 is separate from GPUI pointer/owner tests and is not memory-tool execution evidence.
 Native visual/executable restart and actual memory-tool execution remain evidence gaps.
 
+## GPUI-only preferences file
+
+`gpuiVoice`, `gpuiNoiseFree`, `gpuiCodeSearch` and `gpuiLspDiagnostics` are stored in
+`~/.zcode/v2/gpui_settings.json`, next to `setting.json`, never in `setting.json` itself. The
+Electron desktop rewrites `setting.json` whole from its own typed copy and drops keys it doesn't
+model: on 2026-10-21 an Electron start erased `gpuiVoice`, so voice was off after the next GPUI
+restart. `shared/settings.rs` is the only reader and writer of both files, behind the same
+PreferenceOwner queue:
+
+- Reads overlay `gpui_settings.json` on `setting.json`. A field missing from the GPUI file falls
+  back to a legacy value in `setting.json`, so values saved by older builds still load.
+- A change that only touches GPUI-only fields writes only `gpui_settings.json`. It skips the
+  desktop-running lock, because Electron never touches that file.
+- A change to `setting.json` still needs the desktop lock. It drops the legacy GPUI keys from
+  `setting.json`, and writes `gpui_settings.json` first when that file doesn't exist yet, so
+  legacy values move over instead of vanishing. A refused change writes neither file.
+- An unparseable `gpui_settings.json` is never overwritten; the write fails like an unparseable
+  `setting.json`.
+
+Acceptance tests (`shared/settings_tests.rs`): values survive Electron rewriting `setting.json`;
+GPUI-only changes save while the desktop runs and leave `setting.json` byte-identical; a refused
+mixed change writes neither file; legacy values load and move on the next shared write; the GPUI
+file wins over stale legacy values; an unparseable GPUI file is kept.
+
 ## Voice (desktop only)
 
 Settings › Voice sits under Agent capabilities after Browser Use and is hidden on the phone build,
-like Browser Use. Its values live in one GPUI-only `gpuiVoice` object in `setting.json`
+like Browser Use. Its values live in one GPUI-only `gpuiVoice` object in `gpui_settings.json`
 (`enabled`, `voice`, `speed`, `volume`, `onlyWhenUnfocused`; defaults off, `af_sky`, 1.0, 0.8,
 off), written through the same PreferenceOwner and validated before the write. The
 runtime-preference reply carries `voiceEnabled: true` only when the desktop has a voice service
