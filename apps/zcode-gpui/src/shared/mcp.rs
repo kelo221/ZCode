@@ -50,8 +50,20 @@ pub(crate) struct McpServerSnapshot {
     pub transport: String,
     pub tool_count: u64,
     pub error: Option<String>,
+    /// One of the validated `failureKind` codes; safe to display, unlike `error`.
+    pub failure_kind: Option<String>,
     pub updated_at: Option<String>,
     pub authorization: Option<McpAuthorization>,
+}
+
+/// Desktop `mcpStoreStatusList` display status.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum McpDisplayStatus {
+    Connected,
+    Connecting,
+    Error,
+    Disconnected,
+    Unknown,
 }
 
 #[derive(Deserialize)]
@@ -148,12 +160,76 @@ impl McpServerSnapshot {
                 tool_count: item.tool_count,
                 // OAuth URL 的任意 token 可能被原样回显；通用错误避免凭据进入状态和日志。
                 error: item.error.map(|_| MCP_ERROR.into()),
+                failure_kind: item.failure_kind,
                 updated_at: Some(item.updated_at),
                 authorization: item.authorization,
             });
         }
         Ok(list)
     }
+
+    pub(crate) fn display_status(&self) -> McpDisplayStatus {
+        match self.status.as_str() {
+            "connected" => McpDisplayStatus::Connected,
+            "connecting" => McpDisplayStatus::Connecting,
+            "failed" => McpDisplayStatus::Error,
+            "disconnected" => McpDisplayStatus::Disconnected,
+            _ => McpDisplayStatus::Unknown,
+        }
+    }
+
+    /// Desktop sorts failed rows and pending authorizations to the top.
+    pub(crate) fn needs_attention(&self) -> bool {
+        self.authorization.is_some() || self.display_status() == McpDisplayStatus::Error
+    }
+
+    /// `plugin:<plugin>:<server>` names split into (plugin, server).
+    pub(crate) fn plugin_parts(&self) -> Option<(&str, &str)> {
+        self.name.strip_prefix("plugin:")?.split_once(':')
+    }
+
+    /// Translation key of the localized failure message (desktop
+    /// `resolveMcpFailureMessageId`).
+    pub(crate) fn failure_key(&self) -> String {
+        self.failure_kind.as_deref().map_or_else(
+            || "settings.mcp.status.errorReason".into(),
+            |kind| format!("settings.mcp.failure.{kind}"),
+        )
+    }
+
+    /// Translation key of the status-dot tooltip.
+    pub(crate) fn status_reason_key(&self) -> String {
+        match self.display_status() {
+            McpDisplayStatus::Error => self.failure_key(),
+            McpDisplayStatus::Connected => "settings.mcp.status.connectedReason".into(),
+            McpDisplayStatus::Connecting => "settings.mcp.status.connectingReason".into(),
+            McpDisplayStatus::Disconnected => "settings.mcp.status.disconnectedReason".into(),
+            McpDisplayStatus::Unknown => "settings.mcp.status.unknownReason".into(),
+        }
+    }
+}
+
+/// Installed servers, attention first, then each plugin's servers grouped by
+/// plugin name; order within a group is the CLI's.
+pub(crate) fn group_servers(
+    servers: &[McpServerSnapshot],
+) -> (
+    Vec<McpServerSnapshot>,
+    Vec<(String, Vec<McpServerSnapshot>)>,
+) {
+    let mut installed: Vec<McpServerSnapshot> = Vec::new();
+    let mut plugins: Vec<(String, Vec<McpServerSnapshot>)> = Vec::new();
+    for server in servers {
+        match server.plugin_parts() {
+            Some((plugin, _)) => match plugins.iter_mut().find(|(name, _)| name == plugin) {
+                Some((_, rows)) => rows.push(server.clone()),
+                None => plugins.push((plugin.to_owned(), vec![server.clone()])),
+            },
+            None => installed.push(server.clone()),
+        }
+    }
+    installed.sort_by_key(|server| !server.needs_attention());
+    (installed, plugins)
 }
 
 #[cfg(test)]

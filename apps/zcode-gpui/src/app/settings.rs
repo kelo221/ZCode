@@ -67,7 +67,7 @@ impl SettingsSection {
     /// Panes that pin their own header and scroll an inner region; every other
     /// section scrolls with the whole settings panel.
     pub(crate) fn owns_scroll(self) -> bool {
-        matches!(self, Self::Plugins | Self::Mcp | Self::Usage)
+        matches!(self, Self::Plugins | Self::Usage)
     }
 }
 
@@ -348,7 +348,7 @@ impl RootView {
                                     .child(Button::new("settings-close-manager", crate::shared::i18n::label("Close manager", "关闭管理"))
                                         .on_click(cx.listener(|this, _, _, cx| this.state.update(cx, |s, cx| s.close_profiles(cx)))))
                             })
-                            .when(self.settings.section != SettingsSection::Subagents, |el| el.child(div().flex().child(
+                            .when(!matches!(self.settings.section, SettingsSection::Subagents | SettingsSection::Mcp), |el| el.child(div().flex().child(
                                 Button::new(
                                     "settings-file",
                                     crate::shared::i18n::label(

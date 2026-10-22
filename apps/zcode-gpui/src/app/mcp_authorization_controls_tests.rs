@@ -44,7 +44,7 @@ fn mcp_authorization_is_pointer_reachable_and_refresh_removes_action() {
     window.draw();
     let request: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
     assert_eq!(request["method"], "mcp/list");
-    assert_eq!(request["params"]["mode"], "status");
+    assert_eq!(request["params"]["mode"], "connect");
     assert!(request["params"].get("mcpServers").is_none());
     app.update_entity(&state, |s, cx| {
         s.handle_response(

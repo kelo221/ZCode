@@ -270,7 +270,8 @@ remain evidence gaps, not passing scenarios.
 Plugins, MCP Servers and Usage become Settings destinations by reusing their existing
 panes and existing stdio queries, not by introducing preference-file writes. Plugins
 Settings enters Manage Installed; the marketplace remains the separate workspace dock.
-MCP is inspection only until the existing owner-management operations are wired. Usage
+MCP shows live status but cannot edit configuration until the existing owner-management
+operations are wired (see "MCP Servers page" below). Usage
 retains its backend-supported 7d/30d/all ranges. Each section shows initial loading,
 empty success, error and explicit refresh; unavailable/disconnected workspaces say so.
 
@@ -344,12 +345,47 @@ on desktop; `gpuiVoice` round-trips with partial-object defaults; the speak hand
 runtime-preference reply includes `voiceEnabled`. Real speech through the GPUI executable is a
 manual check.
 
+## MCP Servers page
+
+Layout follows desktop `McpSettingsSection` / `McpServerList`. The page scrolls with the
+Settings panel like other sections (no inner full-height panel, no "Open settings file"
+footer, which opens the unrelated application `setting.json`):
+
+- An "Installed" group: header with item count and a refresh icon button, then one surface
+  card whose rows hold the user/workspace servers. Rows needing attention (failed status or a
+  pending authorization URL) sort first; the rest keep the CLI's name order.
+- One group per plugin for `plugin:<plugin>:<server>` names, titled with the canonical plugin
+  name, rows named by the server part.
+- Row: server icon tile with a status dot in its corner (connected green, connecting/pending
+  authorization yellow, failed red, otherwise subtlest; tooltip gives the localized reason),
+  name, a line `<transport> · <n> tools` (tool count only when connected), the localized
+  `settings.mcp.failure.<failureKind>` message for failed rows, and Open authorization.
+- Status mapping matches desktop `mcpStoreStatusList`: `failed` is an error, `disabled` and
+  `untrusted` show as unknown. Raw status strings and `updatedAt` are not displayed.
+- No servers: dashed card with `settings.mcp.emptyTitle` / `emptyDescription`.
+
+Not ported (no GPUI owner for `~/.zcode/cli/config.json` `mcp.servers` yet): enable switch,
+New/Edit/Delete form, Import, scope filter and search. Rows have no click-to-edit.
+
+`mcp/list` uses `mode:connect`, as desktop does for page load and Refresh: the CLI connects
+and revalidates the configured servers on the process-level `protocol-settings` lease and
+reports real status and tool counts. `mode:status` only reads servers that lease has
+already connected, so it reported every server as `disconnected` with 0 tools even while
+agent sessions (separate leases) used them. GPUI sends no `mcpServers`, so the CLI uses its
+own config plus plugin servers, the same set GPUI sessions use. While a refresh is loading
+the previous list stays visible.
+
+Acceptance (`app/mcp_pane_tests.rs`, `shared/mcp_tests.rs`): the request is `mode:connect`
+without `mcpServers`; the projection keeps a validated `failureKind`; status mapping, attention
+ordering and plugin grouping match desktop; MCP translation keys resolve; Settings › MCP
+renders grouped rows and the refresh target. Real server connection is a manual check.
+
 ## Pending MCP OAuth authorization
 
-MCP Settings and the workspace MCP pane expose Open authorization only when the current
-CLI status projection contains an OAuth authorization-code URL. `mcp/list` always uses
-explicit `mode:status`; it neither supplies `mcpServers` nor reconnects/reconfigures servers.
-CLI MCP runtime owns the flow. The originating connection-local query is the only owner
+MCP Settings exposes Open authorization only when the current CLI status projection
+contains an OAuth authorization-code URL. Connect-mode `mcp/list` returns early with the
+pending authorization snapshot while the connection continues in the background; the
+frontend does not poll. CLI MCP runtime owns the flow. The originating connection-local query is the only owner
 of status/authorization facts; the frontend owns only this user-initiated open action.
 
 The typed projection validates the current result schema. Authorization accepts only
@@ -369,13 +405,13 @@ old connection facts. A user click commits dispatch; changing workspace afterwar
 not cancel native opening, but late launch errors cannot affect a replacement origin.
 
 ```text
-MCP Settings/dock → explicit status query → origin pending registry
+MCP Settings → connect-mode query → origin pending registry
                  → strict status/authorization projection → user Open authorization
                  → current owner/generation/receipt check → native external URL opener
 refresh/reconnect/owner switch → old receipt cannot open a URL
 ```
 
-Acceptance: measured pointer action, absent/unsafe URL has no action, exact status-only
+Acceptance: measured pointer action, absent/unsafe URL has no action, exact connect-mode
 request, origin-isolated late reply, reconnect invalidation, stale callback refusal,
 refresh removing authorization and secret-free errors/debug output. Tests must intercept
 the platform opener; no real OAuth URL or browser launch is used. Opening a page does not
@@ -393,8 +429,8 @@ Skills/Commands/Hooks/Browser Use still require missing owner ports or further b
 not an API-key provider settings write; connectivity testing does not persist credentials.
 Skills/referenceCatalog and workspace/readPresentation are read-only presentation ports,
 not Settings CRUD. Hooks trustGrant requires owner-supplied bundle/declaration digests
-without a current GPUI Settings snapshot adapter. MCP mode:status and its optional
-mcpServers field must not be repurposed as a frontend configuration owner. Scoped live skill/plugin
+without a current GPUI Settings snapshot adapter. The optional mcp/list mcpServers field
+must not be repurposed as a frontend configuration owner. Scoped live skill/plugin
 catalogs, queue Edit/reorder, goal Pause/Resume, Personal Source controls, saved workflow
 launch/definition/history, run settings and confirmed saved metadata/delete/move controls
 are reachable; their presence does not establish complete lifecycle parity. Draft-safe

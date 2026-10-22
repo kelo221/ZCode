@@ -38,7 +38,7 @@ fn mcp_authorization_receipts_reject_refresh_switch_replacement_and_reconnect(
         s.fetch_mcp_servers(cx);
         let request: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
         assert_eq!(request["method"], "mcp/list");
-        assert_eq!(request["params"]["mode"], "status");
+        assert_eq!(request["params"]["mode"], "connect");
         assert!(request["params"].get("mcpServers").is_none());
         assert!(s.current_mcp_authorization_url(&receipt).is_none());
         s.handle_response(

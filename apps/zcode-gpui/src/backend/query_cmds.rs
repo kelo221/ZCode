@@ -53,7 +53,17 @@ impl AppState {
         ws.inspection.mcp.start();
         let id = ws.next_id();
         ws.pending.insert(id, Pending::FetchMcpList);
-        if !ws.send_pending_line(id, json!({"id":id,"method":"mcp/list","params":{"mode":"status","workspace":crate::backend::plugin_payloads::workspace_ref(&ws.path)}}).to_string()) {
+        // mode:status 只读取 protocol-settings lease 已连接的 server；该 lease 从未连接过，
+        // CLI 便为每个 server 合成 disconnected/0 tools（即使会话里正在使用）。与 desktop
+        // 设置页一致改用 connect：连接并 revalidate 后返回真实状态与工具数。
+        let params = json!({
+            "mode": "connect",
+            "workspace": crate::backend::plugin_payloads::workspace_ref(&ws.path),
+        });
+        if !ws.send_pending_line(
+            id,
+            json!({"id":id,"method":"mcp/list","params":params}).to_string(),
+        ) {
             ws.inspection.mcp.fail("MCP query could not be sent");
         }
         cx.notify();

@@ -795,7 +795,8 @@ Requirements:
   reuse an existing host scheduler rather than create a second owner (see §7 D3).
 - **Usage**: `v4/usage/stats` (legacy `usage/stats` is deprecated); native bar/line/
   heatmap drawing (no chart crate needed).
-- **MCP**: `mcp/list` read-only; editing stays in the desktop (host `mcp-sync` channel).
+- **MCP**: `mcp/list` in connect mode with the desktop grouped-row layout (SETTINGS.md
+  "MCP Servers page"); editing stays in the desktop (host `mcp-sync` channel).
 - **Subagents / background work**: the listed projection/navigation controls exist;
   comprehensive historical browsing and native acceptance are not implied.
   - **V4 Subagents State & Projection**: `Row::Subagent` with `tool_call_id`, `subagent_type`,

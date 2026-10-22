@@ -1,7 +1,8 @@
 use crate::app::root::RootView;
 use crate::backend::mcp_authorization::McpAuthorizationReceipt;
 use crate::shared::i18n::label;
-use ely_gpui_component::buttons::Button;
+use ely_gpui_component::buttons::{Button, ButtonVariant};
+use ely_gpui_component::primitives::IconName;
 #[cfg(not(test))]
 use gpui::AppContext;
 use gpui::{AnyElement, Context, IntoElement, ParentElement, div};
@@ -14,11 +15,12 @@ impl RootView {
     ) -> Option<AnyElement> {
         let receipt = self.state.read(cx).mcp_authorization_receipt(server)?;
         let id = format!("mcp-authorize-{server}");
-        let button = Button::new(id.clone(), label("Open authorization", "打开授权页面")).on_click(
-            cx.listener(move |this, _, _, cx| {
+        let button = Button::new(id.clone(), label("Open authorization", "打开授权页面"))
+            .variant(ButtonVariant::Link)
+            .icon(IconName::ExternalLink)
+            .on_click(cx.listener(move |this, _, _, cx| {
                 this.dispatch_mcp_authorization(&receipt, cx);
-            }),
-        );
+            }));
         let wrapper = div().child(button);
         #[cfg(test)]
         let wrapper = crate::app::test_support::track_children(wrapper, vec![id]);

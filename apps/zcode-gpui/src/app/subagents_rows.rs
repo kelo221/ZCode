@@ -270,7 +270,7 @@ fn chip(text: impl Into<SharedString>) -> gpui::Div {
         .child(text.into())
 }
 
-fn half_border() -> gpui::Rgba {
+pub(super) fn half_border() -> gpui::Rgba {
     let border = active_theme().border;
     gpui::Rgba {
         a: border.a * 0.5,
