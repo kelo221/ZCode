@@ -396,7 +396,10 @@ image cache, composer selection).
   `<task-notification>` wrappers to their readable body. Background-result user rows render as
   a notice card, not XML. An approved ExitPlanMode result keeps only its status line: the CLI
   appends the whole plan again after `## Approved Plan:`, which the card already renders from
-  the input (desktop's plan card shows the plan, not the result echo).
+  the input (desktop's plan card shows the plan, not the result echo). A TodoWrite result that
+  echoes the list as JSON (`oldTodos`/`todos`/`summary`) is not printed under the checklist;
+  any other TodoWrite result, such as an error, still is (desktop `todo.tsx` never mounts the
+  output when it has a plan).
 - **Nested lists in Markdown (2026-10-21).** A tight list item's text may be followed directly by
   a nested list. The inline walker stops at any block-level start, so the nested list renders
   as its own indented list, the parent numbering is untouched, and nothing after it is dropped

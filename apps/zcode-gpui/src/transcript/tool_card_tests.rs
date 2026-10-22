@@ -1,5 +1,27 @@
-use crate::transcript::tool_card::{plan_result_status, tool_summary};
+use crate::transcript::tool_card::tool_summary;
+use crate::transcript::tool_results::{displayed_result, is_todo_result_echo, plan_result_status};
 use serde_json::json;
+
+#[test]
+fn todo_write_json_echo_is_hidden_but_errors_are_kept() {
+    let echo = json!({
+        "oldTodos": [{"content":"a","status":"pending","priority":"high"}],
+        "todos": [{"content":"a","status":"completed","priority":"high"}],
+        "summary": {"total":1,"pending":0,"inProgress":0,"completed":1}
+    })
+    .to_string();
+    assert!(is_todo_result_echo(&echo));
+    assert!(is_todo_result_echo(r#"{"todos":[]}"#));
+    assert!(!is_todo_result_echo("Error: todos must be an array"));
+    assert!(!is_todo_result_echo(r#"{"error":"invalid todos"}"#));
+    assert!(!is_todo_result_echo(r#"{"todos":"not a list"}"#));
+    assert_eq!(displayed_result("TodoWrite", echo.clone()), "");
+    assert_eq!(
+        displayed_result("TodoWrite", "Error: bad".into()),
+        "Error: bad"
+    );
+    assert_eq!(displayed_result("Read", echo.clone()), echo);
+}
 
 #[test]
 fn code_search_tools_summarise_their_query() {

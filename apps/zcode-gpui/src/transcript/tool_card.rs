@@ -14,6 +14,7 @@ use crate::transcript::tagged_text::clean_tool_output;
 use crate::transcript::tool_inputs::{
     canonical_tool, generic_input_view, mono, selectable, task_output_view,
 };
+use crate::transcript::tool_results::displayed_result;
 use ely_gpui_component::primitives::IconName;
 use gpui::{
     AnyElement, Context, ElementId, IntoElement, ParentElement, Styled, div, prelude::*, px,
@@ -263,28 +264,13 @@ fn short_path(path: String) -> String {
     }
 }
 
-/// An approved ExitPlanMode result repeats the whole plan after its status
-/// line (apps/zcode-cli/packages/core/src/tool/handlers/plan-mode.ts); the card
-/// already renders the plan from the input, so only the status is kept
-/// (desktop parity: the plan card shows the plan, not the result echo).
-/// Rejections and other results carry no echo and stay whole.
-pub(crate) fn plan_result_status(text: &str) -> &str {
-    match text.find("\n## Approved Plan:") {
-        Some(at) => text[..at].trim_end(),
-        None => text,
-    }
-}
-
 /// Expanded output: TaskOutput gets its status view, diffs render as diffs,
-/// anything else is the text with model-only wrappers removed.
+/// anything else is the text with model-only wrappers and input echoes removed.
 fn output_view(tool: &str, display: Option<&Value>, output_text: &str) -> AnyElement {
     if tool == "TaskOutput" && (display.is_some() || !output_text.is_empty()) {
         return task_output_view(display, output_text);
     }
-    let mut text = clean_tool_output(output_text);
-    if canonical_tool(tool) == "ExitPlanMode" {
-        text = plan_result_status(&text).to_string();
-    }
+    let text = displayed_result(canonical_tool(tool), clean_tool_output(output_text));
     if text.is_empty() {
         return div().into_any_element();
     }
