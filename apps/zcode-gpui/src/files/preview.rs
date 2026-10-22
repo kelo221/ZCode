@@ -118,8 +118,8 @@ pub fn preview_element(path: &Path, preview: &Preview) -> AnyElement {
                         .flex_row()
                         .gap_2()
                         .child(
-                            preview_action_btn("btn-open-default", "Open in System App", move |_, _, _| {
-                                let _ = file_launcher::open_with_system_default(&p1);
+                            preview_action_btn("btn-open-default", "Open in System App", move |_, _, cx| {
+                                file_launcher::open_with_system_default(p1.clone(), cx, |_, _| {});
                             })
                         )
                         .child(
@@ -128,8 +128,8 @@ pub fn preview_element(path: &Path, preview: &Preview) -> AnyElement {
                             })
                         )
                         .child(
-                            preview_action_btn("btn-open-code", "Open in VS Code", move |_, _, _| {
-                                let _ = file_launcher::open_in_editor(&p3);
+                            preview_action_btn("btn-open-code", "Open in VS Code", move |_, _, cx| {
+                                file_launcher::open_in_editor(p3.clone(), cx, |_, _| {});
                             })
                         ),
                 )

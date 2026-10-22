@@ -3,14 +3,58 @@
 
 #![allow(dead_code)]
 
-use std::path::Path;
+use gpui::{App, AppContext};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 
-/// Open a file in the user's editor. Tries `code <path>` first, then default OS opener.
-pub fn open_in_editor(path: &Path) -> Result<(), std::io::Error> {
+/// Open `path` with the OS default handler; `on_error` runs on the UI thread.
+pub fn open_with_system_default(
+    path: PathBuf,
+    cx: &App,
+    on_error: impl FnOnce(std::io::Error, &mut App) + 'static,
+) {
+    run_off_ui_thread(
+        cx,
+        move || open_with_system_default_blocking(&path),
+        on_error,
+    );
+}
+
+/// Open `path` in VS Code, falling back to the OS default handler; `on_error`
+/// runs on the UI thread.
+pub fn open_in_editor(
+    path: PathBuf,
+    cx: &App,
+    on_error: impl FnOnce(std::io::Error, &mut App) + 'static,
+) {
+    run_off_ui_thread(cx, move || open_in_editor_blocking(&path), on_error);
+}
+
+// 不能在 UI 线程调用 ShellExecuteW：它会跑一个嵌套的 Win32 消息循环（打开文件夹时
+// 必现），把 GPUI 排队的前台任务在点击回调仍持有 App 借用时派发出去；该任务再
+// borrow_mut 就会 "RefCell already borrowed"，且 panic 发生在 WndProc 内不能 unwind，
+// 进程直接 abort（2026-10-22 侧边栏项目菜单"在文件资源管理器中打开"崩溃）。
+// 与上游 GPUI 的 open_url / open_with_system 一样放到后台执行器上执行。
+fn run_off_ui_thread(
+    cx: &App,
+    job: impl FnOnce() -> Result<(), std::io::Error> + Send + 'static,
+    on_error: impl FnOnce(std::io::Error, &mut App) + 'static,
+) {
+    let task = cx.background_spawn(async move { job() });
+    cx.spawn(async move |cx| {
+        if let Err(error) = task.await {
+            cx.update(|cx| on_error(error, cx));
+        }
+    })
+    .detach();
+}
+
+/// Tries `code <path>` first, then the default OS opener. Blocks; never call
+/// on the UI thread (see `run_off_ui_thread`).
+fn open_in_editor_blocking(path: &Path) -> Result<(), std::io::Error> {
     // 1. Try VS Code if available on PATH
     let mut code_cmd = Command::new("code");
     code_cmd.arg(path);
@@ -22,7 +66,7 @@ pub fn open_in_editor(path: &Path) -> Result<(), std::io::Error> {
     }
 
     // 2. Fallback to default OS file opener
-    open_with_system_default(path)
+    open_with_system_default_blocking(path)
 }
 
 /// Reveal a file or directory in the native file manager with selection.
@@ -58,7 +102,9 @@ pub fn reveal_in_file_manager(path: &Path) -> Result<(), std::io::Error> {
     }
 }
 
-pub fn open_with_system_default(path: &Path) -> Result<(), std::io::Error> {
+/// Blocks (and on Windows pumps a nested message loop); only call from a
+/// background executor. UI code uses [`open_with_system_default`].
+pub(crate) fn open_with_system_default_blocking(path: &Path) -> Result<(), std::io::Error> {
     #[cfg(windows)]
     {
         // Direct ShellExecuteW — never `cmd.exe /C start`: workspace paths can

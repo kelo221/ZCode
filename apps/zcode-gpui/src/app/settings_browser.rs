@@ -97,9 +97,13 @@ impl RootView {
             label("Open folder", "打开文件夹"),
         )
         .disabled(extension.is_none())
-        .on_click(move |_, _, _| {
+        .on_click(move |_, _, cx| {
             if let Some(path) = &open_path {
-                let _ = crate::shared::os::file_launcher::open_with_system_default(path);
+                crate::shared::os::file_launcher::open_with_system_default(
+                    path.clone(),
+                    cx,
+                    |_, _| {},
+                );
             }
         });
         let copy_path = extension.clone();

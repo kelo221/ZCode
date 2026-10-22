@@ -221,7 +221,7 @@ pub fn execute_quickpick_action(
         }
         QuickPickItemAction::Command(QuickPickAction::OpenInEditor) => {
             if let Some(path) = this.active_workspace_path(cx) {
-                let _ = crate::shared::os::file_launcher::open_in_editor(&path);
+                crate::shared::os::file_launcher::open_in_editor(path, cx, |_, _| {});
             }
         }
         QuickPickItemAction::Command(QuickPickAction::RevealInFileManager) => {

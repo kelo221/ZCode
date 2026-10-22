@@ -360,14 +360,17 @@ impl RootView {
                                 .on_click(cx.listener(
                                     |this, _, _, cx| {
                                         let path = crate::shared::settings::settings_file_path();
-                                        if let Err(error) =
-                                            crate::shared::os::file_launcher::open_in_editor(&path)
-                                        {
-                                            this.state.update(cx, |state, cx| {
-                                                state.push_error(error.to_string());
-                                                cx.notify();
-                                            });
-                                        }
+                                        let state = this.state.clone();
+                                        crate::shared::os::file_launcher::open_in_editor(
+                                            path,
+                                            cx,
+                                            move |error, cx| {
+                                                state.update(cx, |state, cx| {
+                                                    state.push_error(error.to_string());
+                                                    cx.notify();
+                                                });
+                                            },
+                                        );
                                     },
                                 )),
                             ))),

@@ -1,7 +1,7 @@
 //! External sensitive-URL opening without target-bearing diagnostics or shell evaluation.
 #[cfg(windows)]
 pub(crate) fn open(url: &str) -> Result<(), ()> {
-    crate::shared::os::file_launcher::open_with_system_default(std::path::Path::new(url))
+    crate::shared::os::file_launcher::open_with_system_default_blocking(std::path::Path::new(url))
         .map_err(|_| ())
 }
 

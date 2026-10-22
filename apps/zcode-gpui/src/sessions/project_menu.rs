@@ -68,10 +68,10 @@ impl RootView {
             )
             .separator()
             .item(MenuItem::new(file_manager_label()).on_click(move |_, cx| {
-                if let Err(e) = file_launcher::open_with_system_default(&p_files) {
-                    let _ =
-                        v_files.update(cx, |this, cx| this.launch_error("open", &p_files, e, cx));
-                }
+                let (view, path) = (v_files.clone(), p_files.clone());
+                file_launcher::open_with_system_default(p_files.clone(), cx, move |e, cx| {
+                    let _ = view.update(cx, |this, cx| this.launch_error("open", &path, e, cx));
+                });
             }))
             .item(
                 MenuItem::new(crate::shared::i18n::label(
@@ -79,10 +79,10 @@ impl RootView {
                     "在编辑器中打开",
                 ))
                 .on_click(move |_, cx| {
-                    if let Err(e) = file_launcher::open_in_editor(&p_editor) {
-                        let _ = v_editor
-                            .update(cx, |this, cx| this.launch_error("open", &p_editor, e, cx));
-                    }
+                    let (view, path) = (v_editor.clone(), p_editor.clone());
+                    file_launcher::open_in_editor(p_editor.clone(), cx, move |e, cx| {
+                        let _ = view.update(cx, |this, cx| this.launch_error("open", &path, e, cx));
+                    });
                 }),
             )
             .item(
