@@ -21,3 +21,5 @@ export * from "./tools/index.js";
 export * from "./code-search/fff-engine.js";
 export * from "./lsp/index.js";
 export * from "./git/worktree.js";
+export * from "./jj/workspace.js";
+export * from "./vcs/auto-worktree.js";

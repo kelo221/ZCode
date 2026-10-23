@@ -63,6 +63,7 @@ import {
   patchMetadataWorktree,
   trackIsolationRun,
   wantsWorktreeIsolation,
+  worktreeExecutionEnv,
   type SubagentIsolationState,
 } from "./worktree-isolation.js";
 import {
@@ -1307,8 +1308,8 @@ async function runAgentToCompletion(
           ? {
               isolation: {
                 executionDirectory: isolation.record.path,
-                ...(isolation.record.cargoTargetDir
-                  ? { env: { CARGO_TARGET_DIR: isolation.record.cargoTargetDir } }
+                ...(worktreeExecutionEnv(isolation.record)
+                  ? { env: worktreeExecutionEnv(isolation.record) }
                   : {}),
                 onBackgroundTasksStopped: (count: number) => {
                   backgroundTasksStopped += count;

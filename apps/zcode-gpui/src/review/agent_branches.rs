@@ -3,10 +3,13 @@
 //! pane shows for one of them (PARITY.md "Agent branches (read-only)").
 //! Parsing is pure; the blocking loaders run on the background executor.
 
-use crate::review::git::{GitFile, GitStatus, parse_numstat, run_git};
+use crate::review::git::{GitFile, GitStatus, parse_numstat, run_git, run_jj};
 use std::path::{Path, PathBuf};
 
 const AGENT_BRANCH_PREFIX: &str = "refs/heads/zcode/agent_";
+/// The CLI's jj backend names agent workspaces `zcode-<agentId>`.
+const JJ_WORKSPACE_PREFIX: &str = "zcode-";
+const JJ_WORKSPACE_TEMPLATE: &str = "name ++ \"\\t\" ++ root ++ \"\\n\"";
 
 /// One `git worktree list --porcelain` entry that belongs to an agent.
 #[derive(Clone, Debug, PartialEq)]
@@ -98,6 +101,20 @@ pub fn parse_worktree_list(output: &str, repo_top: &Path) -> Vec<AgentWorktree> 
         });
     }
     found
+}
+
+/// Agent workspaces from `jj workspace list -T <JJ_WORKSPACE_TEMPLATE>`:
+/// `(agent id, workspace root)` for every `zcode-agent_*` workspace.
+pub fn parse_jj_workspace_list(output: &str) -> Vec<(String, PathBuf)> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let (name, root) = line.trim_end_matches('\r').split_once('\t')?;
+            let id = name.strip_prefix(JJ_WORKSPACE_PREFIX)?;
+            id.starts_with("agent_")
+                .then(|| (id.to_string(), PathBuf::from(root)))
+        })
+        .collect()
 }
 
 /// Comparable form of a path: forward slashes, no trailing slash, and
@@ -222,7 +239,85 @@ pub fn load_agent_branches(cwd: &Path) -> Result<Vec<AgentBranch>, String> {
             del,
         });
     }
+    // jj workspaces are detached git worktrees (colocated repos), so the git
+    // pass above never lists them; a missing `jj` just leaves them out.
+    if top.join(".jj").is_dir() {
+        for b in load_jj_agent_branches(&top).unwrap_or_default() {
+            if !branches.iter().any(|known| known.branch == b.branch) {
+                branches.push(b);
+            }
+        }
+    }
     Ok(branches)
+}
+
+/// Blocking: agent workspaces of the CLI's jj backend. The head is the
+/// `zcode/<id>` bookmark, else the workspace's `@-` (uncommitted work is not
+/// shown, as with git); the base is `zcode.base.<id>` in the repo config.
+/// Diffs still go through git, which only works in colocated repos.
+fn load_jj_agent_branches(top: &Path) -> Result<Vec<AgentBranch>, String> {
+    let list = run_jj(
+        top,
+        &[
+            "--ignore-working-copy",
+            "workspace",
+            "list",
+            "-T",
+            JJ_WORKSPACE_TEMPLATE,
+        ],
+    )?;
+    let mut branches = Vec::new();
+    for (id, worktree) in parse_jj_workspace_list(&list) {
+        let branch = format!("zcode/{id}");
+        let Some(head) = jj_commit(top, &format!("present(\"{branch}\")"))
+            .or_else(|| jj_commit(top, &format!("{JJ_WORKSPACE_PREFIX}{id}@-")))
+        else {
+            continue;
+        };
+        let base = run_jj(top, &["config", "get", &format!("zcode.base.{id}")])
+            .ok()
+            .or_else(|| run_git(top, &["merge-base", "HEAD", &head]).ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let Some(base) = base else {
+            continue;
+        };
+        let (files, add, del) = run_git(top, &["diff", "--shortstat", &base, &head])
+            .map(|s| parse_shortstat(&s))
+            .unwrap_or_default();
+        branches.push(AgentBranch {
+            repo_top: top.to_path_buf(),
+            worktree,
+            branch,
+            base,
+            result: head,
+            files,
+            add,
+            del,
+        });
+    }
+    Ok(branches)
+}
+
+/// First commit id of a revset, or `None` when it is empty or fails.
+fn jj_commit(top: &Path, revset: &str) -> Option<String> {
+    let out = run_jj(
+        top,
+        &[
+            "--ignore-working-copy",
+            "log",
+            "--no-graph",
+            "-r",
+            revset,
+            "-T",
+            "commit_id ++ \"\\n\"",
+        ],
+    )
+    .ok()?;
+    out.lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_string)
 }
 
 /// Blocking: the file list of one pinned comparison.

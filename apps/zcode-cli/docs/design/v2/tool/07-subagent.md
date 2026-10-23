@@ -468,6 +468,22 @@ Child finish    -> no parent MCP cleanup
   - 提交或清理失败（hook、签名等）：保留文件与 branch，记录 `finalizeError` 并与 agent 原本的结果一同报告，下一次 finalize 重试。
 - 结果：模型可见尾注给出 branch、worktree 路径、相对 `sourceHead` 的 diff stat，以及集成命令 `git merge --no-ff zcode/<id>`（由模型在主 checkout 通过 Bash 按正常权限执行；重叠的脏文件由 git 安全拒绝）。合并 / 丢弃按钮不在本轮范围。
 
+#### jj 后端（Fork，2026-10-23）
+
+- 选择：bootstrap 注入自动选择端口。`create` 时 `jj root` 在 cwd 成功且 `jj` 可执行（`jj --version` 结果按进程缓存）→ jj 后端，否则 git 后端，行为与上文完全一致。没有设置项。`ensure` / `finalize` 按 `record.vcs` 分派；没有 `vcs` 的旧记录一律按 git 处理。
+- 记录：`WorktreeRecord` 增加 `vcs: "git" | "jj"` 与 `env`（child Bash 额外环境，与 `CARGO_TARGET_DIR` 合并，同样传给 scope 端口）。`branch` 在 jj 下是 bookmark 名，`sourceHead` / `resultHead` 是 commit id（git 后端下即 git SHA）。
+- 位置与起点：`<jj root>/.zcode/worktrees/<agentId>`，workspace 名 `zcode-<agentId>`，bookmark `zcode/<agentId>`。起点为父 workspace 的 `@-`（父 working copy 的改动不带入，与 git「clean HEAD only」对应）；`@-` 是 `root()` 时返回 `no_commits`，`@-` 是多个提交（父 working copy 位于 merge 之上）时返回 `create_failed` 并提示先 `jj new`。仓库级查询与 bookmark / workspace forget 都带 `--ignore-working-copy`，不快照父 working copy；`jj workspace add` 拒绝该参数，会快照一次父 working copy（不改写其内容）。base 写入 `jj config set --repo zcode.base.<agentId> <sourceHead>` 供 GPUI 只读查看。
+- 隔离：jj 0.46 起 colocated 仓库的 `jj workspace add` 同时登记一个 detached git worktree（子目录有 `.git` 文件），父 jj snapshot 跳过嵌套 workspace；父 `git status` 仍会看到 `.zcode/`，所以同样把 `/.zcode/worktrees/` 写入 `jj git root` 指向的 git 目录的 `info/exclude`。非 colocated 仓库的 workspace 没有 `.git`，child 环境设置 `GIT_CEILING_DIRECTORIES=<jj root>/.zcode/worktrees`，防止 child 里的 git 命令向上找到外层仓库。
+- 恢复：目录仍是该 workspace 时运行 `jj workspace update-stale`（父集成后 child 会 stale）；否则先 `jj workspace forget`，再从 bookmark（存在时）或 `sourceHead` 执行 `jj workspace add`；失败返回 `isolation unavailable`。
+- 收尾（在 workspace 内运行，会快照 child working copy）：
+  - `@` 有改动且没有描述：`jj describe -m "zcode agent <id>: <description>"`，outcome `committed`。`jj config get user.name/user.email` 为空时才加 ZCode 回退身份。
+  - 结果提交：`@` 非空或已有描述时取 `@`，否则取 `@-`。`commitsAhead` = `sourceHead..result` 的提交数。
+  - 为 0：`jj workspace forget`（同时丢弃空 working-copy 提交并注销 git worktree）、删除目录、删除 bookmark、清除 base 配置，outcome `removed`。
+  - 否则 `jj bookmark set zcode/<id> -r <result> --allow-backwards`（colocated 时导出为 git branch）；结果提交就是 child 的 `@` 时再在 child 内 `jj new`，避免 resume 后的编辑改写已被父集成的提交。
+  - 任一步失败：保留文件与 bookmark，记录 `finalizeError`，下一次 finalize 重试。
+- 结果尾注改用 jj 词汇，集成命令为 `jj rebase -b zcode/<id> -d @- && jj rebase -s @ -d zcode/<id>`：先把 agent 提交接到父当前的 `@-` 上，再把父 working copy 移到其上，历史保持线性、父未提交改动随之移动、冲突以 jj 冲突提交记录而不阻塞，后续 isolation 的 `@-` 起点仍是单个提交（`jj new @ zcode/<id>` 会让 `@-` 变成 merge，故不用）。child prompt 说明这是 jj workspace，应使用 jj。
+- GPUI：仓库根存在 `.jj` 且 `jj` 可执行时，Review 额外用 `jj workspace list --ignore-working-copy` 列出 `zcode-agent_*` workspace；结果取 bookmark（存在时）否则 `<workspace>@-`（与 git 一致，不显示未提交改动），base 取 `zcode.base.<id>`，回退 `git merge-base`。diff 继续走 git，因此只支持 colocated jj 仓库。
+
 ### RespondToCoordinator 当前范围
 
 - `SendMessage` 保持 parent/main-only。running child 在当前 tool batch 结束后的合法 round 边界接收带

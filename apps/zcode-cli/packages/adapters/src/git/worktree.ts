@@ -85,11 +85,9 @@ export function createGitWorktreeIsolation(
       await mkdir(join(repoRoot, WORKTREES_DIR), { recursive: true });
       await must(["worktree", "add", "-b", branch, path, sourceHead], repoRoot, "create_failed");
       await must(["config", `branch.${branch}.zcodeBase`, sourceHead], repoRoot, "create_failed");
-      const cargoTargetDir =
-        env.CARGO_TARGET_DIR === undefined && (await isFile(join(repoRoot, "Cargo.toml")))
-          ? join(repoRoot, "target")
-          : undefined;
+      const cargoTargetDir = await sharedCargoTargetDir(repoRoot, env);
       return {
+        vcs: "git",
         repoRoot,
         path,
         branch,
@@ -195,7 +193,11 @@ async function ensureExcluded(git: GitRunner, repoRoot: string): Promise<void> {
   const located = await git(["rev-parse", "--git-path", "info/exclude"], repoRoot);
   if (located.code !== 0) return;
   const raw = located.stdout.trim();
-  const excludePath = isAbsolute(raw) ? raw : resolve(repoRoot, raw);
+  await appendWorktreesExclude(isAbsolute(raw) ? raw : resolve(repoRoot, raw));
+}
+
+/** 幂等地把 `/.zcode/worktrees/` 追加到一个 git exclude 文件（jj 后端复用）。 */
+export async function appendWorktreesExclude(excludePath: string): Promise<void> {
   const current = await readFile(excludePath, "utf8").catch(() => "");
   if (current.split(/\r?\n/u).some((line) => line.trim() === EXCLUDE_PATTERN)) return;
   await mkdir(resolve(excludePath, ".."), { recursive: true });
@@ -214,6 +216,16 @@ async function isWorktree(git: GitRunner, path: string): Promise<boolean> {
   // 被删掉 .git 文件的目录会被父仓库当成普通子目录：确认顶层就是它自己。
   const top = await git(["rev-parse", "--show-toplevel"], path);
   return top.code === 0 && samePath(top.stdout.trim(), path);
+}
+
+/** 仓库根有 Cargo.toml 且用户没设 CARGO_TARGET_DIR 时，worktree 共享主 checkout 的 target。 */
+export async function sharedCargoTargetDir(
+  repoRoot: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string | undefined> {
+  return env.CARGO_TARGET_DIR === undefined && (await isFile(join(repoRoot, "Cargo.toml")))
+    ? join(repoRoot, "target")
+    : undefined;
 }
 
 async function isFile(path: string): Promise<boolean> {

@@ -34,7 +34,7 @@ export const AgentInputSchema = z.object({
     .enum(["worktree"])
     .optional()
     .describe(
-      'Set to "worktree" to run the agent in its own git worktree on branch zcode/<agentId>, starting from HEAD (your uncommitted changes are not included). Its work is committed to that branch; merge it yourself afterwards.',
+      'Set to "worktree" to run the agent in its own git worktree (a jj workspace in jj repos) on branch/bookmark zcode/<agentId>, starting from your last commit (your uncommitted changes are not included). Its work is committed to that branch/bookmark; integrate it yourself afterwards.',
     ),
 });
 

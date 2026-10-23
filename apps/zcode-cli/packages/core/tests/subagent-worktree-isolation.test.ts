@@ -66,7 +66,7 @@ function executionResult(cwd: string | undefined): ExecutionResult {
 }
 
 function fakeWorktreePort(
-  options: { ensureFails?: boolean; onCreate?: (path: string) => void } = {},
+  options: { ensureFails?: boolean; jj?: boolean; onCreate?: (path: string) => void } = {},
 ) {
   const events: string[] = [];
   const port: WorktreeIsolationPort = {
@@ -74,6 +74,12 @@ function fakeWorktreePort(
       events.push(`create:${agentId}`);
       options.onCreate?.(join(cwd, ".zcode", "worktrees", agentId));
       return {
+        ...(options.jj
+          ? {
+              vcs: "jj" as const,
+              env: { GIT_CEILING_DIRECTORIES: join(cwd, ".zcode", "worktrees") },
+            }
+          : {}),
         repoRoot: cwd,
         path: join(cwd, ".zcode", "worktrees", agentId),
         branch: `zcode/${agentId}`,
@@ -314,6 +320,47 @@ describe("subagent worktree isolation", () => {
       branch: `zcode/${output.agentId}`,
       path: worktreePath,
     });
+  });
+
+  it("gives a jj workspace child its backend env and jj wording", async () => {
+    const worktree = fakeWorktreePort({ jj: true });
+    const scopes: Array<{ root: string; env?: Record<string, string> }> = [];
+    const env = await setup({
+      worktree: worktree.port,
+      scopePortsFor: (scope) => {
+        scopes.push(scope);
+        return {};
+      },
+      steps: [
+        () => ({
+          toolCalls: [{ id: "pwd", name: "Bash", input: { command: "pwd", description: "where" } }],
+        }),
+        () => ({ text: "child done" }),
+      ],
+    });
+    const output = await env.port.run({
+      ...env.context,
+      agentType: "writer",
+      description: "Edit things",
+      isolation: "worktree",
+      parentToolCallId: "call_1",
+      prompt: "CHILD_TASK",
+    });
+    const expectedEnv = {
+      GIT_CEILING_DIRECTORIES: join(workspace, ".zcode", "worktrees"),
+      CARGO_TARGET_DIR: join(workspace, "target"),
+    };
+
+    expect(env.requests[0]?.env?.set).toMatchObject(expectedEnv);
+    expect(scopes[0]?.env).toEqual(expectedEnv);
+    expect(env.modelTexts[0]).toContain("isolated jj workspace");
+    expect(env.modelTexts[0]).toContain("Use jj here, not git");
+    const text = output.content[0].text as string;
+    expect(text).toContain(`set bookmark zcode/${output.agentId}`);
+    expect(text).toContain(
+      `jj rebase -b zcode/${output.agentId} -d @- && jj rebase -s @ -d zcode/${output.agentId}`,
+    );
+    expect(text).not.toContain("git merge");
   });
 
   it("does not finalize at the background handoff, only when the child finishes", async () => {

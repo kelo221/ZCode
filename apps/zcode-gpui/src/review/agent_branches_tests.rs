@@ -46,6 +46,23 @@ fn matches_windows_paths_regardless_of_separator_and_case() {
 }
 
 #[test]
+fn lists_only_zcode_agent_jj_workspaces() {
+    let out = concat!(
+        "default\tC:\\repo\r\n",
+        "zcode-agent_1b4e-2fa1\tC:\\repo\\.zcode\\worktrees\\agent_1b4e-2fa1\r\n",
+        "zcode-other\tC:\\repo\\.zcode\\worktrees\\other\n",
+        "mine\tC:\\elsewhere\n",
+    );
+    assert_eq!(
+        parse_jj_workspace_list(out),
+        vec![(
+            "agent_1b4e-2fa1".to_string(),
+            PathBuf::from("C:\\repo\\.zcode\\worktrees\\agent_1b4e-2fa1"),
+        )]
+    );
+}
+
+#[test]
 fn parses_shortstat_variants() {
     assert_eq!(
         parse_shortstat(" 3 files changed, 10 insertions(+), 2 deletions(-)\n"),
@@ -196,5 +213,94 @@ fn reads_a_finalized_agent_branch_from_a_real_repository() {
     assert!(diff.contains("+two"), "{diff}");
 
     git(&repo, &["worktree", "remove", "--force", &wt_str]);
+    let _ = std::fs::remove_dir_all(&repo);
+}
+
+fn jj(cwd: &Path, args: &[&str]) -> String {
+    let out = Command::new("jj")
+        .args(["--no-pager", "--color=never"])
+        .args([
+            "--config",
+            "user.name=Test",
+            "--config",
+            "user.email=t@example.com",
+        ])
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "jj {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+#[test]
+fn reads_a_jj_agent_workspace_from_a_colocated_repository() {
+    if Command::new("jj").arg("--version").output().is_err() {
+        return; // jj is optional; the CLI only uses it when installed.
+    }
+    let repo = std::env::temp_dir().join(format!("zc-agent-jj-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    for (k, v) in [
+        ("user.name", "Test"),
+        ("user.email", "t@example.com"),
+        ("commit.gpgsign", "false"),
+        ("core.autocrlf", "false"),
+    ] {
+        git(&repo, &["config", k, v]);
+    }
+    std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+    git(&repo, &["add", "a.txt"]);
+    git(&repo, &["commit", "-q", "-m", "init"]);
+    jj(&repo, &["git", "init", "--colocate"]);
+    let base = jj(&repo, &["log", "--no-graph", "-r", "@-", "-T", "commit_id"]);
+    let ws = repo.join(".zcode").join("worktrees").join("agent_y");
+    std::fs::create_dir_all(ws.parent().unwrap()).unwrap();
+    let ws_str = ws.to_string_lossy().to_string();
+    jj(
+        &repo,
+        &[
+            "workspace",
+            "add",
+            "--name",
+            "zcode-agent_y",
+            "-r",
+            &base,
+            &ws_str,
+        ],
+    );
+    jj(
+        &repo,
+        &["config", "set", "--repo", "zcode.base.agent_y", &base],
+    );
+    std::fs::write(ws.join("a.txt"), "one\ntwo\n").unwrap();
+    std::fs::write(ws.join("b.txt"), "new\n").unwrap();
+    jj(&ws, &["describe", "-m", "zcode agent agent_y: work"]);
+    jj(
+        &repo,
+        &["bookmark", "set", "zcode/agent_y", "-r", "zcode-agent_y@"],
+    );
+
+    let branches = load_agent_branches(&repo).unwrap();
+    assert_eq!(branches.len(), 1, "{branches:?}");
+    let b = &branches[0];
+    assert_eq!(
+        (b.branch.as_str(), b.base.as_str()),
+        ("zcode/agent_y", base.as_str())
+    );
+    assert_eq!((b.files, b.add, b.del), (2, 2, 0));
+    let paths: Vec<_> = load_compare(b)
+        .unwrap()
+        .files
+        .iter()
+        .map(|f| (f.path.clone(), f.worktree))
+        .collect();
+    assert_eq!(paths, vec![("a.txt".into(), 'M'), ("b.txt".into(), 'A')]);
+
+    jj(&repo, &["workspace", "forget", "zcode-agent_y"]);
     let _ = std::fs::remove_dir_all(&repo);
 }

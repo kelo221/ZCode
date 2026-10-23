@@ -219,8 +219,21 @@ const MAX_GIT_OUTPUT_BYTES: u64 = 4 * 1024 * 1024;
 /// invocation has a deadline, and both pipes are drained on threads so a
 /// large diff cannot deadlock a full pipe buffer.
 pub fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
+    run_vcs("git", cwd, args)
+}
+
+/// Blocking: `jj` with the same deadline and pipe handling as [`run_git`].
+/// Callers pass `--ignore-working-copy` so the Review pane never snapshots
+/// (and so never rewrites) the user's working-copy commit.
+pub fn run_jj(cwd: &Path, args: &[&str]) -> Result<String, String> {
+    let mut full = vec!["--no-pager", "--color=never"];
+    full.extend_from_slice(args);
+    run_vcs("jj", cwd, &full)
+}
+
+fn run_vcs(program: &str, cwd: &Path, args: &[&str]) -> Result<String, String> {
     use std::process::Stdio;
-    let mut cmd = Command::new("git");
+    let mut cmd = Command::new(program);
     cmd.args(args)
         .current_dir(cwd)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -268,7 +281,10 @@ pub fn run_git(cwd: &Path, args: &[&str]) -> Result<String, String> {
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                break Err(format!("git timed out after {}s", GIT_TIMEOUT.as_secs()));
+                break Err(format!(
+                    "{program} timed out after {}s",
+                    GIT_TIMEOUT.as_secs()
+                ));
             }
             Err(e) => break Err(e.to_string()),
         }

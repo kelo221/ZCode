@@ -1,5 +1,5 @@
 import type { CodeSearchPort, DiagnosticsPort, WorktreeIsolationPort } from "@zcode/contracts";
-import { createGitWorktreeIsolation } from "@zcode/adapters";
+import { createAutoWorktreeIsolation } from "@zcode/adapters";
 import type { ZCodeWorkspaceRef } from "@zcode/shared";
 import type { ZCodeProtocolAgentServerContext } from "./server-types.js";
 
@@ -27,7 +27,8 @@ export async function resolveSessionWorktreeIsolation(
       : undefined;
   const diagnostics = input.lspDiagnosticsEnabled ? context.diagnostics : undefined;
   return {
-    worktreeIsolationPort: createGitWorktreeIsolation(),
+    // jj 仓库（且 jj 可执行）用 jj workspace，其余用 git worktree；见 07-subagent.md「jj 后端」。
+    worktreeIsolationPort: createAutoWorktreeIsolation(),
     scopePortsFor: ({ root, env }) => ({
       ...(codeSearch
         ? {

@@ -9,6 +9,7 @@ import {
   CoreErrorType,
   WorktreeIsolationError,
   createCoreError,
+  worktreeVcs,
   type ExecutionPort,
   type ExecutionRequest,
   type WorktreeFinalizeResult,
@@ -143,25 +144,38 @@ export function formatWorktreeSummary(
     );
   }
   const stat = result.diffStat ? ` (${result.diffStat})` : "";
-  const merge = `Review it, then merge from your checkout with: git merge --no-ff ${record.branch}`;
+  const jj = worktreeVcs(record) === "jj";
+  const words = jj
+    ? { tree: "jj workspace", ref: "bookmark", Ref: "Bookmark", place: "Workspace" }
+    : { tree: "worktree", ref: "branch", Ref: "Branch", place: "Worktree" };
+  // jj 用两次 rebase 而不是 `jj new @ <bookmark>`：后者让父 `@-` 变成 merge，下一个隔离 agent 无法取起点。
+  const merge = jj
+    ? [
+        `Review it with: jj diff --from ${short(record.sourceHead)} --to ${record.branch}`,
+        `Then integrate it from your workspace with: jj rebase -b ${record.branch} -d @- && jj rebase -s @ -d ${record.branch}`,
+      ]
+    : [`Review it, then merge from your checkout with: git merge --no-ff ${record.branch}`];
+  const plural = result.commitsAhead === 1 ? "" : "s";
   if (result.error) {
     lines.push(
-      `Finalizing the worktree failed, so its files and branch were kept as they are: ${result.error}`,
-      `Worktree: ${record.path} (branch ${record.branch}). Commit or clean up there before merging.`,
+      `Finalizing the ${words.tree} failed, so its files and ${words.ref} were kept as they are: ${result.error}`,
+      `${words.place}: ${record.path} (${words.ref} ${record.branch}). ${jj ? "Describe" : "Commit"} or clean up there before merging.`,
     );
   } else if (result.outcome === "removed") {
-    lines.push(`The agent made no changes; removed its worktree and branch ${record.branch}.`);
+    lines.push(
+      `The agent made no changes; removed its ${words.tree} and ${words.ref} ${record.branch}.`,
+    );
   } else if (result.outcome === "committed") {
     lines.push(
-      `Committed the agent's changes to branch ${record.branch}${stat}; ${result.commitsAhead} commit${result.commitsAhead === 1 ? "" : "s"} ahead of ${short(record.sourceHead)}.`,
-      `Worktree: ${record.path}`,
-      merge,
+      `${jj ? "Described" : "Committed"} the agent's changes ${jj ? "and set" : "to"} ${words.ref} ${record.branch}${stat}; ${result.commitsAhead} commit${plural} ahead of ${short(record.sourceHead)}.`,
+      `${words.place}: ${record.path}`,
+      ...merge,
     );
   } else {
     lines.push(
-      `Branch ${record.branch} has ${result.commitsAhead} commit${result.commitsAhead === 1 ? "" : "s"} from the agent${stat}, based on ${short(record.sourceHead)}.`,
-      `Worktree: ${record.path}`,
-      merge,
+      `${words.Ref} ${record.branch} has ${result.commitsAhead} commit${plural} from the agent${stat}, based on ${short(record.sourceHead)}.`,
+      `${words.place}: ${record.path}`,
+      ...merge,
     );
   }
   lines.push("</worktree_result>");
@@ -169,6 +183,15 @@ export function formatWorktreeSummary(
 }
 
 export function formatWorktreePromptNote(record: WorktreeRecord): string {
+  if (worktreeVcs(record) === "jj") {
+    return [
+      "<worktree_isolation>",
+      `You are working in an isolated jj workspace at ${record.path}, created on top of commit ${short(record.sourceHead)}; your work is published as bookmark ${record.branch} when you finish.`,
+      "The parent's working-copy changes are not in this workspace. Use jj here, not git: your edits are recorded in the working-copy commit automatically, and you may `jj describe`, `jj commit` or `jj new` as you like.",
+      "Stay inside this workspace; do not edit files in the main checkout.",
+      "</worktree_isolation>",
+    ].join("\n");
+  }
   return [
     "<worktree_isolation>",
     `You are working in an isolated git worktree at ${record.path} on branch ${record.branch}, created from commit ${short(record.sourceHead)}.`,
@@ -195,6 +218,15 @@ export async function patchMetadataWorktree(
     `${JSON.stringify({ ...parsed, worktree: record, updatedAt: new Date().toISOString() }, null, 2)}\n`,
     "utf8",
   );
+}
+
+/** child 命令的环境：后端给的额外变量，加上共享的 Cargo target 目录。 */
+export function worktreeExecutionEnv(record: WorktreeRecord): Record<string, string> | undefined {
+  const env = {
+    ...record.env,
+    ...(record.cargoTargetDir ? { CARGO_TARGET_DIR: record.cargoTargetDir } : {}),
+  };
+  return Object.keys(env).length > 0 ? env : undefined;
 }
 
 const ENV_REQUEST_METHODS = new Set<PropertyKey>([

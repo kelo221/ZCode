@@ -102,6 +102,11 @@ limits below take precedence over the retained historical milestone requirements
   Switching workspace returns to the working tree.
 - Failed git commands now report the exit code and stderr, or stdout when stderr is empty (hooks
   often print to stdout), instead of an empty notice.
+- jj repos (2026-10-23): when the repo root has `.jj` and `jj` runs, the list also includes
+  `zcode-agent_*` workspaces from `jj workspace list --ignore-working-copy`. The head is the
+  `zcode/<id>` bookmark, else the workspace's `@-` (uncommitted work is not shown, as with git).
+  The base is `jj config get zcode.base.<id>`, else `git merge-base`. Diffs still run through git,
+  so only colocated jj repos are listed.
 
 ## Agent worktree isolation (2026-10-20, fork CLI)
 
@@ -121,6 +126,12 @@ limits below take precedence over the retained historical milestone requirements
   everything and reports the error next to the agent's own result.
 - Resuming with `SendMessage` reuses the worktree, recreating it from the branch if the directory
   is gone, or fails with "isolation unavailable". `ListAgents` shows the branch and path.
+- jj repos (2026-10-23): when `jj root` succeeds and `jj` is on PATH, the agent gets a jj workspace
+  `zcode-<agentId>` at the same path instead, based on the parent workspace's `@-`. On finish its
+  working copy is described ("zcode agent <id>: <description>") and bookmark `zcode/<agentId>` is
+  set; no changes means the workspace is forgotten and removed. The result tells the parent to
+  integrate with `jj rebase -b zcode/<id> -d @- && jj rebase -s @ -d zcode/<id>`. Git commands
+  inside a non-colocated workspace are blocked with `GIT_CEILING_DIRECTORIES`.
 
 ## Subagent IDs survive restarts and failures (2026-10-20, fork CLI + GPUI)
 
