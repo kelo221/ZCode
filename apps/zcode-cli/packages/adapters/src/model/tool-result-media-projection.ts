@@ -7,7 +7,12 @@ import {
   type ModelMessageContentBlock,
 } from "@zcode/contracts";
 import { containsOfficialCuaImageRefCredentialText } from "@zcode/zcode-cua/frame-contract";
-import { dataUrlToDataContent, unsupportedInputMediaText } from "./media-transform-policy.js";
+import {
+  dataUrlToDataContent,
+  providerImageMediaType,
+  unsupportedImageMediaTypeText,
+  unsupportedInputMediaText,
+} from "./media-transform-policy.js";
 
 type AiSdkUserContent = Extract<AiSdkModelMessage, { role: "user" }>["content"];
 type AiSdkUserContentParts = Extract<AiSdkUserContent, unknown[]>;
@@ -160,7 +165,9 @@ function contentBlockToUserMediaParts(
       }
       const data = dataUrlToDataContent(block.dataUrl);
       if (!data) return [];
-      return [{ type: "image", image: data.data, mediaType: block.mediaType }];
+      const mediaType = providerImageMediaType(block.mediaType, data.data);
+      if (!mediaType) return [{ type: "text", text: unsupportedImageMediaTypeText(block) }];
+      return [{ type: "image", image: data.data, mediaType }];
     }
 
     case "video": {

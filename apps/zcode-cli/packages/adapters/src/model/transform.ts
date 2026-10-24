@@ -21,7 +21,12 @@ import {
   toToolResultMediaUserParts,
   toolResultHasVideoMedia,
 } from "./tool-result-media-projection.js";
-import { dataUrlToDataContent, unsupportedInputMediaText } from "./media-transform-policy.js";
+import {
+  dataUrlToDataContent,
+  providerImageMediaType,
+  unsupportedImageMediaTypeText,
+  unsupportedInputMediaText,
+} from "./media-transform-policy.js";
 import { normalizeOpenAiCompatibleSystemMessages } from "./system-message-compat.js";
 
 export interface AiSdkMessageTransformOptions {
@@ -236,7 +241,9 @@ function contentBlockToAiSdkToolResultParts(
           { type: "text", text: "ERROR: Image file is empty or corrupted. Inform the user." },
         ];
       }
-      return [{ type: "image-data", data: data.data, mediaType: block.mediaType }];
+      const mediaType = providerImageMediaType(block.mediaType, data.data);
+      if (!mediaType) return [{ type: "text", text: unsupportedImageMediaTypeText(block) }];
+      return [{ type: "image-data", data: data.data, mediaType }];
     }
 
     case "video": {
@@ -468,7 +475,9 @@ function contentBlockToAiSdkUserParts(
           },
         ];
       }
-      return [{ type: "image", image: data.data, mediaType: block.mediaType }];
+      const mediaType = providerImageMediaType(block.mediaType, data.data);
+      if (!mediaType) return [{ type: "text", text: unsupportedImageMediaTypeText(block) }];
+      return [{ type: "image", image: data.data, mediaType }];
     }
 
     case "video": {

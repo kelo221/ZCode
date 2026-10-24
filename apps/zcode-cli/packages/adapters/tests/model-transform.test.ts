@@ -25,6 +25,35 @@ describe("AI SDK model message transform", () => {
     ]);
   });
 
+  it("never declares an image media type the provider rejects", () => {
+    const image = (mediaType: string, base64: string) => ({
+      type: "image" as const,
+      mediaType,
+      dataUrl: `data:${mediaType};base64,${base64}`,
+    });
+    const [message] = toAiSdkMessages([
+      {
+        role: "user",
+        content: [
+          // Windows clipboard DIB pasted from GPUI ("BM" magic).
+          image("image/bmp", "Qk02AAAAAAAAADYAAAAoAAAA"),
+          image("image/jpg", "aW1hZ2U="),
+          image("image/bmp", "iVBORw0KGgoAAAANSUhEUg=="),
+        ],
+      },
+    ]);
+    expect(message?.content).toEqual([
+      {
+        type: "text",
+        text: expect.stringContaining(
+          "Image omitted from provider request: image/bmp is not a supported image format",
+        ),
+      },
+      { type: "image", image: "aW1hZ2U=", mediaType: "image/jpeg" },
+      { type: "image", image: "iVBORw0KGgoAAAANSUhEUg==", mediaType: "image/png" },
+    ]);
+  });
+
   it("does not append the empty-user fallback to media or resource-only content", () => {
     const messages = toAiSdkMessages([
       {

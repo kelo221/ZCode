@@ -27,7 +27,7 @@ futures = "0.3"
 base64 = "0.22"
 sha2 = "0.10"
 crc32fast = "1"
-image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico", "tiff", "pnm"] }
 pulldown-cmark = "0.13.4"
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
 portable-pty = "0.9.0"

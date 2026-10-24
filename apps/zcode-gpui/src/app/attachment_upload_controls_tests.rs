@@ -45,10 +45,14 @@ fn clipboard_upload_cancel_retry_and_ready_send_are_reachable() {
         window.focus(&focus, cx);
         window.bounds_changed(cx);
     });
+    let mut bmp = Vec::new();
+    image::RgbaImage::from_pixel(2, 2, image::Rgba([1, 2, 3, 0]))
+        .write_to(&mut std::io::Cursor::new(&mut bmp), image::ImageFormat::Bmp)
+        .unwrap();
     app.update(|cx| {
         cx.write_to_clipboard(ClipboardItem::new_image(&Image::from_bytes(
             ImageFormat::Bmp,
-            vec![1, 2, 3],
+            bmp,
         )))
     });
     window.draw();
@@ -56,7 +60,8 @@ fn clipboard_upload_cancel_retry_and_ready_send_are_reachable() {
     window.draw();
     let begin: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
     assert_eq!(begin["method"], "v4/attachment/begin");
-    assert_eq!(begin["params"]["mime"], "image/bmp");
+    // Providers reject image/bmp; the paste is transcoded before upload.
+    assert_eq!(begin["params"]["mime"], "image/png");
     let upload = begin["params"]["uploadId"].as_str().unwrap().to_string();
     let send = app.update(|cx| cx.global::<TestTargets>().0["send-btn"]);
     window.simulate_click(send.center(), MouseButton::Left);
@@ -135,6 +140,55 @@ fn clipboard_upload_cancel_retry_and_ready_send_are_reachable() {
     );
     assert_eq!(
         send["params"]["payload"]["attachments"][0]["mime"],
-        "image/bmp"
+        "image/png"
     );
+}
+
+#[test]
+fn undecodable_clipboard_bitmap_is_refused_before_upload() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut app = TestApp::with_text_system_and_assets(
+        Arc::new(gpui::NoopTextSystem::new()),
+        Arc::new(ely_gpui_component::Assets),
+    );
+    app.update(|cx| {
+        ely_gpui_component::init(cx);
+        cx.set_global(TestTargets::default());
+        crate::shared::preferences::Preferences::install_at(
+            Default::default(),
+            std::env::temp_dir().join(uuid::Uuid::now_v7().to_string()),
+            Arc::new(|| true),
+            cx,
+        );
+    });
+    let state = app.new_entity(AppState::for_test);
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.update_entity(&state, |s, _| {
+        let key = s.workspaces[0].key.clone();
+        s.workspaces[0].inbound = Some(tx);
+        s.workspaces[0].started = true;
+        s.workspaces[0].pumping = true;
+        s.active_workspace = Some(key);
+        s.active = Some("parent".into());
+        s.draft = false;
+    });
+    let mut window = app.open_window(|_, cx| RootView::new(state.clone(), cx));
+    window.simulate_resize(size(px(1280.), px(820.)));
+    window.update(|_, window, cx| {
+        let focus = state.read(cx).composer.read(cx).focus.clone();
+        window.focus(&focus, cx);
+    });
+    app.update(|cx| {
+        cx.write_to_clipboard(ClipboardItem::new_image(&Image::from_bytes(
+            ImageFormat::Bmp,
+            vec![1, 2, 3],
+        )))
+    });
+    window.draw();
+    window.simulate_keystroke("secondary-v");
+    window.draw();
+    assert!(rx.try_recv().is_err());
+    app.update_entity(&state, |s, cx| {
+        assert!(s.composer.read(cx).attachments.is_empty())
+    });
 }

@@ -234,6 +234,17 @@ impl AppState {
             cx.notify();
             return;
         }
+        // 上传与新任务临时文件两条路径都从这里进入；BMP 等格式原样声明会被模型接口拒绝，
+        // 且坏图片写入会话首条消息后该会话再也无法发送，所以在附件产生前统一转成 PNG。
+        let (bytes, format) = match crate::composer::clipboard_image::to_model_image(bytes, format)
+        {
+            Ok(converted) => converted,
+            Err(message) => {
+                self.push_error(message);
+                cx.notify();
+                return;
+            }
+        };
         match self.paste_target(replacement, "Connect this chat before pasting an image", cx) {
             Some(Some(receipt)) => {
                 self.insert_image_upload(receipt, Arc::new(bytes), UploadKind::Image(format), cx)

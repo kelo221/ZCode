@@ -73,6 +73,21 @@ export function normalizeImageMediaType(value: string): string {
   return lower === "image/jpg" ? "image/jpeg" : lower;
 }
 
+const MODEL_IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set<DetectedImageMediaType>([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+]);
+
+/** Provider-accepted image media type for `value` (parameters dropped, `image/jpg` aliased), if any. */
+export function toModelImageMediaType(value: string): DetectedImageMediaType | undefined {
+  const normalized = normalizeImageMediaType(value.split(";", 1)[0]!.trim());
+  return MODEL_IMAGE_MEDIA_TYPES.has(normalized)
+    ? (normalized as DetectedImageMediaType)
+    : undefined;
+}
+
 function isValidBase64Payload(value: string): boolean {
   return value.length % 4 !== 1 && /^[A-Za-z0-9+/]+={0,2}$/.test(value);
 }

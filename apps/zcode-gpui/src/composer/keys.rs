@@ -170,18 +170,22 @@ impl Composer {
         let Some(item) = cx.read_from_clipboard() else {
             return;
         };
-        let mut has_image = false;
-        for entry in item.entries() {
-            if let gpui::ClipboardEntry::Image(img) = entry
-                && !img.bytes.is_empty()
-            {
-                has_image = true;
-                cx.emit(ComposerEvent::ImagePasted {
-                    bytes: img.bytes.clone(),
-                    format: img.format,
-                    replacement: self.replacement_generation,
-                });
-            }
+        // Windows 剪贴板会同时放 PNG 与 DIB(BMP) 两份同一图片；逐项发出会产生重复附件，
+        // 其中 BMP 被模型接口以 400 拒绝。一次粘贴只取一张，优先模型可直接接受的格式。
+        let image =
+            crate::composer::clipboard_image::pick(item.entries().iter().filter_map(|entry| {
+                match entry {
+                    gpui::ClipboardEntry::Image(img) => Some(img),
+                    _ => None,
+                }
+            }));
+        let has_image = image.is_some();
+        if let Some(img) = image {
+            cx.emit(ComposerEvent::ImagePasted {
+                bytes: img.bytes.clone(),
+                format: img.format,
+                replacement: self.replacement_generation,
+            });
         }
         if !has_image {
             self.marked_utf16 = None;
