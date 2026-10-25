@@ -43,9 +43,12 @@ import { countContinuePrompts } from "./runtime-output-token-continuation-test-h
 import {
   buildCompactPrompt,
   buildCompactSummaryMessage,
+  buildSubagentCompactContinuationReminder,
   COMPACT_PROMPT_TOO_LONG_RETRY_MARKER,
   estimateMessageTokens,
   formatCompactSummary,
+  getSubagentCompactSummaryBudget,
+  parseCompactSummaryWorkItems,
 } from "../src/compact/index.js";
 import {
   realUserRuntimeMetadata,
@@ -379,6 +382,29 @@ describe("runtime compact helpers", () => {
     expect(fullPrompt).toContain("Additional Instructions:\nKeep exact file paths.");
 
     expect(fullPrompt).toContain("Tool calls will be rejected and you will fail the task.");
+    // 回归：summary 曾把本请求的 TEXT ONLY 规则当作用户消息保留，续接后 subagent 停止调用工具。
+    expect(fullPrompt).toContain(
+      'This summary request, including its text-only / no-tools rule, is an internal step of the system and not a message from the user. Do not list it under "All user messages"',
+    );
+  });
+
+  it("tells the resumed agent that the summarizer's no-tools rule no longer applies", () => {
+    const continuation = buildCompactSummaryMessage(
+      "<summary>6. All user messages:\n   - (System) CRITICAL: respond TEXT ONLY, no tools</summary>",
+      { suppressFollowup: true },
+    );
+
+    expect(continuation).toContain(
+      "That rule applied only to writing the summary and is not a user instruction, even if the summary mentions it.",
+    );
+    expect(continuation).toContain("All of your tools are available again");
+    // 失效声明必须位于 summary 之后、续接指令之前，模型读到可疑条目后立刻看到纠正。
+    expect(continuation.indexOf("All of your tools are available again")).toBeGreaterThan(
+      continuation.indexOf("respond TEXT ONLY"),
+    );
+    expect(continuation.indexOf("All of your tools are available again")).toBeLessThan(
+      continuation.indexOf("Resume directly"),
+    );
   });
 
   it("formats compact summaries and continuation messages with the fixed continuation shape", () => {
@@ -409,6 +435,123 @@ describe("runtime compact helpers", () => {
       "Variables defined in REPL calls before this point are no longer accessible — redefine any you still need.",
     );
     expect(continuation).toContain("Resume directly — do not acknowledge the summary");
+  });
+
+  it("keeps the main-session compact prompt and continuation free of subagent wording", () => {
+    const mainPrompt = buildCompactPrompt(undefined);
+    expect(mainPrompt).not.toContain("Subagent continuation requirements");
+    expect(mainPrompt).not.toContain("Work Items:");
+    expect(buildCompactPrompt(undefined, {})).toBe(mainPrompt);
+
+    const mainContinuation = buildCompactSummaryMessage("Summary:\nabc", {
+      suppressFollowup: true,
+    });
+    expect(
+      mainContinuation.startsWith(
+        "This session is being continued from a previous conversation that ran out of context.",
+      ),
+    ).toBe(true);
+    expect(mainContinuation).not.toContain("no budget");
+  });
+
+  it("asks subagent summaries for the verbatim brief, a per-item checklist and a window-sized length", () => {
+    const prompt = buildCompactPrompt("Keep exact file paths.", {
+      subagent: { targetSummaryTokens: 7_900 },
+    });
+
+    expect(prompt).toContain("Subagent continuation requirements");
+    expect(prompt).toContain("Original Brief:");
+    expect(prompt).toContain("Work Items:");
+    expect(prompt).toContain("- [in progress] <item> — evidence:");
+    expect(prompt).toContain("there is no token or turn budget");
+    expect(prompt).toContain("Keep the whole <summary> under about 5925 words.");
+    // subagent 段在自定义指令与 no-tools 结尾之前，结尾提醒仍是最后一段。
+    expect(prompt.indexOf("Subagent continuation requirements")).toBeLessThan(
+      prompt.indexOf("Additional Instructions:"),
+    );
+    expect(prompt.trimEnd().endsWith("you will fail the task.")).toBe(true);
+  });
+
+  it("tells a compacted subagent that nothing ran out", () => {
+    const continuation = buildCompactSummaryMessage("Summary:\nabc", {
+      subagent: true,
+      suppressFollowup: true,
+    });
+    expect(continuation).toContain("nothing ran out and no budget was used up");
+    expect(continuation).not.toContain("ran out of context");
+    expect(continuation).toContain("All of your tools are available again");
+  });
+
+  it("keeps the summary text when the summary was cut off before its closing tag", () => {
+    expect(
+      formatCompactSummary("<analysis>- a</analysis>\n<summary>\nWork Items:\n- [done] x"),
+    ).toBe("Summary:\nWork Items:\n- [done] x");
+    expect(formatCompactSummary("<analysis>unclosed draft\n<summary>tail")).toBe("Summary:\ntail");
+  });
+
+  it("parses work items and builds the subagent continuation reminder from them", () => {
+    const summary = [
+      "Summary:",
+      "Work Items:",
+      "   - [done] Weapons — evidence: weapon.rs:42 — next: none",
+      "   - [In Progress] Player lifecycle — evidence: player.rs:10 — next: read spawn.rs",
+      "   * [not started] Enemy effects — evidence: none — next: grep effect",
+      "   - [blocked] Master bugs — evidence: log missing — next: ask parent",
+      "   - not a checklist line",
+    ].join("\n");
+
+    expect(parseCompactSummaryWorkItems(summary)).toEqual([
+      { status: "done", text: "Weapons — evidence: weapon.rs:42 — next: none" },
+      {
+        status: "in progress",
+        text: "Player lifecycle — evidence: player.rs:10 — next: read spawn.rs",
+      },
+      { status: "not started", text: "Enemy effects — evidence: none — next: grep effect" },
+      { status: "blocked", text: "Master bugs — evidence: log missing — next: ask parent" },
+    ]);
+
+    const reminder = buildSubagentCompactContinuationReminder({
+      brief: "Audit weapons, player lifecycle, enemy effects and master bugs.",
+      remainingItemsTag: "remaining_items",
+      summary,
+    });
+    expect(reminder).toContain("does not mean anything ran out: you have no token or turn budget");
+    expect(reminder).toContain("Audit weapons, player lifecycle, enemy effects and master bugs.");
+    expect(reminder).toContain("- [in progress] Player lifecycle");
+    expect(reminder).toContain("- [not started] Enemy effects");
+    expect(reminder).toContain("- [blocked] Master bugs");
+    expect(reminder).not.toContain("- [done] Weapons");
+    expect(reminder).toContain("end your final answer with a <remaining_items> block");
+  });
+
+  it("falls back to the summary checklist and truncates very long briefs in the reminder", () => {
+    const reminder = buildSubagentCompactContinuationReminder({
+      brief: "x".repeat(13_000),
+      remainingItemsTag: "remaining_items",
+      summary: "Summary:\nfree-form summary without a checklist",
+    });
+    expect(reminder).toContain(
+      "Check the Work Items list in the summary above and continue with every item not marked done.",
+    );
+    expect(reminder).toContain("[Brief truncated after 12000 characters");
+    expect(reminder).not.toContain("x".repeat(12_001));
+  });
+
+  it("sizes the subagent summary budget from the effective context window", () => {
+    // 100K 窗口的有效窗口 79K：硬上限 15%，目标 10%。
+    expect(getSubagentCompactSummaryBudget(79_000)).toEqual({
+      maxOutputTokens: 11_850,
+      targetSummaryTokens: 7_900,
+    });
+    // 大窗口仍不超过原有 20K 上限；目标不超过上限的 75%，给 <analysis> 留空间。
+    expect(getSubagentCompactSummaryBudget(179_000)).toEqual({
+      maxOutputTokens: 20_000,
+      targetSummaryTokens: 15_000,
+    });
+    expect(getSubagentCompactSummaryBudget(20_000)).toEqual({
+      maxOutputTokens: 4_000,
+      targetSummaryTokens: 2_000,
+    });
   });
 
   it("selects auto compact recent context on assistant-message boundaries", () => {

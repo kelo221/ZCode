@@ -333,6 +333,7 @@ export function createDefaultSubagentPort(
             currentDate: this.contextSourceSnapshot?.currentDate ?? this.config.currentDate,
             subagentContext: {
               agentPrompt: agentPrompt ?? "",
+              taskBrief: request.prompt,
               ...(agentsMdInstructions ? { userInstructions: agentsMdInstructions } : {}),
             },
             agentName: `zcode-${request.agentType}`,
@@ -513,7 +514,7 @@ export function createDefaultSubagentPort(
         }
         request.registerMessageSink?.(createSubagentMessageSink(childRuntime, request));
         try {
-          return await childRuntime.executeTurn(request.prompt, undefined, {
+          const turnResult = await childRuntime.executeTurn(request.prompt, undefined, {
             ...(childBinding
               ? {
                   offPeakTaskId: offPeak!.offPeakTaskId,
@@ -530,6 +531,7 @@ export function createDefaultSubagentPort(
             inputPresentation: "coordinator_input",
             traceContext: request.traceContext,
           });
+          return { ...turnResult, contextWindow: childModel.properties.contextWindow };
         } finally {
           const cancelled = options?.signal?.aborted === true;
           childRuntime.sealBackgroundTaskNotifications({

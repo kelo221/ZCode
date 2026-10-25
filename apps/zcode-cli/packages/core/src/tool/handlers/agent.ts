@@ -10,6 +10,8 @@ import {
   AgentType,
   CoreErrorType,
   createCoreError,
+  formatAgentIncompleteNotice,
+  formatAgentUsageEntries,
   type AgentInput,
   type AgentOutput,
   type TraceContext,
@@ -45,6 +47,24 @@ const AGENT_TOOL_OUTPUT_SCHEMA = {
         totalDurationMs: { type: "integer", minimum: 0 },
         totalTokens: { type: "integer", minimum: 0 },
         usage: { type: "object", additionalProperties: true },
+        contextReport: {
+          type: "object",
+          properties: {
+            cumulativeBilledTokens: { type: "integer", minimum: 0 },
+            peakContextTokens: { type: "integer", minimum: 0 },
+            contextWindow: { type: "integer", minimum: 0 },
+            compactionCount: { type: "integer", minimum: 0 },
+            stopReason: { type: "string" },
+          },
+          required: ["compactionCount"],
+          additionalProperties: false,
+        },
+        incomplete: {
+          type: "object",
+          properties: { remainingItems: { type: "array", items: { type: "string" } } },
+          required: ["remainingItems"],
+          additionalProperties: false,
+        },
       },
       required: ["status", "agentId", "prompt", "content", "totalToolUseCount", "totalDurationMs"],
       additionalProperties: false,
@@ -105,6 +125,7 @@ function buildAgentProviderDescription(
     "",
     "- The agent's final message is returned to you as the tool result; it is not shown to the user — relay what matters.",
     "- Use SendMessage with the agent's ID to continue a previously spawned agent with its context intact; a new Agent call starts fresh.",
+    "- Subagents have no token or turn budget; when an agent's context fills up it is compacted automatically and it keeps working. In the result's `<usage>`, `cumulative_billed_tokens` sums every model request (each one re-counts the whole context), so a large number does not mean anything ran out; `peak_context_tokens` against `context_window` shows how full the context actually got. If the result says `status: incomplete`, continue that agent with SendMessage instead of starting a new one.",
     "- Each agent type's model, reasoning effort, and tools come from its definition (`.zcode/agents/*.md` frontmatter).",
     "- `run_in_background: true` runs the agent asynchronously; you'll be notified when it completes.",
     '- `isolation: "worktree"` runs the agent in its own git worktree, or jj workspace in jj repos (branch/bookmark `zcode/<agentId>`, from your last commit), so parallel writers do not collide; the result names the branch/bookmark and how to integrate it.',
@@ -130,12 +151,17 @@ function formatAgentOutputForModel(output: unknown): string {
   const data = parsed.data as AgentOutput;
   if (data.status !== "async_launched") {
     const childText = data.content.map((block) => block.text).join("\n");
-    const usageLines = [
-      ...(data.totalTokens === undefined ? [] : [`subagent_tokens: ${data.totalTokens}`]),
-      `tool_uses: ${data.totalToolUseCount}`,
-      `duration_ms: ${data.totalDurationMs}`,
-    ];
+    // 单个 subagent_tokens 是逐请求累计值（每步重计整段上下文），父模型曾把它当成预算耗尽。
+    const usageLines = formatAgentUsageEntries({
+      ...(data.contextReport ? { contextReport: data.contextReport } : {}),
+      durationMs: data.totalDurationMs,
+      toolUseCount: data.totalToolUseCount,
+      totalTokens: data.totalTokens,
+    }).map(([key, value]) => `${key}: ${value}`);
     const trailer = [
+      ...(data.incomplete && data.incomplete.remainingItems.length > 0
+        ? [formatAgentIncompleteNotice(data.agentId, data.incomplete)]
+        : []),
       `agentId: ${data.agentId} (use SendMessage with to: '${data.agentId}' to continue this agent)`,
       `<usage>${usageLines.join("\n")}</usage>`,
     ].join("\n");

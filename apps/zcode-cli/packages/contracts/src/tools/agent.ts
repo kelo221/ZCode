@@ -47,6 +47,28 @@ export interface AgentTextContentBlock {
   text: string;
 }
 
+/**
+ * 子 agent 结束时用这个块列出没做完的条目；runner 把它从正文剥离成 `incomplete`。
+ * Compact 续接提醒与 subagent 系统提示都引用同一个标签名。
+ */
+export const SUBAGENT_REMAINING_ITEMS_TAG = "remaining_items";
+
+/**
+ * `totalTokens` 是每次请求 input+output 的累计和（每一步都重新计入整段上下文），
+ * 父模型曾把它读成"预算已耗尽"。这里给出能说明上下文真实状况的字段。
+ */
+export interface AgentContextReport {
+  cumulativeBilledTokens?: number;
+  peakContextTokens?: number;
+  contextWindow?: number;
+  compactionCount: number;
+  stopReason?: string;
+}
+
+export interface AgentIncompleteReport {
+  remainingItems: string[];
+}
+
 export interface AgentCompletedOutput {
   status: "completed";
   agentId: string;
@@ -58,6 +80,51 @@ export interface AgentCompletedOutput {
   totalDurationMs: number;
   totalTokens?: number;
   usage?: ModelUsage;
+  contextReport?: AgentContextReport;
+  incomplete?: AgentIncompleteReport;
+}
+
+export interface AgentUsageEntriesInput {
+  contextReport?: AgentContextReport;
+  durationMs?: number;
+  toolUseCount?: number;
+  totalTokens?: number;
+}
+
+/** 同步 Agent 结果与后台 task-notification 共用的模型可见 usage 字段（按顺序）。 */
+export function formatAgentUsageEntries(input: AgentUsageEntriesInput): [string, string][] {
+  const report = input.contextReport;
+  const cumulative = report?.cumulativeBilledTokens ?? input.totalTokens;
+  const entries: [string, string][] = [];
+  if (cumulative !== undefined) {
+    entries.push([
+      "cumulative_billed_tokens",
+      `${cumulative} (sum of every model request; each request re-counts the whole context, so this is not a budget)`,
+    ]);
+  }
+  if (report?.peakContextTokens !== undefined) {
+    entries.push(["peak_context_tokens", String(report.peakContextTokens)]);
+  }
+  if (report?.contextWindow !== undefined) {
+    entries.push(["context_window", String(report.contextWindow)]);
+  }
+  if (report) entries.push(["compactions", String(report.compactionCount)]);
+  if (report?.stopReason) entries.push(["stop_reason", report.stopReason]);
+  if (input.toolUseCount !== undefined) entries.push(["tool_uses", String(input.toolUseCount)]);
+  if (input.durationMs !== undefined) entries.push(["duration_ms", String(input.durationMs)]);
+  return entries;
+}
+
+/** 父模型看到的未完成说明；同步结果与后台通知共用。 */
+export function formatAgentIncompleteNotice(
+  agentId: string,
+  incomplete: AgentIncompleteReport,
+): string {
+  return [
+    `status: incomplete — the agent stopped with ${incomplete.remainingItems.length} item(s) unfinished:`,
+    ...incomplete.remainingItems.map((item) => `- ${item}`),
+    `To finish them, use SendMessage with to: '${agentId}' (it keeps its context); do not start a fresh agent for the same items.`,
+  ].join("\n");
 }
 
 export interface AgentBackgroundedOutput {
@@ -94,6 +161,20 @@ export const AgentCompletedOutputSchema = z
     totalDurationMs: z.number().int().nonnegative(),
     totalTokens: z.number().int().nonnegative().optional(),
     usage: z.record(z.unknown()).optional(),
+    contextReport: z
+      .object({
+        cumulativeBilledTokens: z.number().int().nonnegative().optional(),
+        peakContextTokens: z.number().int().nonnegative().optional(),
+        contextWindow: z.number().int().nonnegative().optional(),
+        compactionCount: z.number().int().nonnegative(),
+        stopReason: z.string().optional(),
+      })
+      .strict()
+      .optional(),
+    incomplete: z
+      .object({ remainingItems: z.array(z.string()) })
+      .strict()
+      .optional(),
   })
   .strict();
 

@@ -1,8 +1,11 @@
 export {
   buildCompactPrompt,
   buildCompactSummaryMessage,
+  buildSubagentCompactContinuationReminder,
   formatCompactSummary,
+  parseCompactSummaryWorkItems,
 } from "./prompt.js";
+export type { CompactSummaryWorkItem } from "./prompt.js";
 export {
   COMPACT_PROMPT_TOO_LONG_RETRY_MARKER,
   COMPACT_PROMPT_TOO_LONG_USER_MESSAGE,
@@ -24,8 +27,10 @@ export {
   getAutoCompactOutputReserveTokens,
   getAutoCompactThreshold,
   getEffectiveContextWindowSize,
+  getSubagentCompactSummaryBudget,
   shouldAutoCompact,
 } from "./policy.js";
+export type { SubagentCompactSummaryBudget } from "./policy.js";
 export {
   DEFAULT_MICROCOMPACT_COMPACTABLE_TOOLS,
   DEFAULT_MICROCOMPACT_KEEP_RECENT_TOOL_RESULTS,

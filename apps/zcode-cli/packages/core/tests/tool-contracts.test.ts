@@ -539,9 +539,52 @@ describe("tool contract declarations", () => {
     expect(completedContent).toContain(
       "agentId: agent_done (use SendMessage with to: 'agent_done' to continue this agent)",
     );
-    expect(completedContent).toContain("<usage>subagent_tokens: 11");
+    expect(completedContent).toContain(
+      "<usage>cumulative_billed_tokens: 11 (sum of every model request; each request re-counts the whole context, so this is not a budget)",
+    );
+    expect(completedContent).not.toContain("subagent_tokens");
     expect(completedContent).toContain("tool_uses: 2");
     expect(completedContent).toContain("duration_ms: 33</usage>");
+  });
+
+  it("reports context usage honestly and flags incomplete Agent results", () => {
+    const completedContent = String(
+      agentToolEntry.formatModelContent?.({
+        status: "completed",
+        agentId: "agent_partial",
+        agentType: "Explore",
+        description: "audit weapons",
+        prompt: "audit weapons",
+        content: [{ type: "text", text: "Weapons audited." }],
+        totalToolUseCount: 31,
+        totalDurationMs: 90_000,
+        totalTokens: 846_000,
+        contextReport: {
+          cumulativeBilledTokens: 846_000,
+          peakContextTokens: 65_000,
+          contextWindow: 100_000,
+          compactionCount: 2,
+          stopReason: "stop",
+        },
+        incomplete: { remainingItems: ["Enemy effects", "Master bugs"] },
+      }),
+    );
+
+    expect(completedContent.startsWith("Weapons audited.\n")).toBe(true);
+    expect(completedContent).toContain(
+      "status: incomplete — the agent stopped with 2 item(s) unfinished:\n- Enemy effects\n- Master bugs",
+    );
+    expect(completedContent).toContain("use SendMessage with to: 'agent_partial'");
+    expect(completedContent).toContain("do not start a fresh agent");
+    expect(completedContent).toContain("cumulative_billed_tokens: 846000 (");
+    expect(completedContent).toContain(
+      "peak_context_tokens: 65000\ncontext_window: 100000\ncompactions: 2\nstop_reason: stop\ntool_uses: 31\nduration_ms: 90000</usage>",
+    );
+  });
+
+  it("tells orchestrators that subagents have no token budget", () => {
+    expect(agentToolEntry.metadata.description).toContain("Subagents have no token or turn budget");
+    expect(agentToolEntry.metadata.description).toContain("does not mean anything ran out");
   });
 
   it("omits subagent token usage when Agent completed usage is unavailable", () => {
@@ -716,8 +759,9 @@ describe("tool contract declarations", () => {
     );
     expect(notification).toContain("<result>Done &lt;ok&gt;</result>");
     expect(notification).toContain(
-      "<usage><subagent_tokens>11</subagent_tokens><tool_uses>2</tool_uses><duration_ms>33</duration_ms></usage>",
+      "<usage><cumulative_billed_tokens>11 (sum of every model request; each request re-counts the whole context, so this is not a budget)</cumulative_billed_tokens><tool_uses>2</tool_uses><duration_ms>33</duration_ms></usage>",
     );
+    expect(notification).not.toContain("<incomplete>");
     expect(notification).not.toContain("SYSTEM NOTIFICATION");
     expect(notification).not.toContain("<task-type>");
     expect(notification).not.toContain("<agent-id>");
@@ -747,8 +791,46 @@ describe("tool contract declarations", () => {
     });
 
     expect(notification).not.toContain("<subagent_tokens>");
+    expect(notification).not.toContain("<cumulative_billed_tokens>");
     expect(notification).toContain("<tool_uses>2</tool_uses>");
     expect(notification).toContain("<duration_ms>33</duration_ms>");
+  });
+
+  it("adds context report and incomplete items to local-agent notifications", () => {
+    const notification = formatTaskNotification({
+      agentId: "agent_partial",
+      description: "audit weapons",
+      incomplete: { remainingItems: ["Enemy effects"] },
+      outputFile: "/tmp/agent_partial/output.txt",
+      result: "Weapons audited.",
+      status: "completed",
+      subagentType: "Explore",
+      summary: 'Agent Explore task "audit weapons" completed.',
+      taskId: "agent_partial",
+      taskType: "local_agent",
+      toolUseId: "toolu_456",
+      usage: {
+        contextReport: {
+          cumulativeBilledTokens: 846_000,
+          peakContextTokens: 65_000,
+          contextWindow: 100_000,
+          compactionCount: 2,
+          stopReason: "stop",
+        },
+        durationMs: 9,
+        toolUseCount: 31,
+        totalTokens: 846_000,
+      },
+    });
+
+    expect(notification).toContain(
+      "<incomplete>status: incomplete — the agent stopped with 1 item(s) unfinished:\n- Enemy effects\n",
+    );
+    expect(notification).toContain("To finish them, use SendMessage with to:");
+    expect(notification).toContain("agent_partial");
+    expect(notification).toContain(
+      "<peak_context_tokens>65000</peak_context_tokens><context_window>100000</context_window><compactions>2</compactions><stop_reason>stop</stop_reason><tool_uses>31</tool_uses>",
+    );
   });
 
   it("formats local-bash task notifications with provider-visible XML shape", () => {

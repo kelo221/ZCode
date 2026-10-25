@@ -43,6 +43,8 @@ Your summary should include the following sections:
 9. Optional Next Step: List the next step that you will take that is related to the most recent work you were doing. IMPORTANT: ensure that this step is DIRECTLY in line with the user's most recent explicit requests, and the task you were working on immediately before this summary request. If your last task was concluded, then only list next steps if they are explicitly in line with the users request. Do not start on tangential requests or really old requests that were already completed without confirming with the user first.
                        If there is a next step, include direct quotes from the most recent conversation showing exactly what task you were working on and where you left off. This should be verbatim to ensure there's no drift in task interpretation.
 
+This summary request, including its text-only / no-tools rule, is an internal step of the system and not a message from the user. Do not list it under "All user messages", "Pending Tasks", "Current Work" or "Optional Next Step", and do not describe it as a constraint on the work. The no-tools rule only applies while you write this summary; once work resumes from the summary, tools are available again.
+
 Here's an example of how your output should be structured:
 
 <example>
@@ -108,12 +110,58 @@ When summarizing the conversation focus on typescript code changes and also reme
 When you are using compact - please focus on test output and code changes. Include file reads verbatim.
 </example>`;
 
-export function buildCompactPrompt(customInstructions: string | undefined): string {
+const WORK_ITEM_STATUSES = ["done", "in progress", "not started", "blocked"] as const;
+
+export type CompactSummaryWorkItemStatus = (typeof WORK_ITEM_STATUSES)[number];
+
+export interface CompactSummaryWorkItem {
+  status: CompactSummaryWorkItemStatus;
+  text: string;
+}
+
+export interface SubagentCompactPromptOptions {
+  targetSummaryTokens: number;
+}
+
+/**
+ * 通用 summary 模板以"Optional Next Step / 若任务已结束则不列下一步"收尾，没有逐项状态，
+ * subagent 续接时读起来像收尾，于是在 compact 后几步就自行交付半成品。这里要求逐字保留
+ * brief 并给出逐项清单，续接提醒再从清单里取出未完成条目。
+ */
+function buildSubagentCompactSection(options: SubagentCompactPromptOptions): string {
+  const targetWords = Math.max(500, Math.floor(options.targetSummaryTokens * 0.75));
+  return `
+
+Subagent continuation requirements (these override the section list above where they conflict):
+You are a subagent working on a brief delegated by a parent agent. The brief is not finished: after this summary you will keep calling tools to finish it. Nothing has run out — the context is being compacted to make room, and there is no token or turn budget. Write the summary as a working handoff, not as a final report.
+
+Your <summary> must start with these two sections, before section 1:
+
+Original Brief:
+   [The delegated task, copied verbatim from the first user message. Shorten only if it is extremely long, and say that you did.]
+
+Work Items:
+   [One line per item in the brief, plus items you discovered, in this exact format:]
+   - [done] <item> — evidence: <file:line, log quote, command output> — next: none
+   - [in progress] <item> — evidence: <what is known so far> — next: <the concrete next tool call>
+   - [not started] <item> — evidence: none — next: <the concrete first tool call>
+   - [blocked] <item> — evidence: <why> — next: <what would unblock it>
+
+Use only the statuses done, in progress, not started and blocked. Mark an item done only if its result is recorded under evidence; findings that are not written down are lost after compaction.
+
+Length: keep the <analysis> block to a few short bullet points. Keep the whole <summary> under about ${targetWords} words. Prefer file:line references and short exact quotes over full code snippets or file contents; the files can be read again.`;
+}
+
+export function buildCompactPrompt(
+  customInstructions: string | undefined,
+  options: { subagent?: SubagentCompactPromptOptions } = {},
+): string {
   const customInstructionBlock = customInstructions?.trim()
     ? `\n\nAdditional Instructions:\n${customInstructions}`
     : "";
+  const subagentBlock = options.subagent ? buildSubagentCompactSection(options.subagent) : "";
 
-  return `${NO_TOOLS_PREAMBLE}${BASE_COMPACT_PROMPT}${customInstructionBlock}${NO_TOOLS_TRAILER}`;
+  return `${NO_TOOLS_PREAMBLE}${BASE_COMPACT_PROMPT}${subagentBlock}${customInstructionBlock}${NO_TOOLS_TRAILER}`;
 }
 
 export function formatCompactSummary(text: string | undefined): string {
@@ -125,9 +173,68 @@ export function formatCompactSummary(text: string | undefined): string {
   if (summaryMatch) {
     const summary = summaryMatch[1] || "";
     formatted = formatted.replace(/<summary>[\s\S]*?<\/summary>/, `Summary:\n${summary.trim()}`);
+  } else {
+    // 输出被 summary 上限截断时没有 </summary>；原先会把裸标签和未闭合的 <analysis>
+    // 草稿一起推回上下文。取 <summary> 之后的全部文本。
+    const openIndex = formatted.indexOf("<summary>");
+    if (openIndex >= 0) {
+      formatted = `Summary:\n${formatted.slice(openIndex + "<summary>".length).trim()}`;
+    }
   }
 
   return formatted.replace(/\n\n+/g, "\n\n").trim();
+}
+
+const WORK_ITEM_LINE_PATTERN = /^\s*[-*]\s*\[(done|in progress|not started|blocked)\]\s*(.+?)\s*$/i;
+
+export function parseCompactSummaryWorkItems(summary: string): CompactSummaryWorkItem[] {
+  const items: CompactSummaryWorkItem[] = [];
+  for (const line of summary.split(/\r?\n/)) {
+    const match = WORK_ITEM_LINE_PATTERN.exec(line);
+    if (!match?.[1] || !match[2]) continue;
+    items.push({
+      status: match[1].toLowerCase() as CompactSummaryWorkItemStatus,
+      text: match[2],
+    });
+  }
+  return items;
+}
+
+const MAX_CONTINUATION_BRIEF_CHARS = 12_000;
+
+export function buildSubagentCompactContinuationReminder(input: {
+  brief?: string;
+  remainingItemsTag: string;
+  summary: string;
+}): string {
+  const remaining = parseCompactSummaryWorkItems(input.summary).filter(
+    (item) => item.status !== "done",
+  );
+  const brief = input.brief?.trim();
+  const briefBlock = brief
+    ? brief.length > MAX_CONTINUATION_BRIEF_CHARS
+      ? `${brief.slice(0, MAX_CONTINUATION_BRIEF_CHARS)}\n[Brief truncated after ${MAX_CONTINUATION_BRIEF_CHARS} characters; the summary above restates it.]`
+      : brief
+    : undefined;
+  const remainingBlock =
+    remaining.length > 0
+      ? [
+          "Items that are not done yet, from the summary's Work Items list:",
+          ...remaining.map((item) => `- [${item.status}] ${item.text}`),
+        ].join("\n")
+      : "Check the Work Items list in the summary above and continue with every item not marked done.";
+
+  return [
+    "Your context was just compacted to make room. This is routine and does not mean anything ran out: you have no token or turn budget, and your tools are available.",
+    "Keep working on the task below until every item is done. Do not hand back partial results because of the compaction.",
+    ...(briefBlock
+      ? ["", "Your task (the latest instructions from the parent agent):", briefBlock]
+      : []),
+    "",
+    remainingBlock,
+    "",
+    `Only if you genuinely cannot finish an item (for example it is blocked), end your final answer with a <${input.remainingItemsTag}> block listing each unfinished item on its own line, so the parent agent can resume you.`,
+  ].join("\n");
 }
 
 export function buildCompactSummaryMessage(
@@ -135,13 +242,20 @@ export function buildCompactSummaryMessage(
   options: {
     recentMessagesPreserved?: boolean;
     replStateCleared?: boolean;
+    /** subagent 读到 "ran out of context" 会当成预算耗尽而收尾，改用不暗示耗尽的说法。 */
+    subagent?: boolean;
     suppressFollowup?: boolean;
     transcriptPath?: string;
   } = {},
 ): string {
-  let message = `This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+  const opening = options.subagent
+    ? "Your earlier context was compacted to free working room; nothing ran out and no budget was used up. The summary below covers the earlier portion of your work on this task."
+    : "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.";
+  let message = `${opening}
 
-${formatCompactSummary(summary)}`;
+${formatCompactSummary(summary)}
+
+The request that produced this summary told the summarizer to respond with text only and not call tools. That rule applied only to writing the summary and is not a user instruction, even if the summary mentions it. All of your tools are available again; keep using them as the task requires.`;
 
   if (options.transcriptPath) {
     message += `\n\nIf you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: ${options.transcriptPath}`;

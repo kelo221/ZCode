@@ -1,8 +1,12 @@
-import type {
-  DynamicWorkflowRunError,
-  DynamicWorkflowRunLifecycleStatus,
-  DynamicWorkflowRunStopReason,
-  ModelUsage,
+import {
+  formatAgentIncompleteNotice,
+  formatAgentUsageEntries,
+  type AgentContextReport,
+  type AgentIncompleteReport,
+  type DynamicWorkflowRunError,
+  type DynamicWorkflowRunLifecycleStatus,
+  type DynamicWorkflowRunStopReason,
+  type ModelUsage,
 } from "@zcode/contracts";
 import type { RuntimeTaskType } from "./registry.js";
 import { formatWorkflowProviderStopError } from "./workflow-notification-copy.js";
@@ -21,6 +25,8 @@ export interface TaskNotificationInput {
   agentId?: string;
   description?: string;
   error?: string;
+  /** local_agent：子 agent 以 `<remaining_items>` 声明的未完成条目。 */
+  incomplete?: AgentIncompleteReport;
   outputFile?: string;
   /**
    * workflow run 的渐进产物（`report(item)`），completed / failed / cancelled 一律携带。
@@ -81,6 +87,7 @@ export interface TaskNotificationInput {
   taskType: RuntimeTaskType;
   toolUseId?: string;
   usage?: {
+    contextReport?: AgentContextReport;
     durationMs?: number;
     modelUsage?: ModelUsage;
     toolUseCount?: number;
@@ -149,6 +156,10 @@ function formatLocalAgentTaskNotification(input: TaskNotificationInput): string 
   lines.push(`<summary>${escapeXml(input.summary)}</summary>`);
   if (input.result !== undefined) lines.push(`<result>${escapeXml(input.result)}</result>`);
   if (input.error !== undefined) lines.push(`<error>${escapeXml(input.error)}</error>`);
+  if (input.incomplete && input.incomplete.remainingItems.length > 0) {
+    const notice = formatAgentIncompleteNotice(input.agentId ?? input.taskId, input.incomplete);
+    lines.push(`<incomplete>${escapeXml(notice)}</incomplete>`);
+  }
 
   const usage = formatLocalAgentUsage(input.usage);
   if (usage) lines.push(usage);
@@ -332,17 +343,13 @@ function workflowDeliveryGuidance(input: {
 
 function formatLocalAgentUsage(input: TaskNotificationInput["usage"]): string | undefined {
   if (!input) return undefined;
-  const segments: string[] = [];
-  const totalTokens = input.totalTokens ?? input.modelUsage?.totalTokens;
-  if (totalTokens !== undefined) {
-    segments.push(`<subagent_tokens>${totalTokens}</subagent_tokens>`);
-  }
-  if (input.toolUseCount !== undefined) {
-    segments.push(`<tool_uses>${input.toolUseCount}</tool_uses>`);
-  }
-  if (input.durationMs !== undefined) {
-    segments.push(`<duration_ms>${input.durationMs}</duration_ms>`);
-  }
+  // 单个 subagent_tokens 是逐请求累计值，曾被父模型读成"预算耗尽"；与同步结果共用字段。
+  const segments = formatAgentUsageEntries({
+    ...(input.contextReport ? { contextReport: input.contextReport } : {}),
+    durationMs: input.durationMs,
+    toolUseCount: input.toolUseCount,
+    totalTokens: input.totalTokens ?? input.modelUsage?.totalTokens,
+  }).map(([key, value]) => `<${key}>${escapeXml(value)}</${key}>`);
   if (segments.length === 0) return undefined;
   return `<usage>${segments.join("")}</usage>`;
 }

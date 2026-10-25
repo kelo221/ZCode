@@ -52,7 +52,11 @@ import {
   type AgentProfile,
 } from "./profile.js";
 import { EXPLORE_AGENT_ALLOWED_TOOLS } from "./explore-tools.js";
-import { formatLocalAgentTaskNotification } from "./completion-notification.js";
+import {
+  buildSubagentContextReport,
+  extractSubagentRemainingItems,
+  formatLocalAgentTaskNotification,
+} from "./completion-notification.js";
 import { listSessionSubagents, readAgentMetadataSnapshot } from "./agent-index.js";
 import { filterSubagentChildToolNames } from "./tool-policy.js";
 import {
@@ -121,6 +125,8 @@ export interface ExploreSubagentRuntimeResult {
   response: string;
   traceId: TraceContext["traceId"];
   events: SessionEvent[];
+  /** child 执行模型配置的窗口，用于给父 agent 的 contextReport。 */
+  contextWindow?: number;
 }
 
 export interface ParentTaskNotificationCommand {
@@ -1346,6 +1352,12 @@ async function runAgentToCompletion(
   const totalTokens = usage?.totalTokens;
   const totalToolUseCount = resolveSubagentToolUseCount(childResult.events);
   const totalDurationMs = Date.now() - lifecycle.startedAt;
+  const { text: responseText, incomplete } = extractSubagentRemainingItems(childResult.response);
+  const contextReport = buildSubagentContextReport({
+    contextWindow: childResult.contextWindow,
+    cumulativeBilledTokens: totalTokens,
+    events: childResult.events,
+  });
 
   const output: AgentCompletedOutput = {
     status: "completed",
@@ -1356,15 +1368,15 @@ async function runAgentToCompletion(
     content: [
       {
         type: "text",
-        text: isolation?.summary
-          ? `${childResult.response}\n\n${isolation.summary}`
-          : childResult.response,
+        text: isolation?.summary ? `${responseText}\n\n${isolation.summary}` : responseText,
       },
     ],
     totalToolUseCount,
     totalDurationMs,
     ...(totalTokens === undefined ? {} : { totalTokens }),
     ...(usage === undefined ? {} : { usage }),
+    contextReport,
+    ...(incomplete ? { incomplete } : {}),
   };
 
   return { events: childResult.events, output };
@@ -1749,6 +1761,8 @@ async function finalizeBackgroundCompletion(
     totalTokens: completed.output.totalTokens,
     totalToolUseCount: completed.output.totalToolUseCount,
     usage: completed.output.usage,
+    ...(completed.output.contextReport ? { contextReport: completed.output.contextReport } : {}),
+    ...(completed.output.incomplete ? { incomplete: completed.output.incomplete } : {}),
   });
   const completedAt = new Date();
   const task = registry.update(lifecycle.agentId, (current) => ({
@@ -2173,6 +2187,8 @@ async function writeCompletedAgentArtifacts(
     totalTokens: output.totalTokens,
     totalToolUseCount: output.totalToolUseCount,
     usage: output.usage,
+    ...(output.contextReport ? { contextReport: output.contextReport } : {}),
+    ...(output.incomplete ? { incomplete: output.incomplete } : {}),
   });
 }
 

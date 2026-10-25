@@ -77,7 +77,8 @@ const subagentCommonNotes = `Notes:
 - In your final response, share file paths (always absolute, never relative) that are relevant to the task. Include code snippets only when the exact text is load-bearing (e.g., a bug you found, a function signature the caller asked for) — do not recap code you merely read.
 - For clear communication with the user the assistant MUST avoid using emojis.
 - Do not use a colon before tool calls. Text like "Let me read the file:" followed by a read tool call should just be "Let me read the file." with a period.
-- Do NOT Write report/summary/findings/analysis .md files. Return findings directly as your final assistant message — the parent agent reads your text output, not files you create.`;
+- Do NOT Write report/summary/findings/analysis .md files. Return findings directly as your final assistant message — the parent agent reads your text output, not files you create.
+- You have no token or turn budget. When your context fills up it is compacted automatically and you keep working; that is not a reason to stop. If you still end with items of the task unfinished, close your final response with a <remaining_items> block that lists each unfinished item on its own line, so the parent agent can resume you.`;
 
 const subagentEnvironmentContext = `Here is useful information about the environment you are running in:
 <env>
@@ -656,7 +657,11 @@ describe("Explore subagent", () => {
     );
     expect(parentToolMessage.content).toContain("agentId: agent_");
     expect(parentToolMessage.content).toContain("use SendMessage with to:");
-    expect(parentToolMessage.content).toContain("<usage>subagent_tokens:");
+    expect(parentToolMessage.content).toContain("<usage>cumulative_billed_tokens:");
+    expect(parentToolMessage.content).toContain("not a budget");
+    expect(parentToolMessage.content).toContain("compactions: 0");
+    expect(parentToolMessage.content).toContain("stop_reason: stop");
+    expect(parentToolMessage.content).not.toContain("subagent_tokens");
     expect(parentToolMessage.content).toContain("tool_uses:");
     expect(parentToolMessage.content).toContain("duration_ms:");
     expect(parentToolMessage.content).not.toContain("totalToolUseCount");
@@ -3078,7 +3083,9 @@ describe("Explore subagent", () => {
     expect(parentThirdRequestText).toContain("<output-file>");
     expect(parentThirdRequestText).toContain("<status>completed</status>");
     expect(parentThirdRequestText).toContain("<usage>");
-    expect(parentThirdRequestText).toContain("<subagent_tokens>");
+    expect(parentThirdRequestText).toContain("<cumulative_billed_tokens>");
+    expect(parentThirdRequestText).toContain("<compactions>0</compactions>");
+    expect(parentThirdRequestText).not.toContain("<subagent_tokens>");
     expect(parentThirdRequestText).toContain("<tool_uses>");
     expect(parentThirdRequestText).toContain("<duration_ms>");
     expect(parentThirdRequestText).toContain("Background Explore found the join boundary");
@@ -4136,7 +4143,8 @@ describe("Explore subagent", () => {
         querySource: "subagent",
       },
       {
-        maxOutputTokens: 20_000,
+        // subagent summary 上限 = 有效窗口 107K × 15%，不再是固定 20K。
+        maxOutputTokens: 16_050,
         querySource: "compact",
       },
       {
@@ -4148,7 +4156,7 @@ describe("Explore subagent", () => {
         querySource: "subagent",
       },
       {
-        maxOutputTokens: 20_000,
+        maxOutputTokens: 16_050,
         querySource: "compact",
       },
     ]);
@@ -4184,6 +4192,150 @@ describe("Explore subagent", () => {
       outputReserveTokens: 21_000,
       threshold: 94_000,
     });
+  });
+
+  it("keeps a child working after mid-turn auto-compact and reports remaining items to the parent", async () => {
+    const sessionId = createSessionId("runtime-subagent-auto-compact-continuation");
+    const sessionStore = createRecordingSubagentSessionStore();
+    const brief = "Audit items one through three and report each with evidence.";
+    const compactRequests: Array<{ maxOutputTokens: number | undefined; text: string }> = [];
+    const postCompactRequestTexts: string[] = [];
+    let childStep = 0;
+    let compacted = false;
+    const runtime = createTestAgentRuntime(
+      sessionId,
+      {
+        mode: "build",
+        modelSelection: {
+          providerId: createModelProviderId("provider-main"),
+          modelId: createModelId("main-model"),
+        },
+        subagents: {
+          outputRootDir: await mkdtemp(join(tmpdir(), "zcode-subagent-auto-compact-")),
+          profiles: [
+            {
+              name: "auditor",
+              description: "Audit items",
+              source: "user",
+              systemPrompt: "Audit carefully.",
+              modelSelection: { providerId: "custom-openai", modelId: "haiku-like" },
+              tools: ["TodoWrite"],
+            },
+          ],
+        },
+        workingDirectory: "/workspace/project",
+      },
+      {
+        eventStore: createTestSessionEventStore(),
+        modelFactory: createTestModelFactory({
+          properties: { contextWindow: 100_000 },
+          async generateText(request: any) {
+            const requestText = request.messages
+              .map((message: any) => modelMessageContentToText(message.content))
+              .join("\n");
+            if (requestText.includes("create a detailed summary")) {
+              compactRequests.push({
+                maxOutputTokens: request.options?.maxOutputTokens,
+                text: requestText,
+              });
+              compacted = true;
+              return {
+                finishReason: "stop",
+                providerMetadata: undefined,
+                text: [
+                  "<analysis>- two items checked</analysis>",
+                  "<summary>",
+                  "Original Brief:",
+                  `   ${brief}`,
+                  "",
+                  "Work Items:",
+                  "   - [done] Item one — evidence: a.ts:10 — next: none",
+                  "   - [in progress] Item two — evidence: b.ts:20 looks wrong — next: read b.ts",
+                  "   - [not started] Item three — evidence: none — next: grep for c",
+                  "</summary>",
+                ].join("\n"),
+                usage: { inputTokens: 70_000, outputTokens: 300, totalTokens: 70_300 },
+              };
+            }
+            if (compacted) {
+              postCompactRequestTexts.push(requestText);
+              return {
+                finishReason: "stop",
+                providerMetadata: undefined,
+                text: "Item one and item two are done.\n\n<remaining_items>\n- Item three\n</remaining_items>",
+                usage: { inputTokens: 9_000, outputTokens: 50, totalTokens: 9_050 },
+              };
+            }
+            childStep += 1;
+            return {
+              finishReason: "tool-calls",
+              providerMetadata: undefined,
+              text: "",
+              toolCalls: [
+                {
+                  id: `call_child_todo_${childStep}`,
+                  name: "TodoWrite",
+                  input: {
+                    todos: [
+                      { content: `Item ${childStep}`, priority: "high", status: "in_progress" },
+                    ],
+                  },
+                },
+              ],
+              // 第二步回报 70K 输入，超过 100K 窗口的 66K 阈值，下一步前触发 auto compact。
+              usage:
+                childStep === 1
+                  ? { inputTokens: 2_000, outputTokens: 20, totalTokens: 2_020 }
+                  : { inputTokens: 70_000, outputTokens: 20, totalTokens: 70_020 },
+            };
+          },
+        } as never),
+        sessionStore,
+      },
+    );
+    const subagentPort = (runtime as any).subagentPort;
+    const output = await subagentPort.run({
+      agentType: "auditor",
+      description: "Audit three items",
+      parentToolCallId: "call_auditor",
+      prompt: brief,
+      sessionId,
+      trace: {
+        traceId: createTraceId("trace-subagent-auto-compact"),
+        sessionId,
+        turnId: createTurnId("turn-subagent-auto-compact"),
+      },
+      turnId: createTurnId("turn-subagent-auto-compact"),
+      workingDirectory: "/workspace/project",
+      workspaceRoot: "/workspace/project",
+    });
+
+    expect(compactRequests).toHaveLength(1);
+    // 100K 窗口 → 有效窗口 79K；summary 上限 15% = 11,850，不再是固定 20K。
+    expect(compactRequests[0]?.maxOutputTokens).toBe(11_850);
+    expect(compactRequests[0]?.text).toContain("Subagent continuation requirements");
+    expect(compactRequests[0]?.text).toContain("Work Items:");
+
+    expect(postCompactRequestTexts).toHaveLength(1);
+    const continuation = postCompactRequestTexts[0] ?? "";
+    expect(continuation).toContain("nothing ran out and no budget was used up");
+    expect(continuation).not.toContain("previous conversation that ran out of context");
+    expect(continuation).toContain("Your context was just compacted to make room.");
+    expect(continuation).toContain(brief);
+    expect(continuation).toContain("- [in progress] Item two");
+    expect(continuation).toContain("- [not started] Item three");
+    expect(continuation).not.toContain("- [done] Item one — evidence: a.ts:10 — next: none\n- [");
+
+    expect(output.status).toBe("completed");
+    expect(output.content[0].text).toBe("Item one and item two are done.");
+    expect(output.incomplete).toEqual({ remainingItems: ["Item three"] });
+    expect(output.contextReport).toMatchObject({
+      compactionCount: 1,
+      contextWindow: 100_000,
+      peakContextTokens: 70_020,
+      stopReason: "stop",
+    });
+    expect(output.contextReport.cumulativeBilledTokens).toBe(output.totalTokens);
   });
 
   it("fails custom profiles instead of falling back when the configured model is invalid", async () => {

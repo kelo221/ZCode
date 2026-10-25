@@ -1,4 +1,8 @@
-import { TOOL_SEARCH_NAME, type ModelToolContract } from "@zcode/contracts";
+import {
+  SUBAGENT_REMAINING_ITEMS_TAG,
+  TOOL_SEARCH_NAME,
+  type ModelToolContract,
+} from "@zcode/contracts";
 import { buildToolSearchAnnouncement, buildToolExposure } from "../../tool/search/exposure.js";
 import { prepareRuntimeProviderRequest } from "../helpers/runtime-provider-request-messages.js";
 import { collectDiscoveredTools, compactDiscoveryMetadata } from "../../tool/search/history.js";
@@ -21,7 +25,10 @@ import {
   buildCompactPrompt,
   buildCompactSummaryMessage,
   buildManualCompactBoundary,
+  buildSubagentCompactContinuationReminder,
   createCompactBoundaryId,
+  getEffectiveContextWindowSize,
+  getSubagentCompactSummaryBudget,
   getUsageTotalTokens,
 } from "../deps.js";
 import type { SessionEvent, TraceContext } from "../deps.js";
@@ -56,6 +63,7 @@ import type { AgentRuntimeInternal } from "../internal.js";
 import type { CompactAttemptOutcome } from "./turn-loop-state.js";
 import {
   legacySyntheticRuntimeMetadata,
+  systemReminderAttachmentEntry,
   type RuntimeMessageEntry,
 } from "../../agent/message-history.js";
 import { selectPersistedCompactTail } from "../helpers/compact-preservation.js";
@@ -189,6 +197,7 @@ async function compactActiveConversationImpl(
       selection: this.getSessionModelSelection(),
     });
   const executionMaxOutputTokens = compactModel.optionSpecs.maxOutputTokens.max;
+  const subagentCompact = resolveSubagentCompactPlan(this, compactModel);
   // Active compact 会跨多个 await 保留这份成员浅快照；它依赖 RuntimeMessageEntry
   // 不可变约定。selection、provider render 和最终 replace 会创建各自拥有的副本，
   // 禁止在 compact 期间原地修改 activeEntries 内共享的 entry/message/content。
@@ -300,7 +309,12 @@ async function compactActiveConversationImpl(
           querySource: "compact",
         },
       });
-      const compactPrompt = buildCompactPrompt(customInstructions);
+      const compactPrompt = buildCompactPrompt(
+        customInstructions,
+        subagentCompact
+          ? { subagent: { targetSummaryTokens: subagentCompact.targetSummaryTokens } }
+          : {},
+      );
       let result: RuntimeModelTextResult;
       let compactPromptTooLongAttempts = 0;
       let stripMediaForSummary = false;
@@ -421,7 +435,10 @@ async function compactActiveConversationImpl(
         events.push(modelRequestEvent);
         const modelStartedAt = Date.now();
         const networkEventStartIndex = events.length;
-        const compactSummaryMaxOutputTokens = capCompactSummaryMaxOutputTokens(compactModel);
+        const compactSummaryMaxOutputTokens = capCompactSummaryMaxOutputTokens(
+          compactModel,
+          subagentCompact?.maxOutputTokens,
+        );
         const compactModelRequest = {
           abortSignal: options.abortSignal,
           maxOutputTokens: compactSummaryMaxOutputTokens,
@@ -567,6 +584,21 @@ async function compactActiveConversationImpl(
           readFileState: this.readFileState,
         }),
         ...(toolAnnouncement ? [toolAnnouncement] : []),
+        // 放在最后，使它成为 subagent 续接前读到的最后一条上下文。只在轮次中途的
+        // auto/reactive compact 注入：手动 /compact 之后没有要继续的工具循环。
+        ...(subagentCompact &&
+        (trigger === CompactTrigger.Auto || trigger === CompactTrigger.Reactive)
+          ? [
+              systemReminderAttachmentEntry(
+                "resume_referenced_session_context",
+                buildSubagentCompactContinuationReminder({
+                  brief: subagentCompact.brief,
+                  remainingItemsTag: SUBAGENT_REMAINING_ITEMS_TAG,
+                  summary,
+                }),
+              ),
+            ]
+          : []),
       ];
 
       const modelCompleteEvent = this.createEvent(
@@ -586,6 +618,7 @@ async function compactActiveConversationImpl(
       const summaryMessageId = createMessageId();
       const summaryMessageContent = buildCompactSummaryMessage(persistedSummary, {
         suppressFollowup: true,
+        ...(subagentCompact ? { subagent: true } : {}),
       });
       // Continue 没有对应 Session message；无 store 的统计也不能把它计入保留记录。
       const recordablePreservedEntries = filterOutputTokenContinuationEntries(preservedEntries);
@@ -779,13 +812,30 @@ function selectInitialCompactEntriesForActiveConversation(input: {
   );
 }
 
-function capCompactSummaryMaxOutputTokens(model: Model): number {
+function capCompactSummaryMaxOutputTokens(model: Model, subagentCap?: number): number {
   // Compact 是独立执行链，在这里显式选择模型上限与 summary 20K 上限中的较小值。
   const desired = Math.min(
     resolveNormalRequestMaxOutputTokens({
       modelMaxOutputTokens: model.optionSpecs.maxOutputTokens.max,
     }),
-    MAX_OUTPUT_TOKENS_FOR_SUMMARY,
+    subagentCap ?? MAX_OUTPUT_TOKENS_FOR_SUMMARY,
   );
   return Math.min(desired, model.optionSpecs.maxOutputTokens.max);
+}
+
+/** 只有 subagent child 走按窗口收紧的 summary 与续接提醒；主会话保持原行为。 */
+function resolveSubagentCompactPlan(runtime: AgentRuntimeInternal, model: Model) {
+  if (runtime.config.taskType !== "subagent_child") return undefined;
+  // 与 autoCompactIfNeeded 使用同一份有效窗口配置，避免两处窗口口径不一致。
+  const effectiveContextWindow = getEffectiveContextWindowSize({
+    contextWindow: model.properties.contextWindow,
+    ...runtime.config.compact,
+    maxOutputTokens: resolveNormalRequestMaxOutputTokens({
+      modelMaxOutputTokens: model.optionSpecs.maxOutputTokens.max,
+    }),
+  });
+  return {
+    ...getSubagentCompactSummaryBudget(effectiveContextWindow),
+    brief: runtime.config.subagentContext?.taskBrief,
+  };
 }

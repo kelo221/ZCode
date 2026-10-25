@@ -69,8 +69,12 @@ ZCode 需要把 schema gating 做成能力协商结果，而不是在 tool 内�
 | `content` | `{ type: "text"; text: string }[]` | 子 agent 最终文本块 |
 | `totalToolUseCount` | `number` | 子 agent 内部 tool use 总数 |
 | `totalDurationMs` | `number` | 总耗时 |
-| `totalTokens` | `number` | 最后一条 assistant usage 汇总出的 token 数 |
+| `totalTokens` | `number` | 所有模型请求（含 compact 请求）input+output 的累计和。每一步都会把整段上下文重新计一次，所以它随步数近似平方增长，**不是预算** |
 | `usage` | provider usage object | input、output、cache、server tool use、service tier 等 |
+| `contextReport` | object? | ZCode Fork（2026-10-25）：`cumulativeBilledTokens`（同 `totalTokens`）、`peakContextTokens`（单次非 compact 请求的最大 input+output）、`contextWindow`（child 模型配置窗口）、`compactionCount`（CompactBoundary 数）、`stopReason`（最后一次非 compact 请求的 finishReason） |
+| `incomplete` | object? | ZCode Fork（2026-10-25）：child 最终答复末尾带 `<remaining_items>` 块时为 `{ remainingItems: string[] }`；该块从 `content` 中剥离 |
+
+ZCode Fork 的模型可见 `<usage>` trailer（同步结果与后台 `<task-notification>` 同一套字段）不再输出单个 `subagent_tokens`，改为 `cumulative_billed_tokens`（注明"每次请求重复计入整段上下文，不是预算"）、`peak_context_tokens`/`context_window`、`compactions`、`stop_reason`、`tool_uses`、`duration_ms`。存在 `incomplete` 时，trailer 前追加 `status: incomplete` 与剩余条目，并提示父 agent 用 SendMessage 续接同一 agent，而不是新开 agent。Agent 工具描述同步说明：subagent 没有 token 预算，窗口满时自动 compact。
 
 模型可见序列化不是原样 JSON：
 

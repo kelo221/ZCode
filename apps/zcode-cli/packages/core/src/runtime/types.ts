@@ -247,6 +247,8 @@ export interface AgentRuntimeConfig {
    */
   subagentContext?: {
     agentPrompt: string;
+    /** 本次运行收到的 brief；compact 后的续接提醒逐字复述它。 */
+    taskBrief?: string;
     userInstructions?: ResolvedUserInstructions;
   };
   language?: string;

@@ -56,7 +56,7 @@ describe("subagent background notifications", () => {
         "<status>completed</status>",
         "<summary>Agent &quot;Audit tests&quot; completed</summary>",
         "<result>child result</result>",
-        "<usage><subagent_tokens>9</subagent_tokens><tool_uses>2</tool_uses><duration_ms>42</duration_ms></usage>",
+        "<usage><cumulative_billed_tokens>9 (sum of every model request; each request re-counts the whole context, so this is not a budget)</cumulative_billed_tokens><tool_uses>2</tool_uses><duration_ms>42</duration_ms></usage>",
         "</task-notification>",
       ].join("\n"),
     );
@@ -112,7 +112,7 @@ describe("subagent background notifications", () => {
       "<summary>Agent custom-reviewer task &quot;Review changes&quot; completed.</summary>",
     );
     expect(completed).not.toContain("<error>");
-    expect(completed).toContain("<subagent_tokens>7</subagent_tokens>");
+    expect(completed).toContain("<cumulative_billed_tokens>7 (");
     expect(failed).toContain("<status>failed</status>");
     expect(failed).toContain(
       "<summary>Agent custom-reviewer task &quot;Review changes&quot; failed. child failed</summary>",

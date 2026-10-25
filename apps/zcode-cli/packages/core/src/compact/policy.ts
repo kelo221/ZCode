@@ -81,6 +81,39 @@ export function getAutoCompactOutputReserveTokens(config: AutoCompactPolicyConfi
   );
 }
 
+export const SUBAGENT_SUMMARY_OUTPUT_WINDOW_FRACTION = 0.15;
+export const SUBAGENT_SUMMARY_TARGET_WINDOW_FRACTION = 0.1;
+export const MIN_SUBAGENT_SUMMARY_OUTPUT_TOKENS = 4_000;
+
+export interface SubagentCompactSummaryBudget {
+  /** summary 请求的硬上限（含 <analysis>）。 */
+  maxOutputTokens: number;
+  /** prompt 里给 <summary> 正文的目标长度。 */
+  targetSummaryTokens: number;
+}
+
+/**
+ * 固定 20K 的 summary 上限在 100K 窗口的 subagent 上会吃掉近 20% 有效窗口，
+ * 续接后只剩很少工作空间就再次 compact；subagent 按有效窗口比例收紧。
+ */
+export function getSubagentCompactSummaryBudget(
+  effectiveContextWindow: number,
+): SubagentCompactSummaryBudget {
+  const window = Math.max(0, Math.floor(effectiveContextWindow));
+  const maxOutputTokens = Math.min(
+    MAX_OUTPUT_TOKENS_FOR_SUMMARY,
+    Math.max(
+      MIN_SUBAGENT_SUMMARY_OUTPUT_TOKENS,
+      Math.floor(window * SUBAGENT_SUMMARY_OUTPUT_WINDOW_FRACTION),
+    ),
+  );
+  const targetSummaryTokens = Math.min(
+    Math.floor(window * SUBAGENT_SUMMARY_TARGET_WINDOW_FRACTION),
+    Math.floor(maxOutputTokens * 0.75),
+  );
+  return { maxOutputTokens, targetSummaryTokens: Math.max(1_000, targetSummaryTokens) };
+}
+
 export function getAutoCompactThreshold(config: AutoCompactPolicyConfig = {}): number {
   const effectiveContextWindow = getEffectiveContextWindowSize(config);
   const buffer = positiveInt(config.bufferTokens) ?? AUTOCOMPACT_BUFFER_TOKENS;

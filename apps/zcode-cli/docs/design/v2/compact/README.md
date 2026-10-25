@@ -91,6 +91,32 @@ Compact summary 应稳定覆盖这些信息：
 
 Summary prompt 可以要求模型先写内部分析块，但进入 post-compact context 的内容必须是清洗后的 summary。ZCode 不应把 summary agent 的草稿推回主上下文。
 
+Summary 请求本身（含"只输出文本、禁止调用工具"规则）只约束生成 summary 这一步，不是用户指令：
+
+- Summary prompt 必须要求模型不把该请求列入"All user messages"、"Pending Tasks"、"Current Work"或"Optional Next Step"。
+- Post-compact 续接消息必须声明该规则已失效、工具恢复可用，并按 summary 继续原任务。
+
+验收场景：subagent 在自动 compact 后继续调用工具完成任务，而不是以"按 TEXT ONLY 指令停止工具调用"为由提交半成品，也不再以 `<analysis>`/`<summary>` 格式作答。
+
+#### 1.4.1 Subagent compact（Fork，2026-10-25）
+
+背景：2026-10-25 四个 Explore subagent（100k 窗口，阈值 66k）各自 compact 1–2 次，最后一次 compact 后 2–9 步以 `finishReason: stop` 自行结束，并在最终答复中写"budget is spent""not started"。没有任何限额被触发：subagent 没有 token 预算，`maxTurns` 也不被 turn loop 读取。原因是 compact 后的续接对 subagent 读起来像收尾：续接消息开头写"ran out of context"，没有复述原始 brief 和剩余条目；summary 没有逐项状态；summary 上限固定 20K，与窗口无关（一次 15K 输出占了 79K 有效窗口的近 20%）。
+
+状态所有者：subagent child runtime（`taskType === "subagent_child"`）自己持有本轮 brief（`subagentContext.taskBrief`，即 runner 传入的 prompt）。主会话不走本节任何分支。
+
+规则：
+
+- Summary prompt 追加 subagent 段：`<summary>` 必须含 `Original Brief`（逐字）和 `Work Items` 清单，每行 `- [done|in progress|not started|blocked] 条目 — evidence: file:line / 日志原文 — next: 下一步`；`<analysis>` 只写简短要点。
+- Summary 输出上限 = clamp(有效窗口 × 15%, 4K, 20K)；prompt 里的目标字数按有效窗口 × 10% 换算。有效窗口与 auto compact 使用同一 `getEffectiveContextWindowSize` 配置。
+- 续接消息（summary message）对 subagent 改为说明"上下文被压缩以腾出工作空间，没有任何预算被耗尽"，不再写"ran out of context"。
+- Post-compact reminders 末尾追加一条 continuation reminder：复述 brief（超长截断并注明）、从 summary 解析出的未完成条目（解析不到时指向 summary 清单）、"继续调用工具完成剩余条目；没有 token/turn 预算"、以及"若确实无法完成，在最终答复末尾用 `<remaining_items>` 块逐行列出未完成条目"。
+- `<summary>` 缺少闭合标签（输出被上限截断）时，取 `<summary>` 之后的全部文本，不把原始标签和草稿推回上下文。
+
+验收：
+
+- 100k 窗口的 Explore subagent 处理 6 条、40+ 次工具调用的 brief，跨 2 次以上 compact 完成全部条目，或返回可被 SendMessage 续接的 `incomplete` 列表（见 tool/07-subagent.md 输出契约）。
+- 单测覆盖：subagent compact prompt 含清单格式与字数目标、summary 输出上限按窗口计算、continuation reminder 内容、主会话 compact prompt / 续接消息 / 上限与之前完全一致。
+
 ### 1.5 Microcompact 和 full compact 的边界
 
 Microcompact 只处理局部上下文压力，不应等同于 full compact。
