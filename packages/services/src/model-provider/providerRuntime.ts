@@ -6,6 +6,7 @@ import {
   ProviderRegistryService,
   ProviderSettingsFacade,
   createFailClosedAccountProviderConfigSnapshot,
+  createProviderSettingsMutationTarget,
   type AccountProviderConfigSnapshot,
   type ProviderConfigSnapshot,
   type ProviderSettingsMutationTarget,
@@ -145,41 +146,8 @@ function createSettingsMutationTarget(
   registryService: ProviderRegistryService,
   accountSource: RefreshableProviderSource<AccountProviderConfigSnapshot>,
 ): ProviderSettingsMutationTarget {
-  const configService = configRuntime.configService;
-  return {
-    createPersonalProvider: (input) => configService.createPersonalProvider(input),
-    savePersonalProviderOverlay: (providerId, config, membership, metadata) =>
-      configService.savePersonalProviderOverlay(providerId, config, membership, metadata),
-    deletePersonalProvider: (providerId) => configService.deletePersonalProvider(providerId),
-    reorderPersonalProviders: (providerIds) => configService.reorderPersonalProviders(providerIds),
-    reorderPersonalModels: (providerId, modelIds, membership) =>
-      configService.reorderPersonalModels(providerId, modelIds, membership),
-    // 手工四参数转发曾丢掉新增的配置模式；直接绑定完整签名，避免装配层截断写入意图。
-    addPersonalModel: configService.addPersonalModel.bind(configService),
-    renamePersonalModel: (providerId, currentModelId, nextModelId, membership) =>
-      configService.renamePersonalModel(providerId, currentModelId, nextModelId, membership),
-    deletePersonalModel: (providerId, modelId, membership) =>
-      configService.deletePersonalModel(providerId, modelId, membership),
-    setPersonalModelEnabled: (providerId, modelId, enabled, membership) =>
-      configService.setPersonalModelEnabled(providerId, modelId, enabled, membership),
-    savePersonalModelDraft: (
-      providerId,
-      originalModelId,
-      nextModelId,
-      config,
-      expectedPersonalRevision,
-      useRecommendedConfig,
-      membership,
-    ) =>
-      configService.savePersonalModelDraft(
-        providerId,
-        originalModelId,
-        nextModelId,
-        config,
-        expectedPersonalRevision,
-        useRecommendedConfig,
-        membership,
-      ),
+  return createProviderSettingsMutationTarget({
+    configService: configRuntime.configService,
     refresh: (reason) => registryService.refresh(reason),
     refreshSources: async (reason) => {
       const [builtinResult, accountResult] = await Promise.allSettled([
@@ -198,7 +166,7 @@ function createSettingsMutationTarget(
       if (accountResult.status === "rejected") throw accountResult.reason;
       return snapshot;
     },
-  };
+  });
 }
 
 export function createProviderRuntime(options: ProviderRuntimeOptions): ProviderRuntime {

@@ -82,4 +82,6 @@ pub(crate) enum Pending {
     SystemPrompt {
         read: bool,
     },
+    /// Model settings page (provider_settings/requests.rs).
+    ProviderSettings(crate::provider_settings::Request),
 }

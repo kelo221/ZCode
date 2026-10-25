@@ -91,10 +91,17 @@ mod settings_lsp_diagnostics_tests;
 #[cfg(test)]
 mod settings_memory_tests;
 mod settings_models;
+mod settings_models_catalog;
 mod settings_navigation;
 #[cfg(test)]
 mod settings_navigation_tests;
 mod settings_phone;
+mod settings_provider_add;
+mod settings_provider_card;
+pub(crate) mod settings_provider_form;
+mod settings_provider_models;
+#[cfg(test)]
+mod settings_provider_tests;
 mod settings_rows;
 #[cfg(test)]
 mod settings_shell_tests;

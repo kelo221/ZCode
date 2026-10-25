@@ -79,6 +79,7 @@ impl AppState {
             browser: Default::default(),
             voice: None,
             system_prompt: Default::default(),
+            provider_settings: Default::default(),
         }
     }
 }

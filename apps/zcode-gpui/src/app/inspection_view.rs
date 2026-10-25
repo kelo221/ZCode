@@ -114,7 +114,13 @@ impl RootView {
             && (self.settings.section != section || !self.settings.open);
         let entering_prompt = section == SettingsSection::SystemPrompt
             && (self.settings.section != section || !self.settings.open);
+        let entering_models = section == SettingsSection::Models
+            && (self.settings.section != section || !self.settings.open);
         self.settings.section = section;
+        if entering_models {
+            self.state
+                .update(cx, |s, cx| s.read_provider_settings(false, cx));
+        }
         if entering_prompt {
             self.state
                 .update(cx, |s, cx| s.read_system_prompt_default(cx));

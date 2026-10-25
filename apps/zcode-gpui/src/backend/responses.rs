@@ -19,6 +19,7 @@ impl AppState {
             || self.handle_workflow_artifact_response(ws_key, id, &result, &error, cx)
             || self.handle_attachment_response(ws_key, id, &result, &error, cx)
             || self.handle_system_prompt_response(ws_key, id, &result, &error, cx)
+            || self.handle_provider_settings_response(ws_key, id, &result, &error, cx)
         {
             return;
         }
@@ -173,6 +174,7 @@ impl AppState {
             | Pending::WorkflowArtifacts(_)
             | Pending::WorkflowArtifactContent(_)
             | Pending::SystemPrompt { .. }
+            | Pending::ProviderSettings(_)
             | Pending::CleanupCatalog => {}
             Pending::SubscribeConversation(sid) => {
                 let topic = format!("conversation/{sid}");

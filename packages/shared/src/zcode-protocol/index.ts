@@ -2610,6 +2610,84 @@ export const zcodeProviderRefreshRegistryResultSchema = z
 export type ZCodeProviderRefreshRegistryParams = z.infer<
   typeof zcodeProviderRefreshRegistryParamsSchema
 >;
+// GPUI Provider 设置页（Electron 走 Services Host 的同一 Facade，不调用这里）。
+// View 的字段由 @zcode/provider 投影并校验；协议层只约束信封。
+const zcodeProviderSettingsViewSchema = z
+  .object({
+    revision: z.number().int().nonnegative(),
+    providerTemplates: z.array(z.unknown()),
+    providerOrder: z.array(z.string()),
+    providers: z.array(z.unknown()),
+  })
+  .strict();
+export const zcodeProviderSettingsReadParamsSchema = z
+  .object({ refresh: z.boolean().optional() })
+  .strict();
+export const zcodeProviderSettingsReadResultSchema = z
+  .object({ view: zcodeProviderSettingsViewSchema })
+  .strict();
+const providerIdString = z.string().trim().min(1);
+const modelIdString = z.string().trim().min(1);
+export const zcodeProviderSettingsOperationSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("createProvider"),
+      templateId: providerIdString.optional(),
+      providerName: z.string().trim().min(1).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("updateProvider"),
+      providerId: providerIdString,
+      providerName: z.string().trim().min(1).optional(),
+      enabled: z.boolean().optional(),
+      apiType: z.enum(["anthropic-messages", "openai-chat-completions", "openai-responses"]).optional(),
+      baseUrl: z.string().optional(),
+      apiKey: z.string().optional(),
+    })
+    .strict(),
+  z.object({ type: z.literal("deleteProvider"), providerId: providerIdString }).strict(),
+  z
+    .object({ type: z.literal("reorderProviders"), providerIds: z.array(providerIdString) })
+    .strict(),
+  z
+    .object({ type: z.literal("addModel"), providerId: providerIdString, modelId: modelIdString })
+    .strict(),
+  z
+    .object({
+      type: z.literal("deleteModel"),
+      providerId: providerIdString,
+      modelId: modelIdString,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("setModelEnabled"),
+      providerId: providerIdString,
+      modelId: modelIdString,
+      enabled: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("reorderModels"),
+      providerId: providerIdString,
+      modelIds: z.array(modelIdString),
+    })
+    .strict(),
+]);
+export const zcodeProviderSettingsMutateParamsSchema = z
+  .object({ operation: zcodeProviderSettingsOperationSchema })
+  .strict();
+export const zcodeProviderSettingsMutateResultSchema = z
+  .object({ view: zcodeProviderSettingsViewSchema, providerId: z.string().optional() })
+  .strict();
+export type ZCodeProviderSettingsOperation = z.infer<typeof zcodeProviderSettingsOperationSchema>;
+export type ZCodeProviderSettingsReadResult = z.infer<typeof zcodeProviderSettingsReadResultSchema>;
+export type ZCodeProviderSettingsMutateResult = z.infer<
+  typeof zcodeProviderSettingsMutateResultSchema
+>;
 export type ZCodeProviderRefreshRegistryResult = z.infer<
   typeof zcodeProviderRefreshRegistryResultSchema
 >;
@@ -4230,6 +4308,9 @@ export const zcodeProtocolMethods = {
   // 进程级 Account Provider Config 与 workspace 运行目录分离。
   providerUpdateAccountConfig: "provider/updateAccountConfig",
   providerRefreshRegistry: "provider/refreshRegistry",
+  // GPUI 专属 Provider 设置读写（Electron 走 Services Host 的同一 Facade）。
+  providerSettingsRead: "providerSettings/read",
+  providerSettingsMutate: "providerSettings/mutate",
   workspaceUpdateInteractionPreferences: "workspace/updateInteractionPreferences",
   workspaceUpdateModelIoPreferences: "workspace/updateModelIoPreferences",
   // GPUI 专属 system prompt 覆盖（Electron 不调用）。

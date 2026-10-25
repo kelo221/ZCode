@@ -1,6 +1,7 @@
 import { createConfig } from "@zcode/adapters/config";
 import type { McpElicitationPort, McpNotificationPort } from "@zcode/contracts";
 import { createNodeModelSelectionFacade } from "@zcode/provider-node";
+import { ProviderSettingsFacade, createProviderSettingsMutationTarget } from "@zcode/provider";
 import { createNodeLoggerFactory } from "@zcode/adapters/logging";
 import {
   createMcpAdapterConnectionPool,
@@ -272,6 +273,13 @@ export async function runZCodeProtocolAgent(
     const modelSelectionFacade = createNodeModelSelectionFacade(
       activeProviderRegistryRuntime.runtime.registryService,
     );
+    const providerSettings = new ProviderSettingsFacade(
+      activeProviderRegistryRuntime.runtime.registryService,
+      createProviderSettingsMutationTarget({
+        configService: activeProviderRegistryRuntime.runtime.configService,
+        refresh: (reason) => activeProviderRegistryRuntime.runtime.registryService.refresh(reason),
+      }),
+    );
     options.lifecycle?.signal.throwIfAborted();
     const server = (serverForCleanup = new ZCodeProtocolAgentServer({
       createZCodeApp: (appOptions = {}) =>
@@ -319,6 +327,7 @@ export async function runZCodeProtocolAgent(
       refreshProviderRegistry: async (reason) => {
         await activeProviderRegistryRuntime.runtime.registryService.refresh(reason);
       },
+      providerSettings,
       version: options.version,
     }));
     officialMcpAuthContext = server.officialMcpAuthRequestContext;

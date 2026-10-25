@@ -18,6 +18,7 @@ mod browser_bridge;
 mod composer;
 mod conversation;
 mod files;
+mod provider_settings;
 pub mod remote;
 mod review;
 mod sessions;

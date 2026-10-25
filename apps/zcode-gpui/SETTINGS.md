@@ -446,9 +446,9 @@ CRUD remain separate evidence/port gaps; no fake credential/configuration store 
 
 Plugins Manage Installed, MCP inspection and workspace/range-scoped Usage are now
 reachable Settings sections alongside committed Memory runtime preferences.
-Configured Models is read-only. Subagents supports explicit opt-in local management through
+Model settings manages API-key providers and their models through `providerSettings/read|mutate` (see `PROVIDER_SETTINGS.md`). Subagents supports explicit opt-in local management through
 the unchanged full Host, with preference handoff and truthful uncertain outcomes. Its rebuilt
-inventory has inspected native captures, but full native actions/reference visual parity remain incomplete. Provider CRUD,
+inventory has inspected native captures, but full native actions/reference visual parity remain incomplete.
 Skills/Commands/Hooks/Browser Use still require missing owner ports or further bounded work. Current provider/updateAccountConfig is an account overlay,
 not an API-key provider settings write; connectivity testing does not persist credentials.
 Skills/referenceCatalog and workspace/readPresentation are read-only presentation ports,

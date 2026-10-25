@@ -112,6 +112,7 @@ import {
 import { listPluginUiSurfaces } from "./plugin-ui-surfaces.js";
 import { updateInteractionPreferences } from "./interaction-preferences.js";
 import { refreshProviderRegistry, updateAccountProviderConfig } from "./account-provider-config.js";
+import { mutateProviderSettings, readProviderSettings } from "./provider-settings.js";
 import { updateModelIoPreferences } from "./model-io-preferences.js";
 import { readSystemPrompt, updateSystemPrompt } from "./system-prompt-override.js";
 import { updateOffPeakToolPolicy } from "./off-peak-tool-policy.js";
@@ -720,6 +721,10 @@ export class ZCodeProtocolAgentServer {
         return await updateAccountProviderConfig(this.context, request.params);
       case zcodeProtocolMethods.providerRefreshRegistry:
         return await refreshProviderRegistry(this.context, request.params);
+      case zcodeProtocolMethods.providerSettingsRead:
+        return await readProviderSettings(this.context, request.params);
+      case zcodeProtocolMethods.providerSettingsMutate:
+        return await mutateProviderSettings(this.context, request.params);
       case zcodeProtocolMethods.workspaceUpdateInteractionPreferences:
         return await updateInteractionPreferences(this.context, request.params);
       case zcodeProtocolMethods.workspaceUpdateModelIoPreferences:

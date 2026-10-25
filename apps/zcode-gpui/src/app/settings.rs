@@ -78,6 +78,7 @@ pub(crate) struct SettingsView {
     pub shortcut_query: String,
     pub model_query: String,
     pub system_prompt: Option<crate::app::settings_system_prompt::PromptEditor>,
+    pub provider_form: Option<crate::app::settings_provider_form::ProviderForm>,
     pub focus: FocusHandle,
 }
 
