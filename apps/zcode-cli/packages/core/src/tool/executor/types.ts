@@ -77,6 +77,12 @@ export type ShouldEnqueueBackgroundTaskNotification = (
   input: BackgroundTaskNotificationPolicyInput,
 ) => boolean;
 
+/** 返回 undefined 表示没有独立的辅助模型，handler 退回本轮模型。 */
+export type ResolveAuxiliaryModel = (input: {
+  turnModel?: Model;
+  subagentModelOverride?: SubagentRunOptions["modelOverride"];
+}) => Model | undefined;
+
 export interface ToolExecutorOptions {
   agentTelemetry?: AgentExecutionTelemetryPort;
   agentTelemetryActorKind?: AgentTelemetryActorKind;
@@ -100,6 +106,7 @@ export interface ToolExecutorOptions {
   imageProcessorPort?: ImageProcessorPort;
   pdfDocumentPort?: PdfDocumentPort;
   model?: Model;
+  resolveAuxiliaryModel?: ResolveAuxiliaryModel;
   embeddedSearchBackend?: EmbeddedSearchBackend;
   nativeSearchEnhancementsEnabled?: boolean;
   skillPort?: SkillPort;
@@ -218,6 +225,7 @@ export interface ToolExecutorDeps {
   imageProcessorPort?: ImageProcessorPort;
   pdfDocumentPort?: PdfDocumentPort;
   model?: Model;
+  resolveAuxiliaryModel?: ResolveAuxiliaryModel;
   embeddedSearchBackend?: EmbeddedSearchBackend;
   nativeSearchEnhancementsEnabled?: boolean;
   skillPort?: SkillPort;

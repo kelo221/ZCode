@@ -19,7 +19,7 @@ import {
   prepareInitialToolExecutionInput,
 } from "../input-normalization.js";
 import { hasOfficialCuaFrameAuthority } from "../../mcp/image-normalization.js";
-import type { SkillTelemetryMetadata } from "@zcode/contracts";
+import type { Model, SkillTelemetryMetadata } from "@zcode/contracts";
 import type { ToolExecutionContext, ToolExecutionResult } from "../types.js";
 import type { ToolEntry } from "../types.js";
 import type { BackgroundTaskTracker } from "./background-tasks.js";
@@ -484,6 +484,28 @@ async function executeToolCallImpl(
 
     try {
       const model = options?.model ?? deps.model;
+      const toolModelStatusSink = createToolModelStatusSink({
+        emitEvent,
+        sessionId: deps.sessionId,
+        turnId,
+        traceId,
+      });
+      const resolveAuxiliaryModel = deps.resolveAuxiliaryModel;
+      let auxiliaryModel: { value: Model | undefined } | undefined;
+      const getAuxiliaryModel = resolveAuxiliaryModel
+        ? () => {
+            auxiliaryModel ??= {
+              value: withDefaultToolModelStatusSink(
+                resolveAuxiliaryModel({
+                  turnModel: model,
+                  subagentModelOverride: options?.subagentModelOverride,
+                }),
+                toolModelStatusSink,
+              ),
+            };
+            return auxiliaryModel.value;
+          }
+        : undefined;
       const embeddedSearchDecision = resolveEmbeddedSearchBranchCapability({
         bashAvailable: deps.registry.has("Bash"),
       });
@@ -508,10 +530,8 @@ async function executeToolCallImpl(
         imageProcessorPort: deps.imageProcessorPort,
         pdfDocumentPort: deps.pdfDocumentPort,
         // 工具内部的模型请求默认把状态事件发进会话：deadline 暂停与 driver 相位都靠这条流。
-        model: withDefaultToolModelStatusSink(
-          model,
-          createToolModelStatusSink({ emitEvent, sessionId: deps.sessionId, turnId, traceId }),
-        ),
+        model: withDefaultToolModelStatusSink(model, toolModelStatusSink),
+        getAuxiliaryModel,
         subagentModelOverride: options?.subagentModelOverride,
         embeddedSearch: {
           ...(deps.embeddedSearchBackend ? { backend: deps.embeddedSearchBackend } : {}),

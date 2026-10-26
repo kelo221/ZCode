@@ -9,6 +9,7 @@ import {
   ReadSessionContextOutputSchema,
   createCoreError,
   runWithModelInvocationContext,
+  type Model,
   type ModelInputMessage,
   type MessageWithParts,
   type ReadSessionContextInput,
@@ -105,7 +106,11 @@ export const readSessionContextHandler: ToolHandler = async (input, context) => 
     outputCharBudget,
   });
 
-  if (!context.model || material.readableMessageCount === 0) {
+  const extractionModel =
+    material.readableMessageCount === 0
+      ? undefined
+      : (context.getAuxiliaryModel?.() ?? context.model);
+  if (!extractionModel) {
     return buildOutput({
       content: material.localContent,
       material,
@@ -119,6 +124,7 @@ export const readSessionContextHandler: ToolHandler = async (input, context) => 
   try {
     const liteContent = await extractWithLite({
       context,
+      model: extractionModel,
       material,
       outputCharBudget,
       parsed,
@@ -227,6 +233,7 @@ export const readSessionContextToolEntry: ToolEntry = {
 
 async function extractWithLite(input: {
   context: ToolExecutionContext;
+  model: Model;
   material: SessionContextMaterial;
   outputCharBudget: number;
   parsed: ReadSessionContextInput;
@@ -235,6 +242,7 @@ async function extractWithLite(input: {
   if (input.material.allContentChars <= liteInputCharBudget()) {
     return generateLiteExtraction({
       context: input.context,
+      model: input.model,
       material: input.material.allContent,
       maxOutputTokens: input.parsed.maxTokens ?? READ_SESSION_CONTEXT_DEFAULT_MAX_TOKENS,
       parsed: input.parsed,
@@ -255,6 +263,7 @@ async function extractWithLite(input: {
   for (const chunk of chunks) {
     const result = await generateLiteExtraction({
       context: input.context,
+      model: input.model,
       material: formatChunkForLite(chunk),
       maxOutputTokens: perChunkTokens,
       parsed: input.parsed,
@@ -273,6 +282,7 @@ async function extractWithLite(input: {
 
   return generateLiteExtraction({
     context: input.context,
+    model: input.model,
     material: combined,
     maxOutputTokens: input.parsed.maxTokens ?? READ_SESSION_CONTEXT_DEFAULT_MAX_TOKENS,
     parsed: input.parsed,
@@ -284,6 +294,7 @@ async function extractWithLite(input: {
 
 async function generateLiteExtraction(input: {
   context: ToolExecutionContext;
+  model: Model;
   material: string;
   maxOutputTokens: number;
   parsed: ReadSessionContextInput;
@@ -291,9 +302,7 @@ async function generateLiteExtraction(input: {
   sourceLabel: string;
   synthesize?: boolean;
 }): Promise<string> {
-  const model = input.context.model;
-  if (!model) return "";
-
+  const model = input.model;
   const messages: ModelInputMessage[] = [
     {
       role: "system",

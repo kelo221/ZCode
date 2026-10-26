@@ -430,6 +430,73 @@ describe("ReadSessionContext tool", () => {
         .join("\n"),
     ).toContain("auth-refresh.ts");
   });
+
+  it("prefers the auxiliary (Explore) model over the turn model for extraction", async () => {
+    const targetSessionId = createSessionId("target-auxiliary");
+    const turnSelection: ModelSelection = {
+      providerId: createModelProviderId("test"),
+      modelId: createModelId("main"),
+    };
+    const exploreSelection: ModelSelection = {
+      providerId: createModelProviderId("test"),
+      modelId: createModelId("explore"),
+    };
+    const turnGenerate = vi.fn(async () => modelTextResult("from turn model"));
+    const exploreGenerate = vi.fn(async () => modelTextResult("from explore model"));
+    const context = createToolContext(targetSessionId, {
+      messages: createTranscript(targetSessionId),
+      modelSelection: turnSelection,
+      generateText: turnGenerate,
+    });
+    const getAuxiliaryModel = vi.fn(() => createTestModel(exploreSelection, exploreGenerate));
+    context.getAuxiliaryModel = getAuxiliaryModel;
+
+    const output = await readSessionContextHandler(
+      { sessionId: targetSessionId, query: "auth refresh fix", maxTokens: 2000 },
+      context,
+    );
+
+    expect(output).toMatchObject({ source: "lite", content: "from explore model" });
+    expect(exploreGenerate).toHaveBeenCalledOnce();
+    expect(exploreGenerate.mock.calls[0]?.[0]).toMatchObject({
+      options: { reasoningLevel: "low" },
+    });
+    expect(turnGenerate).not.toHaveBeenCalled();
+  });
+
+  it("uses the turn model when no auxiliary model is resolved", async () => {
+    const targetSessionId = createSessionId("target-auxiliary-fallback");
+    const turnGenerate = vi.fn(async () => modelTextResult("from turn model"));
+    const context = createToolContext(targetSessionId, {
+      messages: createTranscript(targetSessionId),
+      modelSelection: { providerId: createModelProviderId("test"), modelId: createModelId("main") },
+      generateText: turnGenerate,
+    });
+    context.getAuxiliaryModel = () => undefined;
+
+    const output = await readSessionContextHandler(
+      { sessionId: targetSessionId, query: "auth refresh fix", maxTokens: 2000 },
+      context,
+    );
+
+    expect(output).toMatchObject({ source: "lite", content: "from turn model" });
+    expect(turnGenerate).toHaveBeenCalledOnce();
+  });
+
+  it("does not resolve the auxiliary model for an empty target session", async () => {
+    const targetSessionId = createSessionId("target-auxiliary-empty");
+    const context = createToolContext(targetSessionId, { messages: [] });
+    const getAuxiliaryModel = vi.fn(() => undefined);
+    context.getAuxiliaryModel = getAuxiliaryModel;
+
+    const output = await readSessionContextHandler(
+      { sessionId: targetSessionId, query: "anything" },
+      context,
+    );
+
+    expect(output).toMatchObject({ source: "local" });
+    expect(getAuxiliaryModel).not.toHaveBeenCalled();
+  });
 });
 
 function createToolContext(

@@ -7,7 +7,7 @@ import {
   registerBuiltInTools,
   traceContextToLogContext,
 } from "../deps.js";
-import type { HookRunner, SessionId, ToolExecutor, TraceContext } from "../deps.js";
+import type { HookRunner, Model, SessionId, ToolExecutor, TraceContext } from "../deps.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import type { AgentRuntimeDeps } from "../types.js";
 import { resolveRuntimeEmbeddedSearchEnabled } from "../methods/embedded-search-branch.js";
@@ -22,6 +22,10 @@ import {
 import { isStaleBranchRuntimeTaskEvent } from "../methods/runtime-command-generation.js";
 import { resolveEnabledProjectMemoryRoot } from "./project-memory.js";
 import { sessionHasLoadedSkill } from "../../agent/loaded-skills.js";
+import type { ResolveAuxiliaryModel } from "../../tool/executor/types.js";
+import { EXPLORE_AGENT_TYPE } from "../../subagent/explore.js";
+import { getOffPeakExecution } from "../off-peak/runtime.js";
+import { createRuntimeModel } from "../methods/runtime-model.js";
 
 const DEFAULT_SUBAGENT_BACKGROUND_BASH_MAX_MS = 3_600_000;
 const EMPTY_RUNTIME_HOOK_CONFIG = {
@@ -186,6 +190,7 @@ function createRuntimeToolExecutor(
     imageProcessorPort: deps.imageProcessorPort,
     // 合并删除旧模型连接时曾漏掉此端口；Read 分页渲染与整份 PDF 页数检查仍依赖宿主注入。
     pdfDocumentPort: deps.pdfDocumentPort,
+    resolveAuxiliaryModel: createRuntimeAuxiliaryModelResolver(runtime, deps),
     embeddedSearchBackend: runtime.config.embeddedSearchBackend,
     nativeSearchEnhancementsEnabled: runtime.config.nativeSearchEnhancementsEnabled,
     skillPort: deps.skillPort,
@@ -238,6 +243,77 @@ function createRuntimeToolExecutor(
     traceContext: runtime.rootTraceContext,
     getMode: () => runtime.config.mode ?? "build",
     maxConcurrency: runtime.config.toolConcurrency?.maxConcurrency,
+  });
+}
+
+/**
+ * 工具内部抽取调用（ReadSessionContext）使用的辅助模型：即 Explore 子代理会用的模型。
+ * 只有 Explore profile 显式指定了模型时才另建句柄；其余情况返回 undefined，调用方用本轮模型。
+ * 规则与验收见 docs/session-context-tool.md「Extraction model」。
+ */
+export function createRuntimeAuxiliaryModelResolver(
+  runtime: AgentRuntimeInternal,
+  deps: Pick<AgentRuntimeDeps, "resolveEffectiveModelSelection">,
+): ResolveAuxiliaryModel {
+  return ({ turnModel, subagentModelOverride }) => {
+    // Core Server override 与 off-peak 已决定子任务用哪个模型（均等同本轮执行模型），不另选。
+    if (subagentModelOverride) return undefined;
+    const offPeak = getOffPeakExecution(runtime);
+    if (offPeak && !offPeak.lifecycle.terminal) return undefined;
+
+    const explore = runtime
+      .getAgentDefinitions()
+      .activeAgents.find((profile) => profile.name === EXPLORE_AGENT_TYPE);
+    const requested = explore?.modelSelection;
+    if (!requested) return undefined;
+
+    const resolved = deps.resolveEffectiveModelSelection
+      ? deps.resolveEffectiveModelSelection({ ...requested })
+      : { effectiveSelection: requested };
+    const selection = resolved.effectiveSelection;
+    if (!selection || resolved.selectionIssue) {
+      warnAuxiliaryModelFallback(
+        runtime,
+        requested,
+        resolved.selectionIssue ?? "selection-missing",
+      );
+      return undefined;
+    }
+    if (isSameModel(turnModel, selection)) return undefined;
+
+    try {
+      return createRuntimeModel(runtime, { selection });
+    } catch (error) {
+      // 辅助模型构造失败不能让工具失败：退回本轮模型，与未配置 Explore 模型时一致。
+      warnAuxiliaryModelFallback(
+        runtime,
+        selection,
+        error instanceof Error ? error.message : String(error),
+      );
+      return undefined;
+    }
+  };
+}
+
+function isSameModel(
+  model: Model | undefined,
+  selection: { providerId: string; modelId: string },
+): boolean {
+  return model?.providerId === selection.providerId && model.modelId === selection.modelId;
+}
+
+function warnAuxiliaryModelFallback(
+  runtime: AgentRuntimeInternal,
+  selection: { providerId: string; modelId: string },
+  reason: string,
+): void {
+  runtime.logger?.warn("Explore model unavailable for auxiliary tool calls; using turn model", {
+    ...traceContextToLogContext(runtime.rootTraceContext),
+    event: "runtime.auxiliary_model.fallback",
+    module: "core.runtime",
+    providerId: selection.providerId,
+    modelId: selection.modelId,
+    reason,
   });
 }
 

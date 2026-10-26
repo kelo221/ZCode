@@ -168,6 +168,11 @@ export interface ToolExecutionContext {
   imageProcessorPort?: ImageProcessorPort;
   pdfDocumentPort?: PdfDocumentPort;
   model?: Model;
+  /**
+   * 辅助抽取模型（当前为 Explore 子代理模型），首次调用时才构造；返回 undefined 时调用方用 `model`。
+   * 选择规则由 runtime 持有，见 docs/session-context-tool.md「Extraction model」。
+   */
+  getAuxiliaryModel?: () => Model | undefined;
   /** Core Server 对前台 child 的 Selection override。 */
   subagentModelOverride?: SubagentRunOptions["modelOverride"];
   skillPort?: SkillPort;
