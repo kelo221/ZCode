@@ -67,6 +67,8 @@ impl AppState {
         let attachments = self.recovered_attachments.remove(key).unwrap_or_default();
         self.composer.update(cx, |c, cx| {
             c.set_text(&restored);
+            // A different session's draft: undo must not step back into the old one.
+            c.history.clear();
             c.attachments = attachments;
             cx.notify();
         });

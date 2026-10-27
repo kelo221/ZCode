@@ -7,6 +7,7 @@ use crate::sessions::items::{ROW_GROUP, format_relative_time, nav_row};
 use crate::shared::theme::ui_size;
 use crate::shared::theme::{ACCENT, DANGER, I_CLOSE, I_EDIT, MUTED, TEXT, icon};
 use crate::shared::theme_colors::color as rgb;
+use ely_gpui_component::primitives::Tooltip;
 use gpui::{AnyElement, ClickEvent, Context, SharedString, div, prelude::*, px};
 
 impl crate::app::root::RootView {
@@ -41,6 +42,7 @@ impl crate::app::root::RootView {
         Some(
             nav_row(SharedString::from(sid.clone()), is_active)
                 .group(ROW_GROUP)
+                .tooltip(Tooltip::text(full_title.clone()))
                 .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                     this.close_settings(window, cx);
                     this.show_chat_page();
@@ -146,6 +148,10 @@ impl crate::app::root::RootView {
             .items_center()
             .child(
                 btn(format!("ren-{id}"), TEXT)
+                    .tooltip(Tooltip::text(crate::shared::i18n::label(
+                        "Rename",
+                        "重命名",
+                    )))
                     .child(icon(I_EDIT, 12., MUTED))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
@@ -156,6 +162,7 @@ impl crate::app::root::RootView {
             )
             .child(
                 btn(format!("del-{id}"), DANGER)
+                    .tooltip(Tooltip::text(crate::shared::i18n::label("Delete", "删除")))
                     .child(icon(I_CLOSE, 11., MUTED))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();

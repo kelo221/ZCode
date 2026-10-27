@@ -39,7 +39,19 @@ impl Composer {
         }
         self.caret = self.chips.snap(pos.min(self.content.len()));
         self.marked_utf16 = None;
+        self.history.break_run();
         cx.notify();
+    }
+
+    /// Up/Down: move a visual line; past the first or last line recall a
+    /// sent message (empty box or one already recalled), else go to the edge.
+    fn vertical(&mut self, up: bool, shift: bool, cx: &mut Context<Self>) {
+        let step = self.visual_line_step(up);
+        if !shift && step.is_none() && self.recall(up, cx) {
+            return;
+        }
+        let edge = if up { 0 } else { self.content.len() };
+        self.move_to(step.unwrap_or(edge), shift, cx);
     }
 
     /// Remove the selected text. `false` when nothing was selected.
@@ -109,7 +121,7 @@ impl Composer {
         cx.notify();
     }
 
-    fn copy_selection(&mut self, cut: bool, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn copy_selection(&mut self, cut: bool, cx: &mut Context<Self>) -> bool {
         let Some(sel) = self.selection() else {
             return false;
         };
@@ -149,8 +161,25 @@ impl Composer {
             "delete" => self.delete(true, modifiers, cx),
             "left" => self.arrow(false, modifiers, cx),
             "right" => self.arrow(true, modifiers, cx),
-            "home" => self.move_to(0, modifiers.shift, cx),
-            "end" => self.move_to(self.content.len(), modifiers.shift, cx),
+            "home" | "end" => {
+                let end = key == "end";
+                // Ctrl/Cmd+Home/End: whole message; plain: the wrapped line.
+                let target = (!primary)
+                    .then(|| self.visual_line_edge(end))
+                    .flatten()
+                    .unwrap_or(if end { self.content.len() } else { 0 });
+                self.move_to(target, modifiers.shift, cx);
+            }
+            "up" | "down" => self.vertical(key == "up", modifiers.shift, cx),
+            "z" if primary && modifiers.shift => {
+                self.undo_redo(false, cx);
+            }
+            "z" if primary => {
+                self.undo_redo(true, cx);
+            }
+            "y" if primary && !cfg!(target_os = "macos") => {
+                self.undo_redo(false, cx);
+            }
             "a" if primary => self.select_all(cx),
             "c" if primary => handled = self.copy_selection(false, cx),
             "x" if primary => handled = self.copy_selection(true, cx),
@@ -166,7 +195,7 @@ impl Composer {
         }
     }
 
-    fn paste_clipboard(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn paste_clipboard(&mut self, cx: &mut Context<Self>) {
         let Some(item) = cx.read_from_clipboard() else {
             return;
         };

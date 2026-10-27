@@ -147,9 +147,9 @@ pub fn ui_size(original: f32) -> f32 {
 // Base font size: 14px default, clamped between 12px and 20px.
 // ============================================================================
 
-const DEFAULT_UI_FONT_SIZE: f32 = 14.0;
-const MIN_UI_FONT_SIZE: f32 = 12.0;
-const MAX_UI_FONT_SIZE: f32 = 20.0;
+pub(crate) const DEFAULT_UI_FONT_SIZE: f32 = 14.0;
+pub(crate) const MIN_UI_FONT_SIZE: f32 = 12.0;
+pub(crate) const MAX_UI_FONT_SIZE: f32 = 20.0;
 
 // Stored as u32 bits of f32 for atomic updates
 static UI_FONT_SIZE_BITS: AtomicU32 = AtomicU32::new(DEFAULT_UI_FONT_SIZE.to_bits());

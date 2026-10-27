@@ -164,8 +164,11 @@ impl RootView {
         let entity = cx.entity();
         let state = self.list_state.clone();
         let is_middle_scrolling = self.middle_scroll.is_some();
+        let jump = (!self.row_index.is_empty() && !self.follow_bottom.load(Ordering::Relaxed))
+            .then(|| self.jump_to_latest_button(cx));
         div()
             .id("transcript-scroll-area")
+            .relative()
             .size_full()
             .flex_1()
             .min_h_0()
@@ -199,7 +202,50 @@ impl RootView {
                 .with_sizing_behavior(ListSizingBehavior::Auto)
                 .size_full(),
             )
+            .children(jump)
             .into_any_element()
+    }
+
+    /// Round "↓" over the bottom of the transcript while the reader has
+    /// scrolled away from the newest row; a click returns and follows again.
+    fn jump_to_latest_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        use crate::shared::theme::{BORDER, CARD, CARD_HOVER, I_CHEVRON_DOWN, MUTED, icon};
+        use crate::shared::theme_colors::color as rgb;
+        use gpui::StatefulInteractiveElement;
+        let button = div()
+            .id("jump-to-latest")
+            .size(px(32.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_full()
+            .bg(rgb(CARD))
+            .border_1()
+            .border_color(rgb(BORDER))
+            .shadow_md()
+            .cursor(CursorStyle::PointingHand)
+            .hover(|s| s.bg(rgb(CARD_HOVER)))
+            .tooltip(ely_gpui_component::primitives::Tooltip::text(
+                crate::shared::i18n::label("Jump to latest", "跳到最新"),
+            ))
+            .on_click(cx.listener(|this, _, _, cx| {
+                cx.stop_propagation();
+                this.scroll_transcript_to_tail();
+                cx.notify();
+            }))
+            .child(icon(I_CHEVRON_DOWN, 16., MUTED));
+        let wrapper = div()
+            .absolute()
+            .bottom_3()
+            .left_0()
+            .right_0()
+            .flex()
+            .justify_center()
+            .child(button);
+        #[cfg(test)]
+        let wrapper =
+            crate::app::test_support::track_children(wrapper, vec!["jump-to-latest".into()]);
+        wrapper.into_any_element()
     }
 
     /// Single row lookup + render for the virtual list's render callback.

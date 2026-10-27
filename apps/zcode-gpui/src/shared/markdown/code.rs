@@ -187,7 +187,16 @@ pub(crate) fn code_text(lines: &[CodeLine]) -> (String, Vec<gpui::TextRun>) {
 }
 
 /// Fenced code block card: header with language label + Copy, highlighted body.
-pub fn code_block(id: u64, code: &str, lang: &str) -> AnyElement {
+/// `group` joins the body to a document selection as block `ord`.
+pub fn code_block(
+    id: u64,
+    code: &str,
+    lang: &str,
+    group: Option<(
+        &gpui::Entity<crate::shared::selection_group::SelectionGroup>,
+        usize,
+    )>,
+) -> AnyElement {
     let label = if lang.is_empty() { "text" } else { lang };
     let lines = highlight_cached(code, label);
     let copy_text = code.to_string();
@@ -236,11 +245,15 @@ pub fn code_block(id: u64, code: &str, lang: &str) -> AnyElement {
                 .text_color(color(TEXT))
                 .child({
                     let (text, runs) = code_text(&lines);
-                    crate::shared::selectable::SelectableText::new(
+                    let body = crate::shared::selectable::SelectableText::new(
                         gpui::ElementId::NamedInteger("code-text".into(), id),
                         text,
                     )
-                    .runs(runs)
+                    .runs(runs);
+                    match group {
+                        Some((group, ord)) => body.group(group, ord),
+                        None => body,
+                    }
                 }),
         )
         .into_any_element()

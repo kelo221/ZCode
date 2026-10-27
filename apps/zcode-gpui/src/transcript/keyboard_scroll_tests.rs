@@ -142,6 +142,51 @@ fn page_keys_scroll_the_transcript_from_the_composer() {
 }
 
 #[test]
+fn jump_to_latest_shows_while_reading_history_and_returns_to_the_tail() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (mut app, _state, mut window, _rx) = open(1, 150);
+    let shown = |app: &mut TestApp| {
+        app.read(|cx| cx.global::<TestTargets>().0.get("jump-to-latest").copied())
+    };
+    let (tail, _) = scroll(&mut window);
+    assert!(shown(&mut app).is_none(), "hidden while following the tail");
+
+    window.simulate_keystroke("pageup");
+    scroll(&mut window);
+    let button = shown(&mut app).expect("offered after scrolling up");
+    window.simulate_click(button.center(), MouseButton::Left);
+    assert_eq!(
+        scroll(&mut window),
+        (tail, true),
+        "back on the tail, following"
+    );
+    app.update(|cx| cx.global_mut::<TestTargets>().0.clear());
+    window.draw();
+    assert!(shown(&mut app).is_none(), "and the button is gone");
+}
+
+#[test]
+fn files_dropped_on_the_transcript_attach_to_the_composer() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (app, state, mut window, _rx) = open(1, 20);
+    let file = std::env::temp_dir().join(format!("drop-{}.txt", uuid::Uuid::now_v7()));
+    std::fs::write(&file, "dropped").unwrap();
+    let over_rows = point(px(760.), px(300.));
+    window.simulate_event(gpui::FileDropEvent::Entered {
+        position: over_rows,
+        paths: gpui::ExternalPaths(vec![file.clone()].into()),
+    });
+    window.draw();
+    window.simulate_event(gpui::FileDropEvent::Submit {
+        position: over_rows,
+    });
+    window.draw();
+    let attached = app.read_entity(&state, |s, cx| s.composer.read(cx).attachments().len());
+    let _ = std::fs::remove_file(&file);
+    assert_eq!(attached, 1, "a drop over the transcript attaches the file");
+}
+
+#[test]
 fn home_end_stay_with_the_composer_until_the_transcript_is_clicked() {
     let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let (mut app, state, mut window, _rx) = open(1, 150);

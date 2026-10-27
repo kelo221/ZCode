@@ -342,7 +342,7 @@ impl RootView {
         }
     }
 
-    fn scroll_transcript_to_tail(&mut self) {
+    pub(crate) fn scroll_transcript_to_tail(&mut self) {
         if let Some(pin) = crate::transcript::list::tail_pin(self.row_index.len()) {
             self.list_state.scroll_to(pin);
         }

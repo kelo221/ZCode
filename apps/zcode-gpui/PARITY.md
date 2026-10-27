@@ -390,6 +390,23 @@ limits below take precedence over the retained historical milestone requirements
   not a project; only a folder passed on the command line joins the list. The old 8-entry
   cap plus the cwd slot hid projects (including the last active one); agents start lazily,
   so a long list costs nothing until a project is opened.
+- **Project order (2026-10-27).** The sidebar shows projects with the most recent task
+  activity first: the newest `lastActivityAt` among the project's listed tasks (subagent
+  sessions excluded), so starting a task or continuing one moves its project to the top.
+  Projects without tasks follow in discovery order; ties keep discovery order. This is a
+  render-time sort (`sessions/items.rs` `sort_by_latest_activity`); the workspace list
+  itself keeps the discovery order above, which picks the startup project.
+- **Shell conveniences (2026-10-27).** Ctrl/Cmd+B hides or shows the sidebar (in-memory, not
+  persisted); Ctrl/Cmd+= / - / 0 step the interface font size by 1px within the settings
+  range and reset it, through the same `FontSize` preference as the slider; Ctrl/Cmd+W
+  closes the side pane when it is open; Ctrl/Cmd+Shift+[ / ] go to the previous / next task
+  in sidebar order, wrapping (`app/shortcut_actions.rs`). Back / forward (Ctrl+[ / ]) stay
+  unwired: GPUI has no navigation history. Error banners and the turn error wrap, scroll
+  past about six lines, are selectable and have a Copy button (`app/error_banner.rs`). A
+  round jump-to-latest button floats over the transcript while it is not following the
+  bottom; clicking it scrolls to the end and resumes following. Files can be dropped
+  anywhere on the chat panel (transcript included), which tints while dragging. Sidebar task
+  rows show the full title as a tooltip, and Rename / Delete have tooltips.
 - **Project context menu (2026-10-21).** Right-clicking a project row opens New task (same as
   the row's "+"), Open in File Explorer / Finder / File Manager (the folder itself), Open in
   editor (VS Code, else the system opener), Copy path, and Remove from sidebar
@@ -425,15 +442,33 @@ image cache, composer selection).
   card at any width.
 - **Composer editing.** One wrapped text layout (no horizontal overflow). Selection with
   Shift+arrows/Home/End/drag, Ctrl/Cmd+A, Ctrl+Backspace/Delete and Ctrl+Left/Right by word
-  (Alt on macOS), Ctrl/Cmd+C/X copy/cut, typing/paste/IME replace the selection, triple
-  click selects all.
+  (Alt on macOS), Ctrl/Cmd+C/X copy/cut, typing/paste/IME replace the selection. Since
+  2026-10-27 (`composer/history.rs`, `recall.rs`, `lines.rs`, `context_menu.rs`):
+  double-click selects a word and triple-click a line (between newlines), and a drag after
+  either extends by that unit, keeping chips atomic. Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z (and
+  Ctrl+Y off macOS) redoes; at most 100 steps, consecutive typing or deleting is one step,
+  uncommitted IME text is not recorded, and sending or restoring a draft clears the history.
+  Home/End go to the edge of the wrapped visual line, Ctrl/Cmd+Home/End to the message edges,
+  and Up/Down move one visual line. Up in an empty box (or on the first line of an unedited
+  recalled message) recalls the previous real user message of the active conversation,
+  newest first, from loaded rows only; Down walks forward and past the newest restores what
+  was typed before. Right-click opens Undo/Redo/Cut/Copy/Paste/Select All, disabled when
+  they cannot apply.
 - **Transcript text selection** (`shared/selectable.rs`). User messages, Markdown blocks
   (keeping their styling and links), whole code blocks and expanded tool-card text (fields,
   Bash command, edit path, output, task output) select like Desktop's browser text: drag
   (also past the element's edge), Shift+click, double-click word, triple-click block,
-  Ctrl/Cmd+C/A while focused; clicking elsewhere clears it. Selection is per block, not
-  across blocks, and diff views are not selectable yet. On Android a one-finger drag
-  still scrolls; a long press selects a word.
+  Ctrl/Cmd+C/A while focused; clicking elsewhere clears it. Since 2026-10-27 a Markdown
+  document has one selection (`shared/selection_group.rs`): a drag runs across paragraphs,
+  list items, headings, table cells and code blocks in reading order, Ctrl/Cmd+C joins the
+  blocks with newlines and Ctrl/Cmd+A selects the whole document. Dragging after a
+  double-click extends by words, after a triple-click by blocks. A double-click on the
+  right half of a word's last letter still selects the word. Other selectable text (user
+  bubbles without Markdown, tool-card fields, thinking blocks, subagent summaries, error
+  banners) stays one block each. A diff view is one selection with one block per line;
+  copying leaves out the +/- gutter. Escape clears a selection (and only then stops the key).
+  Right-click offers Copy (disabled without a selection) and Select All; Markdown adds
+  "Copy as Markdown" and diffs "Copy patch". On Android a one-finger drag still scrolls; a long press selects a word.
 - **Tool cards.** No raw JSON by default: AskUserQuestion, ExitPlanMode (Markdown), TodoWrite
   (checklist), Agent/Task (description + prompt), TaskOutput (status + output, from the
   `task_output` display or the tagged text), otherwise a key/value view. Raw text only while

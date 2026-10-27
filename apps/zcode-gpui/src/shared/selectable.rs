@@ -1,41 +1,33 @@
 //! Read-only text the pointer can select and copy, like browser text on
 //! Desktop: drag (also past the element's edge), Shift+click to extend,
-//! double-click for a word, triple-click for the whole block, Ctrl/Cmd+C and
-//! Ctrl/Cmd+A while focused. Clicking anywhere else clears the selection.
+//! double-click for a word, triple-click for the whole block (dragging after
+//! either extends by words / blocks), Ctrl/Cmd+C and Ctrl/Cmd+A while
+//! focused. Clicking anywhere else clears the selection.
+//!
+//! A [`SelectionGroup`](crate::shared::selection_group::SelectionGroup) owns one selection over several text blocks (a whole
+//! markdown document), so a drag runs from one paragraph or list item into the
+//! next. A `SelectableText` without a group owns a private one-block group.
 //!
 //! Selection lives in keyed element state, so an id only has to be unique
 //! inside its nearest id scope (a markdown document, tool body or bubble).
 
+use crate::shared::selection_group::{SelectionGroup, Slot, selection_menu, selection_owner};
 use crate::shared::theme::ACCENT;
 use crate::shared::theme_colors::color as rgb;
-use gpui::prelude::FluentBuilder;
+use ely_gpui_component::menus::ContextMenu;
 use gpui::{
-    App, ClipboardItem, CursorStyle, DispatchPhase, ElementId, FocusHandle, HighlightStyle, Hsla,
-    InteractiveElement, InteractiveText, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement, RenderOnce, SharedString, Styled, StyledText, TextLayout, TextRun,
-    Window, canvas, div,
+    App, CursorStyle, ElementId, Entity, HighlightStyle, Hsla, InteractiveElement, InteractiveText,
+    IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Point, RenderOnce,
+    SharedString, Styled, StyledText, TextLayout, TextRun, Window, canvas, div,
 };
 use std::ops::Range;
-
-struct Selection {
-    focus: FocusHandle,
-    anchor: usize,
-    head: usize,
-    dragging: bool,
-}
-
-impl Selection {
-    fn range(&self) -> Range<usize> {
-        self.anchor.min(self.head)..self.anchor.max(self.head)
-    }
-}
-
 #[derive(IntoElement)]
 pub(crate) struct SelectableText {
     id: ElementId,
     text: SharedString,
     runs: Option<Vec<TextRun>>,
     links: Vec<(Range<usize>, String)>,
+    group: Option<(Entity<SelectionGroup>, usize)>,
 }
 
 impl SelectableText {
@@ -45,6 +37,7 @@ impl SelectableText {
             text: text.into(),
             runs: None,
             links: Vec::new(),
+            group: None,
         }
     }
 
@@ -57,6 +50,13 @@ impl SelectableText {
     /// Clickable ranges opened as URLs (markdown links).
     pub(crate) fn links(mut self, links: Vec<(Range<usize>, String)>) -> Self {
         self.links = links;
+        self
+    }
+
+    /// Join a shared selection as block `ord` (document order). The group's
+    /// owner element must be wrapped with [`selection_owner`].
+    pub(crate) fn group(mut self, group: &Entity<SelectionGroup>, ord: usize) -> Self {
+        self.group = Some((group.clone(), ord));
         self
     }
 }
@@ -75,7 +75,7 @@ pub(crate) fn snap(text: &str, ix: usize) -> usize {
     ix
 }
 
-fn index_at(layout: &TextLayout, text: &str, position: gpui::Point<gpui::Pixels>) -> usize {
+pub(crate) fn index_at(layout: &TextLayout, text: &str, position: Point<Pixels>) -> usize {
     let (Ok(ix) | Err(ix)) = layout.index_for_position(position);
     snap(text, ix)
 }
@@ -83,7 +83,14 @@ fn index_at(layout: &TextLayout, text: &str, position: gpui::Point<gpui::Pixels>
 /// Word (letters, digits, `_`) around `ix`; any other character selects itself.
 pub(crate) fn word_at(text: &str, ix: usize) -> Range<usize> {
     let is_word = |c: char| c.is_alphanumeric() || c == '_';
-    let ix = snap(text, ix);
+    let mut ix = snap(text, ix);
+    // A click on the right half of a word's last character lands on the
+    // boundary after it; that still means the word, not the next character.
+    if !text[ix..].chars().next().is_some_and(is_word)
+        && let Some(prev) = text[..ix].chars().next_back().filter(|&c| is_word(c))
+    {
+        ix -= prev.len_utf8();
+    }
     let Some(c) = text[ix..].chars().next() else {
         return ix..ix;
     };
@@ -135,26 +142,13 @@ pub(crate) fn highlight_runs(runs: Vec<TextRun>, sel: Range<usize>, bg: Hsla) ->
 impl RenderOnce for SelectableText {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let text = self.text;
-        let state = window.use_keyed_state(self.id.clone(), cx, |_, cx| Selection {
-            focus: cx.focus_handle(),
-            anchor: 0,
-            head: 0,
-            dragging: false,
-        });
-        // Streaming text only grows; keep the selection and just clamp it.
-        let (anchor, head) = {
-            let s = state.read(cx);
-            (s.anchor, s.head)
+        let (group, ord, owned) = match self.group {
+            Some((group, ord)) => (group, ord, false),
+            None => (SelectionGroup::keyed(self.id.clone(), window, cx), 0, true),
         };
-        if snap(&text, anchor) != anchor || snap(&text, head) != head {
-            state.update(cx, |s, _| {
-                s.anchor = snap(&text, s.anchor);
-                s.head = snap(&text, s.head);
-            });
-        }
-        let (focus, range, dragging) = {
-            let s = state.read(cx);
-            (s.focus.clone(), s.range(), s.dragging)
+        let (range, slots) = {
+            let g = group.read(cx);
+            (g.block_range(ord, &text), g.slots.clone())
         };
 
         let styled = match self.runs {
@@ -187,110 +181,56 @@ impl RenderOnce for SelectableText {
                 .into_any_element()
         };
 
-        let down = state.clone();
-        let out = state.clone();
-        let keys = state.clone();
-        let down_layout = layout.clone();
-        let (down_text, keys_text) = (text.clone(), text.clone());
-        div()
+        // A document owner carries the menu for all its blocks.
+        let content = if owned {
+            let menu = selection_menu(&group, None, cx);
+            ContextMenu::new("sel-ctx", menu)
+                .child(content)
+                .into_any_element()
+        } else {
+            content
+        };
+        let down = group.clone();
+        let (down_layout, down_text) = (layout.clone(), text.clone());
+        let block = div()
             .id(self.id)
-            .track_focus(&focus)
+            .relative()
             .cursor(CursorStyle::IBeam)
             .on_mouse_down(MouseButton::Left, move |ev: &MouseDownEvent, window, cx| {
                 let ix = index_at(&down_layout, &down_text, ev.position);
-                down.update(cx, |s, cx| {
-                    window.focus(&s.focus, cx);
-                    match ev.click_count {
-                        1 => {
-                            if !ev.modifiers.shift {
-                                s.anchor = ix;
-                            }
-                            s.head = ix;
-                            s.dragging = true;
-                        }
-                        2 => {
-                            let word = word_at(&down_text, ix);
-                            (s.anchor, s.head) = (word.start, word.end);
-                        }
-                        _ => (s.anchor, s.head) = (0, down_text.len()),
-                    }
+                down.update(cx, |g, cx| {
+                    window.focus(&g.focus, cx);
+                    g.press((ord, ix), &down_text, ev.click_count, ev.modifiers.shift);
                     cx.notify();
                 });
             })
-            .on_mouse_down_out(move |_, _, cx| {
-                out.update(cx, |s, cx| {
-                    s.dragging = false;
-                    if s.anchor != s.head {
-                        s.anchor = s.head;
-                        cx.notify();
-                    }
-                });
-            })
-            .on_key_down(move |ev, _, cx| {
-                let stroke = &ev.keystroke;
-                if !stroke.modifiers.secondary() {
-                    return;
-                }
-                match stroke.key.as_str() {
-                    "c" => {
-                        let range = keys.read(cx).range();
-                        if !range.is_empty() {
-                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                keys_text[range].to_string(),
-                            ));
-                            cx.stop_propagation();
-                        }
-                    }
-                    "a" => {
-                        keys.update(cx, |s, cx| {
-                            (s.anchor, s.head) = (0, keys_text.len());
-                            cx.notify();
-                        });
-                        cx.stop_propagation();
-                    }
-                    _ => {}
-                }
-            })
             .child(content)
-            // Window-level listeners while dragging: element mouse-move only
-            // fires over the element, so a drag past its edge would stall.
-            .when(dragging, |el| {
-                el.child(
-                    canvas(
-                        |_, _, _| {},
-                        move |_, _, window, _| {
-                            let (drag, up) = (state.clone(), state.clone());
-                            window.on_mouse_event(move |ev: &MouseMoveEvent, phase, _, cx| {
-                                if phase != DispatchPhase::Bubble {
-                                    return;
-                                }
-                                if ev.pressed_button != Some(MouseButton::Left) {
-                                    drag.update(cx, |s, _| s.dragging = false);
-                                    return;
-                                }
-                                let ix = index_at(&layout, &text, ev.position);
-                                drag.update(cx, |s, cx| {
-                                    if s.head != ix {
-                                        s.head = ix;
-                                        cx.notify();
-                                    }
-                                });
-                            });
-                            window.on_mouse_event(move |ev: &MouseUpEvent, phase, _, cx| {
-                                if phase == DispatchPhase::Bubble && ev.button == MouseButton::Left
-                                {
-                                    up.update(cx, |s, cx| {
-                                        s.dragging = false;
-                                        cx.notify();
-                                    });
-                                }
-                            });
-                        },
-                    )
-                    .absolute()
-                    .size_0(),
+            // Registered at prepaint, once the text layout has bounds.
+            .child(
+                canvas(
+                    move |bounds, _, _| {
+                        let mut slots = slots.borrow_mut();
+                        if slots.len() <= ord {
+                            slots.resize_with(ord + 1, || None);
+                        }
+                        slots[ord] = Some(Slot {
+                            text,
+                            layout,
+                            bounds,
+                        });
+                    },
+                    |_, _, _, _| {},
                 )
-            })
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
+            );
+        if owned {
+            selection_owner(block, &group, cx)
+        } else {
+            block
+        }
     }
 }
 

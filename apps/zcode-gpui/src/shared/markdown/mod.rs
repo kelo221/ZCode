@@ -7,12 +7,16 @@
 pub(crate) mod code;
 pub(crate) mod inline;
 mod passive;
+mod table;
 
 use crate::shared::markdown::code::code_block;
 use crate::shared::markdown::inline::{Style, inline_element, render_inlines};
+use crate::shared::markdown::table::render_table;
+use crate::shared::selection_group::{SelectionGroup, selection_menu, selection_owner};
 use crate::shared::theme::ui_size;
 use crate::shared::theme_colors::color as rgb;
-use gpui::{AnyElement, IntoElement, ParentElement, Styled, div, prelude::*, px};
+use ely_gpui_component::menus::ContextMenu;
+use gpui::{AnyElement, Entity, IntoElement, ParentElement, Styled, div, prelude::*, px};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 const BASE_TEXT: f32 = 13.5;
@@ -36,31 +40,82 @@ fn render_markdown_with_policy(
     } else {
         text.to_string()
     };
-    let mut opts = Options::empty();
-    opts.insert(Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS);
-    let events: Vec<Event> = if passive {
-        passive::events(&body, opts)
-    } else {
-        Parser::new_ext(&body, opts).collect()
-    };
-    let mut pos = 0usize;
-    let mut block_ix = 0usize;
-    // Link hitbox ids are seeded by row id so they stay unique across rows.
-    let mut ids = id_base.wrapping_mul(4096);
-    let children = blocks(&events, &mut pos, id_base, &mut block_ix, 0, &mut ids);
+    MarkdownDoc {
+        body,
+        source: text.to_string(),
+        id_base,
+        passive,
+    }
+    .into_any_element()
+}
 
-    div()
-        // Block ids restart at 1 per document; this keeps them (and the
-        // selection state keyed on them) apart between documents.
-        .id(gpui::ElementId::NamedInteger("md".into(), id_base))
-        .w_full()
-        .flex()
-        .flex_col()
-        .gap_1()
-        .text_size(px(ui_size(BASE_TEXT)))
-        .text_color(rgb(crate::shared::theme::TEXT))
-        .children(children)
-        .into_any_element()
+/// One document: every text block joins one selection, so a drag can run
+/// across paragraphs, list items, tables and code.
+#[derive(IntoElement)]
+struct MarkdownDoc {
+    body: String,
+    /// The Markdown as written, for Copy as Markdown.
+    source: String,
+    id_base: u64,
+    passive: bool,
+}
+
+impl RenderOnce for MarkdownDoc {
+    fn render(self, window: &mut gpui::Window, cx: &mut gpui::App) -> impl IntoElement {
+        let id_base = self.id_base;
+        let mut opts = Options::empty();
+        opts.insert(
+            Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+        );
+        let events: Vec<Event> = if self.passive {
+            passive::events(&self.body, opts)
+        } else {
+            Parser::new_ext(&self.body, opts).collect()
+        };
+        let group = SelectionGroup::keyed(
+            gpui::ElementId::NamedInteger("md-sel".into(), id_base),
+            window,
+            cx,
+        );
+        group.read(cx).begin_frame();
+        let mut pos = 0usize;
+        let mut block_ix = 0usize;
+        // Link hitbox ids are seeded by row id so they stay unique across rows.
+        let mut ids = id_base.wrapping_mul(4096);
+        let children = blocks(
+            &events,
+            &mut pos,
+            id_base,
+            &mut block_ix,
+            0,
+            &mut ids,
+            &group,
+        );
+
+        let menu = selection_menu(
+            &group,
+            Some((
+                crate::shared::i18n::label("Copy as Markdown", "复制为 Markdown"),
+                self.source,
+            )),
+            cx,
+        );
+        let root = div()
+            // Block ids restart at 1 per document; this keeps them apart
+            // between documents.
+            .id(gpui::ElementId::NamedInteger("md".into(), id_base))
+            .w_full()
+            .text_size(px(ui_size(BASE_TEXT)))
+            .text_color(rgb(crate::shared::theme::TEXT))
+            .child(
+                ContextMenu::new(
+                    gpui::ElementId::NamedInteger("md-ctx".into(), id_base),
+                    menu,
+                )
+                .child(div().w_full().flex().flex_col().gap_1().children(children)),
+            );
+        selection_owner(root, &group, cx)
+    }
 }
 
 /// Consume block-level events until the slice ends (top level) or a matching
@@ -72,6 +127,7 @@ fn blocks(
     block_ix: &mut usize,
     depth: usize,
     ids: &mut u64,
+    group: &Entity<SelectionGroup>,
 ) -> Vec<AnyElement> {
     let mut out: Vec<AnyElement> = Vec::new();
     while *pos < events.len() {
@@ -90,6 +146,8 @@ fn blocks(
                         .child(inline_element(
                             inline,
                             gpui::ElementId::NamedInteger("md-blk".into(), *block_ix as u64),
+                            group,
+                            *block_ix,
                         ))
                         .into_any_element(),
                 );
@@ -117,6 +175,8 @@ fn blocks(
                         .child(inline_element(
                             inline,
                             gpui::ElementId::NamedInteger("md-blk".into(), *block_ix as u64),
+                            group,
+                            *block_ix,
                         ))
                         .into_any_element(),
                 );
@@ -146,19 +206,24 @@ fn blocks(
                 *block_ix += 1;
                 let id = (id_base as u128) << 8 | *block_ix as u128 & 0xff;
                 let id64 = u64::try_from(id).unwrap_or(id_base);
-                out.push(code_block(id64, code.trim_end_matches('\n'), &lang));
+                out.push(code_block(
+                    id64,
+                    code.trim_end_matches('\n'),
+                    &lang,
+                    Some((group, *block_ix)),
+                ));
             }
             Event::Start(Tag::List(start)) => {
                 let start_num = *start;
                 let end = TagEnd::List(start_num.is_some());
                 *pos += 1;
                 out.push(render_list(
-                    events, pos, id_base, block_ix, start_num, depth, end, ids,
+                    events, pos, id_base, block_ix, start_num, depth, end, ids, group,
                 ));
             }
             Event::Start(Tag::BlockQuote(_)) => {
                 *pos += 1;
-                let inner = blocks(events, pos, id_base, block_ix, depth + 1, ids);
+                let inner = blocks(events, pos, id_base, block_ix, depth + 1, ids, group);
                 if matches!(events.get(*pos), Some(Event::End(TagEnd::BlockQuote(_)))) {
                     *pos += 1;
                 }
@@ -190,7 +255,7 @@ fn blocks(
             Event::Start(Tag::Table(aligns)) => {
                 let aligns = aligns.clone();
                 *pos += 1;
-                out.push(render_table(events, pos, &aligns, block_ix));
+                out.push(render_table(events, pos, &aligns, block_ix, group));
             }
             Event::Start(Tag::HtmlBlock) => {
                 // v1: raw HTML blocks render as muted plain text.
@@ -207,7 +272,7 @@ fn blocks(
             }
             Event::Start(Tag::FootnoteDefinition(_)) => {
                 *pos += 1;
-                blocks(events, pos, id_base, block_ix, depth + 1, ids);
+                blocks(events, pos, id_base, block_ix, depth + 1, ids, group);
             }
             // Tight-list items carry bare inline events with no Paragraph
             // wrapper; render them as one inline paragraph.
@@ -227,6 +292,8 @@ fn blocks(
                         .child(inline_element(
                             inline,
                             gpui::ElementId::NamedInteger("md-blk".into(), *block_ix as u64),
+                            group,
+                            *block_ix,
                         ))
                         .into_any_element(),
                 );
@@ -247,6 +314,7 @@ fn render_list(
     depth: usize,
     end: TagEnd,
     ids: &mut u64,
+    group: &Entity<SelectionGroup>,
 ) -> AnyElement {
     let mut items: Vec<AnyElement> = Vec::new();
     let mut index = start_num.unwrap_or(1);
@@ -272,15 +340,9 @@ fn render_list(
                         .text_color(rgb(crate::shared::theme::MUTED))
                         .child(marker),
                 );
-                item = item.child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .children(blocks(events, pos, id_base, block_ix, depth + 1, ids)),
-                );
+                item = item.child(div().flex_1().min_w_0().flex().flex_col().gap_1().children(
+                    blocks(events, pos, id_base, block_ix, depth + 1, ids, group),
+                ));
                 if matches!(events.get(*pos), Some(Event::End(TagEnd::Item))) {
                     *pos += 1;
                 }
@@ -296,94 +358,6 @@ fn render_list(
         .gap_0p5()
         .children(items)
         .into_any_element()
-}
-
-fn render_table(
-    events: &[Event],
-    pos: &mut usize,
-    aligns: &[pulldown_cmark::Alignment],
-    block_ix: &mut usize,
-) -> AnyElement {
-    let mut rows: Vec<(bool, Vec<Vec<AnyElement>>)> = Vec::new();
-    while *pos < events.len() {
-        match &events[*pos] {
-            Event::End(TagEnd::Table) => {
-                *pos += 1;
-                break;
-            }
-            Event::Start(tag @ (Tag::TableHead | Tag::TableRow)) => {
-                let head = *tag == Tag::TableHead;
-                *pos += 1;
-                let mut row: Vec<Vec<AnyElement>> = Vec::new();
-                while *pos < events.len() {
-                    match &events[*pos] {
-                        Event::End(TagEnd::TableCell) => {
-                            *pos += 1;
-                        }
-                        Event::Start(Tag::TableCell) => {
-                            *pos += 1;
-                            let inline = render_inlines(
-                                events,
-                                pos,
-                                Some(&TagEnd::TableCell),
-                                &Style::default(),
-                            );
-                            *block_ix += 1;
-                            let cell_id =
-                                gpui::ElementId::NamedInteger("md-cell".into(), *block_ix as u64);
-                            row.push(vec![inline_element(inline, cell_id)]);
-                        }
-                        Event::End(TagEnd::TableHead) | Event::End(TagEnd::TableRow) => {
-                            *pos += 1;
-                            break;
-                        }
-                        _ => *pos += 1,
-                    }
-                }
-                rows.push((head, row));
-            }
-            _ => *pos += 1,
-        }
-    }
-    let align_cell = |col: usize| match aligns.get(col) {
-        Some(pulldown_cmark::Alignment::Center) => 1,
-        Some(pulldown_cmark::Alignment::Right) => 2,
-        _ => 0,
-    };
-    let row_count = rows.len();
-    let mut table = div()
-        .w_full()
-        .my_1()
-        .overflow_hidden()
-        .flex()
-        .flex_col()
-        .border_1()
-        .rounded_sm()
-        .border_color(rgb(crate::shared::theme::BORDER));
-    for (r, (head, row)) in rows.into_iter().enumerate() {
-        let mut line = div()
-            .w_full()
-            .flex()
-            .when(head, |l| l.bg(rgb(crate::shared::theme::CODE_HEADER)))
-            .when(r + 1 < row_count, |l| {
-                l.border_b_1()
-                    .border_color(rgb(crate::shared::theme::BORDER))
-            });
-        for (c, cell) in row.into_iter().enumerate() {
-            let mut cell_el = div().flex_1().min_w_0().px_2().py_1();
-            cell_el = match align_cell(c) {
-                1 => cell_el.text_align(gpui::TextAlign::Center),
-                2 => cell_el.text_align(gpui::TextAlign::Right),
-                _ => cell_el,
-            };
-            if head {
-                cell_el = cell_el.font_weight(gpui::FontWeight::SEMIBOLD);
-            }
-            line = line.child(cell_el.children(cell));
-        }
-        table = table.child(line);
-    }
-    table.into_any_element()
 }
 
 #[cfg(test)]

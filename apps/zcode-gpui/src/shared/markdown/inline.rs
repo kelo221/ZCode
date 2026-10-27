@@ -278,14 +278,20 @@ fn is_block_end(end: &TagEnd) -> bool {
 }
 
 /// Render the flattened inline content as selectable text; links become
-/// clickable ranges.
-pub(crate) fn inline_element(inline: Inline, id: gpui::ElementId) -> AnyElement {
+/// clickable ranges. `ord` is the block's place in the document selection.
+pub(crate) fn inline_element(
+    inline: Inline,
+    id: gpui::ElementId,
+    group: &gpui::Entity<crate::shared::selection_group::SelectionGroup>,
+    ord: usize,
+) -> AnyElement {
     if inline.text.is_empty() {
         return gpui::div().into_any_element();
     }
     crate::shared::selectable::SelectableText::new(id, inline.text)
         .runs(inline.runs)
         .links(inline.links)
+        .group(group, ord)
         .into_any_element()
 }
 

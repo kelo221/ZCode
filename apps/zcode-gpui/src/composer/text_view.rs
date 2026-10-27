@@ -18,12 +18,16 @@ use std::rc::Rc;
 #[derive(Default)]
 pub(crate) struct TextViewState {
     /// Layout of the last rendered content; `None` while the input is empty.
-    layout: Option<TextLayout>,
+    pub(crate) layout: Option<TextLayout>,
     /// Set once that layout has been painted; until then it cannot be queried.
-    painted: Rc<Cell<bool>>,
+    pub(crate) painted: Rc<Cell<bool>>,
     /// Caret rectangle from the last paint (IME candidate window anchor).
     pub(crate) caret_bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
     dragging: bool,
+    /// Click count of the press that started the drag (1 char, 2 word,
+    /// 3 line) and the word/line it selected, kept while extending.
+    granularity: usize,
+    span: std::ops::Range<usize>,
     /// Viewport of the height-capped input (Desktop `max-h-40 overflow-y-auto`).
     pub(crate) scroll: ScrollHandle,
     /// Caret and content length at the last render; a change scrolls the caret into view.
@@ -50,6 +54,14 @@ fn reveal_offset(
     Some(Point::new(offset.x, y.min(px(0.))))
 }
 
+/// The line (between newlines) around `ix`, without its newline.
+pub(crate) fn paragraph_at(text: &str, ix: usize) -> std::ops::Range<usize> {
+    let ix = ix.min(text.len());
+    let start = text[..ix].rfind('\n').map_or(0, |i| i + 1);
+    let end = text[ix..].find('\n').map_or(text.len(), |i| ix + i);
+    start..end
+}
+
 impl Composer {
     /// Byte index under a window position, snapped to a char boundary and
     /// out of any chip.
@@ -74,12 +86,48 @@ impl Composer {
         let Some(ix) = self.index_at(ev.position) else {
             return;
         };
-        if ev.click_count >= 3 {
-            self.select_all(cx);
+        self.view.dragging = true;
+        self.view.granularity = ev.click_count.clamp(1, 3);
+        if self.view.granularity == 1 {
+            self.press_at(ix, ev.modifiers.shift, cx);
             return;
         }
-        self.press_at(ix, ev.modifiers.shift, cx);
-        self.view.dragging = true;
+        let span = self.unit_at(ix);
+        self.view.span = span.clone();
+        self.marked_utf16 = None;
+        self.history.break_run();
+        self.anchor = Some(span.start);
+        self.caret = span.end;
+        cx.notify();
+    }
+
+    /// Word (double-click) or line (triple-click) around `ix`, with its
+    /// edges kept out of chips.
+    fn unit_at(&self, ix: usize) -> std::ops::Range<usize> {
+        let text = self.content.as_str();
+        let r = if self.view.granularity == 2 {
+            crate::shared::selectable::word_at(text, ix)
+        } else {
+            paragraph_at(text, ix)
+        };
+        self.chips.snap(r.start)..self.chips.snap(r.end)
+    }
+
+    /// Drag after a double/triple click: keep the first unit and extend by
+    /// whole units in the drag direction.
+    fn extend_by_unit(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let unit = self.unit_at(ix);
+        let first = self.view.span.clone();
+        let (anchor, caret) = if ix < first.start {
+            (first.end, unit.start)
+        } else {
+            (first.start, unit.end.max(first.end))
+        };
+        if (self.anchor, self.caret) != (Some(anchor), caret) {
+            self.anchor = Some(anchor);
+            self.caret = caret;
+            cx.notify();
+        }
     }
 
     /// Pointer press at byte `ix`: Shift extends from the current caret,
@@ -96,9 +144,12 @@ impl Composer {
             self.view.dragging = false;
             return;
         }
-        if let Some(ix) = self.index_at(ev.position)
-            && ix != self.caret
-        {
+        let Some(ix) = self.index_at(ev.position) else {
+            return;
+        };
+        if self.view.granularity > 1 {
+            self.extend_by_unit(ix, cx);
+        } else if ix != self.caret {
             self.move_to(ix, true, cx);
         }
     }
@@ -124,6 +175,7 @@ impl Render for Composer {
         self.view.last_caret = caret;
         self.view.last_len = self.content.len();
         let notify_target = entity.clone();
+        let menu = self.edit_menu(cx);
 
         let mut highlights = Vec::new();
         let marked = self.marked_bytes().filter(|r| !r.is_empty());
@@ -184,73 +236,81 @@ impl Render for Composer {
             )
             .on_key_down(cx.listener(Self::on_key_down))
             .child(
-                div()
-                    .id("composer-scroll")
-                    .w_full()
-                    .min_w_0()
-                    .max_h(px(ui_size(COMPOSER_MAX_HEIGHT)))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.view.scroll)
-                    .child(
-                        div()
-                            .id("composer-canvas-host")
-                            .relative()
-                            .w_full()
-                            .min_w_0()
-                            .map(|el| match text {
-                                Some(text) => el.child(div().w_full().min_w_0().child(text)),
-                                None => el.child(div().text_color(rgb(MUTED)).child(placeholder)),
-                            })
-                            .child(
-                                canvas(
-                                    |_, _, _| {},
-                                    move |bounds, _, window, cx| {
-                                        window.handle_input(
-                                            &focus,
-                                            gpui::ElementInputHandler::new(bounds, entity.clone()),
-                                            cx,
-                                        );
-                                        // Prepaint has run for the text by now, so its layout can be read.
-                                        let (origin, line_h) = match &layout {
-                                            Some(l) => {
-                                                painted.set(true);
-                                                let at = l
-                                                    .position_for_index(caret)
-                                                    .unwrap_or(bounds.origin);
-                                                (at, l.line_height())
+                ely_gpui_component::menus::ContextMenu::new("composer-ctx", menu).child(
+                    div()
+                        .id("composer-scroll")
+                        .w_full()
+                        .min_w_0()
+                        .max_h(px(ui_size(COMPOSER_MAX_HEIGHT)))
+                        .overflow_y_scroll()
+                        .track_scroll(&self.view.scroll)
+                        .child(
+                            div()
+                                .id("composer-canvas-host")
+                                .relative()
+                                .w_full()
+                                .min_w_0()
+                                .map(|el| match text {
+                                    Some(text) => el.child(div().w_full().min_w_0().child(text)),
+                                    None => {
+                                        el.child(div().text_color(rgb(MUTED)).child(placeholder))
+                                    }
+                                })
+                                .child(
+                                    canvas(
+                                        |_, _, _| {},
+                                        move |bounds, _, window, cx| {
+                                            window.handle_input(
+                                                &focus,
+                                                gpui::ElementInputHandler::new(
+                                                    bounds,
+                                                    entity.clone(),
+                                                ),
+                                                cx,
+                                            );
+                                            // Prepaint has run for the text by now, so its layout can be read.
+                                            let (origin, line_h) = match &layout {
+                                                Some(l) => {
+                                                    painted.set(true);
+                                                    let at = l
+                                                        .position_for_index(caret)
+                                                        .unwrap_or(bounds.origin);
+                                                    (at, l.line_height())
+                                                }
+                                                None => (bounds.origin, window.line_height()),
+                                            };
+                                            let caret_rect =
+                                                Bounds::new(origin, size(px(1.5), line_h));
+                                            caret_slot.set(Some(caret_rect));
+                                            if reveal
+                                                && let Some(next) = reveal_offset(
+                                                    caret_rect,
+                                                    scroll.bounds(),
+                                                    scroll.offset(),
+                                                )
+                                            {
+                                                // 输入框限高后，键入/粘贴/方向键会把光标移出可视区；
+                                                // 绘制期 refresh 无效，只能下一帧通知重绘以应用新偏移。
+                                                scroll.set_offset(next);
+                                                let target = notify_target.clone();
+                                                window.on_next_frame(move |_, cx| {
+                                                    target.update(cx, |_, cx| cx.notify())
+                                                });
                                             }
-                                            None => (bounds.origin, window.line_height()),
-                                        };
-                                        let caret_rect = Bounds::new(origin, size(px(1.5), line_h));
-                                        caret_slot.set(Some(caret_rect));
-                                        if reveal
-                                            && let Some(next) = reveal_offset(
-                                                caret_rect,
-                                                scroll.bounds(),
-                                                scroll.offset(),
-                                            )
-                                        {
-                                            // 输入框限高后，键入/粘贴/方向键会把光标移出可视区；
-                                            // 绘制期 refresh 无效，只能下一帧通知重绘以应用新偏移。
-                                            scroll.set_offset(next);
-                                            let target = notify_target.clone();
-                                            window.on_next_frame(move |_, cx| {
-                                                target.update(cx, |_, cx| cx.notify())
-                                            });
-                                        }
-                                        if focused {
-                                            window.paint_quad(fill(caret_rect, rgb(TEXT)));
-                                        }
-                                    },
-                                )
-                                // 缺少 top/left 时绝对定位元素落在静态位置，即占位文字的下一行；
-                                // 空输入的光标取 canvas 原点，因此会画在占位文字下方而非其起点。
-                                .absolute()
-                                .top_0()
-                                .left_0()
-                                .size_full(),
-                            ),
-                    ),
+                                            if focused {
+                                                window.paint_quad(fill(caret_rect, rgb(TEXT)));
+                                            }
+                                        },
+                                    )
+                                    // 缺少 top/left 时绝对定位元素落在静态位置，即占位文字的下一行；
+                                    // 空输入的光标取 canvas 原点，因此会画在占位文字下方而非其起点。
+                                    .absolute()
+                                    .top_0()
+                                    .left_0()
+                                    .size_full(),
+                                ),
+                        ),
+                ),
             )
     }
 }

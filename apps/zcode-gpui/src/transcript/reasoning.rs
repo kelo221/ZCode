@@ -7,6 +7,7 @@
 use crate::app::root::RootView;
 use crate::shared::app_assets::BRAIN_ICON;
 use crate::shared::i18n::{t, t_fmt};
+use crate::shared::selectable::SelectableText;
 use crate::shared::theme::{
     BORDER, I_CHEVRON_DOWN, I_CHEVRON_RIGHT, MUTED, PANEL, SUBTLEST, icon, ui_size,
 };
@@ -112,7 +113,10 @@ impl RootView {
                             .italic()
                             .text_size(px(ui_size(13.5)))
                             .text_color(rgb(MUTED))
-                            .child(body.clone()),
+                            .child(SelectableText::new(
+                                ElementId::NamedInteger("thought-text".into(), row_id),
+                                body.clone(),
+                            )),
                     ),
                 )
             })
@@ -131,7 +135,10 @@ impl RootView {
                             .border_color(rgb(BORDER))
                             .text_size(px(ui_size(14.)))
                             .text_color(muted)
-                            .child(body),
+                            .child(SelectableText::new(
+                                ElementId::NamedInteger("thought-text".into(), row_id),
+                                body,
+                            )),
                     ),
                 )
             });

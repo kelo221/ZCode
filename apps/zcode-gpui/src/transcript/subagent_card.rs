@@ -194,7 +194,10 @@ impl RootView {
                     .mt_1()
                     .text_size(px(ui_size(11.5)))
                     .text_color(rgb(MUTED))
-                    .child(text),
+                    .child(crate::shared::selectable::SelectableText::new(
+                        ElementId::NamedInteger("subagent-summary".into(), r_id),
+                        text,
+                    )),
             )
         } else {
             None

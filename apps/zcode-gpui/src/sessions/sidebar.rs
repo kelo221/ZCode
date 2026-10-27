@@ -9,7 +9,7 @@
 
 use crate::backend::workspace::WorkspacePurpose;
 pub use crate::sessions::items::filter_session_indices;
-use crate::sessions::items::nav_row;
+use crate::sessions::items::{latest_activity, nav_row, sort_by_latest_activity};
 use crate::sessions::section_header::section_header;
 use crate::shared::theme::ui_size;
 use crate::shared::theme::{
@@ -202,7 +202,7 @@ impl crate::app::root::RootView {
             let active_sid = state.active.clone();
             // (ws key, filtered indices, position of the active thread within them)
             let mut tasks: Vec<(String, Vec<usize>, Option<usize>)> = Vec::new();
-            let mut projects: Vec<ProjectGroup> = Vec::new();
+            let mut projects: Vec<(Option<i64>, ProjectGroup)> = Vec::new();
 
             for w in &state.workspaces {
                 let indices = filter_session_indices(&w.sessions, &child_sids, "");
@@ -217,17 +217,25 @@ impl crate::app::root::RootView {
                         tasks.push((w.key.clone(), indices, active_index));
                     }
                     WorkspacePurpose::Project => {
+                        let latest = latest_activity(&w.sessions, &indices);
                         projects.push((
-                            w.key.clone(),
-                            w.path.clone(),
-                            w.display.clone(),
-                            w.status.clone(),
-                            indices,
-                            active_index,
+                            latest,
+                            (
+                                w.key.clone(),
+                                w.path.clone(),
+                                w.display.clone(),
+                                w.status.clone(),
+                                indices,
+                                active_index,
+                            ),
                         ));
                     }
                 }
             }
+            // Render-time order only: `state.workspaces` keeps discovery order
+            // (startup project lookup relies on it).
+            sort_by_latest_activity(&mut projects, |(latest, _)| *latest);
+            let projects: Vec<ProjectGroup> = projects.into_iter().map(|(_, p)| p).collect();
             (active, tasks, projects)
         };
 

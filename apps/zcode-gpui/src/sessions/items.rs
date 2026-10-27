@@ -67,6 +67,23 @@ pub fn filter_session_indices(
         .collect()
 }
 
+/// Newest activity among a project's listed (filtered) sessions.
+pub(crate) fn latest_activity(
+    sessions: &[crate::conversation::model::SessionEntry],
+    indices: &[usize],
+) -> Option<i64> {
+    indices
+        .iter()
+        .filter_map(|&i| sessions.get(i)?.last_activity_at)
+        .max()
+}
+
+/// Stable sort, most recently active project first; projects without any
+/// task activity keep their relative order at the end.
+pub(crate) fn sort_by_latest_activity<T>(items: &mut [T], key: impl Fn(&T) -> Option<i64>) {
+    items.sort_by_key(|item| std::cmp::Reverse(key(item)));
+}
+
 // --- Progressive session-list loading ---------------------------------------
 //
 // Every workspace renders its whole session list each frame, which stutters

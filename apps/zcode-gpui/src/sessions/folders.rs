@@ -10,6 +10,8 @@ pub(crate) struct Folders {
     /// Closed by the user; wins over `opened`.
     pub(crate) collapsed: HashSet<String>,
     pub(crate) opened: HashSet<String>,
+    /// The whole sidebar is hidden (Ctrl/Cmd+B); desktop layout only.
+    pub(crate) sidebar_hidden: bool,
 }
 
 impl Folders {

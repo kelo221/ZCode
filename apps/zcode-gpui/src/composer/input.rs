@@ -40,6 +40,9 @@ pub struct Composer {
     /// Line counts of long-paste attachments, by attachment ref.
     pub(crate) pasted_lines: std::collections::HashMap<String, usize>,
     pub(crate) view: crate::composer::text_view::TextViewState,
+    pub(crate) history: crate::composer::history::History,
+    /// Up-arrow recall of sent messages (`composer::recall`).
+    pub(crate) recall: crate::composer::recall::Recall,
 }
 
 impl Composer {
@@ -59,6 +62,8 @@ impl Composer {
             chips: ChipTable::default(),
             pasted_lines: Default::default(),
             view: Default::default(),
+            history: Default::default(),
+            recall: Default::default(),
         }
     }
 
@@ -79,6 +84,8 @@ impl Composer {
         self.anchor = None;
         self.marked_utf16 = None;
         self.chips.clear();
+        self.history.clear();
+        self.recall = Default::default();
         std::mem::take(&mut self.content)
     }
 
@@ -118,6 +125,10 @@ impl Composer {
             .replacement_generation
             .checked_add(1)
             .expect("composer generation exhausted");
+        if self.content != text {
+            let before = self.snapshot();
+            self.history.before_replace(before);
+        }
         self.content = text.to_string();
         self.caret = self.content.len();
         self.anchor = None;
@@ -126,12 +137,19 @@ impl Composer {
     }
 
     pub fn insert_chip(&mut self, range: Range<usize>, chip: &str) {
+        let before = self.snapshot();
+        self.history.before_replace(before);
         self.marked_utf16 = None;
         self.anchor = None;
         self.caret = chips::insert_chip(&mut self.content, &mut self.chips, range, chip);
     }
 
     pub(crate) fn edit_range(&mut self, range: Range<usize>, text: &str) -> Range<usize> {
+        // Mid-composition IME updates belong to the step recorded when it began.
+        if self.marked_utf16.is_none() {
+            let before = self.snapshot();
+            self.history.before_edit(before, &range, text);
+        }
         chips::edit(&mut self.content, &mut self.chips, range, text)
     }
 

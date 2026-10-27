@@ -43,17 +43,19 @@ impl RootView {
         // only mirrors the desktop's sessions (REMOTE_CONTROL.md, phone scope).
         let tools = self.desktop_tools(cx);
         let dock_open = self.dock_open && tools;
-        let docked = dock_open && side_pane_fits(window_width, true);
+        let compact = is_compact(window_width);
+        let sidebar_visible = !self.sidebar_hidden(compact);
+        let docked = dock_open && side_pane_fits(window_width, sidebar_visible);
         let side = if docked {
             SIDE_PANE_WIDTH + PANEL_GAP
         } else {
             0.
         };
-        let compact = is_compact(window_width);
+        let sidebar = if sidebar_visible { SIDEBAR_WIDTH } else { 0. };
         let center = if compact {
             window_width - 2. * PANEL_GAP
         } else {
-            (window_width - SIDEBAR_WIDTH - PANEL_GAP - side).max(CENTER_MIN_WIDTH)
+            (window_width - sidebar - PANEL_GAP - side).max(CENTER_MIN_WIDTH)
         };
         let column = conversation_width(center, input.is_draft || input.rows_empty);
         let padding = conversation_padding(center);
@@ -140,7 +142,19 @@ impl RootView {
                 .child(composer_region);
             (self.transcript_list(cx), Some(bottom))
         };
+        // Files dropped anywhere on the chat panel attach to the composer.
         let centre = panel(div().flex_1().min_w_0().flex().flex_col())
+            .drag_over::<gpui::ExternalPaths>(|style, _, _, _| {
+                style.bg(crate::shared::theme_colors::tinted(
+                    crate::shared::theme::ACCENT,
+                    0.08,
+                ))
+            })
+            .on_drop(
+                cx.listener(|this, paths: &gpui::ExternalPaths, _window, cx| {
+                    this.attach_files(paths.paths().to_vec(), cx);
+                }),
+            )
             .child(self.main_header(title, context_tag, plan.as_ref(), &phase, cx))
             .child(
                 div()

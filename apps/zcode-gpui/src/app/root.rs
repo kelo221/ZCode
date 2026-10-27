@@ -347,9 +347,10 @@ impl Render for RootView {
                 }),
             )
             // Settings 是独立目的地；只切换渲染，不能卸载 workspace 或改变其业务状态。
-            .when(!self.settings.open && !chat_page, |el| {
-                el.child(self.sidebar(compact, cx))
-            })
+            .when(
+                !self.settings.open && !chat_page && !self.sidebar_hidden(compact),
+                |el| el.child(self.sidebar(compact, cx)),
+            )
             // Main column retains the workspace panel outside Settings; the
             // phone layout shows it only on the chat page.
             .children(if self.settings.open {

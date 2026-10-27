@@ -1,4 +1,4 @@
-//! Smaller pieces of the root layout: error banners, the composer intent
+//! Smaller pieces of the root layout: the composer intent
 //! banner (editing a message / renaming a session) and the composer card.
 
 use crate::app::root::RootView;
@@ -6,25 +6,13 @@ use crate::composer::input::Composer;
 use crate::conversation::msg_actions::ComposerIntent;
 use crate::shared::theme::ui_size;
 use crate::shared::theme::{
-    ACCENT, AMBER, BORDER, BORDER_HOVER, CARD, DANGER, I_ARROW_UP, INPUT, MUTED, PANEL, TEXT,
+    ACCENT, AMBER, BORDER, BORDER_HOVER, CARD, I_ARROW_UP, INPUT, MUTED, PANEL, TEXT,
 };
 use crate::shared::theme_colors::color as rgb;
 use gpui::{
     AnyElement, ClickEvent, Context, CursorStyle, Div, Entity, ParentElement, Stateful, Styled,
     div, prelude::*, px,
 };
-
-fn banner() -> Div {
-    div()
-        .mx_3()
-        .mt_2()
-        .px_3()
-        .py_1p5()
-        .rounded_md()
-        .bg(crate::shared::theme_colors::tinted(DANGER, 0.12))
-        .border_1()
-        .border_color(rgb(DANGER))
-}
 
 impl RootView {
     pub(crate) fn queue_panel(
@@ -35,59 +23,6 @@ impl RootView {
         queue.and_then(|queue| {
             crate::conversation::queue::render_queue_panel(queue, &self.state, cx)
         })
-    }
-
-    /// Dismissable error banners (newest first) plus the backend turn error.
-    pub(crate) fn error_banners(
-        &self,
-        errors: Vec<String>,
-        phase_error: Option<(String, String)>,
-        cx: &mut Context<Self>,
-    ) -> Vec<AnyElement> {
-        let mut out: Vec<AnyElement> = errors
-            .into_iter()
-            .rev()
-            .enumerate()
-            .map(|(i, msg)| {
-                banner()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .text_size(px(ui_size(12.)))
-                            .text_color(rgb(DANGER))
-                            .truncate()
-                            .child(msg),
-                    )
-                    .child(
-                        div()
-                            .id(("err", i))
-                            .px_1p5()
-                            .cursor(CursorStyle::PointingHand)
-                            .text_color(rgb(MUTED))
-                            .hover(|s| s.text_color(rgb(TEXT)))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                this.state.update(cx, |s, _cx| s.dismiss_error(i));
-                                cx.notify();
-                            }))
-                            .child("✕"),
-                    )
-                    .into_any_element()
-            })
-            .collect();
-        if let Some((code, message)) = phase_error {
-            out.push(
-                banner()
-                    .text_size(px(ui_size(12.)))
-                    .text_color(rgb(DANGER))
-                    .child(format!("{code}: {message}"))
-                    .into_any_element(),
-            );
-        }
-        out
     }
 
     /// "Editing message" / "Renaming session" strip above the composer.
@@ -282,11 +217,6 @@ impl RootView {
                     .border_1()
                     .border_color(rgb(BORDER))
                     .hover(|s| s.border_color(rgb(BORDER_HOVER)))
-                    .on_drop(
-                        cx.listener(|this, paths: &gpui::ExternalPaths, _window, cx| {
-                            this.attach_files(paths.paths().to_vec(), cx);
-                        }),
-                    )
                     .on_children_prepainted(move |bounds, _, cx| {
                         if let Some(bounds) = bounds.last() {
                             let compact = bounds.size.width <= px(480.);

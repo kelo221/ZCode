@@ -28,6 +28,16 @@ const PLAN: &str = "# Plan
 Tail paragraph.
 ";
 
+/// A document selection for walking blocks outside a window. The test app is
+/// leaked so the entity stays valid for the rest of the test.
+fn group() -> Entity<SelectionGroup> {
+    let _guard = crate::app::test_support::RUNTIME_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let app = Box::leak(Box::new(gpui::TestApp::new()));
+    app.update(|cx| cx.new(SelectionGroup::new))
+}
+
 fn events(md: &str) -> Vec<Event<'_>> {
     let mut opts = Options::empty();
     opts.insert(Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS);
@@ -65,6 +75,7 @@ fn list_end(events: &[Event], start: usize) -> usize {
         0,
         TagEnd::List(first.is_some()),
         &mut ids,
+        &group(),
     );
     pos
 }
@@ -105,7 +116,7 @@ fn the_whole_plan_is_walked() {
     let events = events(PLAN);
     let mut pos = 0;
     let (mut block_ix, mut ids) = (0, 0);
-    let top = blocks(&events, &mut pos, 1, &mut block_ix, 0, &mut ids);
+    let top = blocks(&events, &mut pos, 1, &mut block_ix, 0, &mut ids, &group());
     assert_eq!(pos, events.len(), "nothing after a nested list is dropped");
     // H1, H2, ordered list, H2, bullet list, H2, paragraph.
     assert_eq!(top.len(), 7);
@@ -117,7 +128,7 @@ fn a_stray_top_level_end_does_not_drop_the_rest() {
     events.insert(0, Event::End(TagEnd::Item));
     let mut pos = 0;
     let (mut block_ix, mut ids) = (0, 0);
-    let top = blocks(&events, &mut pos, 1, &mut block_ix, 0, &mut ids);
+    let top = blocks(&events, &mut pos, 1, &mut block_ix, 0, &mut ids, &group());
     assert_eq!(pos, events.len());
     assert_eq!(top.len(), 2);
 }

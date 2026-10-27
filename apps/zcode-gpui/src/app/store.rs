@@ -171,6 +171,7 @@ impl AppState {
             assembler: crate::backend::wire::FrameAssembler::new(),
             route_cursors: HashMap::new(),
         };
+        crate::composer::recall::wire_active_conversation(&state.composer, cx);
         if remote {
             state.start_remote_client(cx);
         } else {

@@ -25,6 +25,7 @@ pub(crate) mod profile_consent;
 pub(crate) mod redact;
 pub(crate) mod saved_workflows;
 pub(crate) mod selectable;
+pub(crate) mod selection_group;
 pub(crate) mod settings;
 pub(crate) mod shortcut_runtime;
 pub(crate) mod shortcuts;

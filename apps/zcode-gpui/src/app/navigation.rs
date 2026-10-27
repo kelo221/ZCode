@@ -115,6 +115,21 @@ impl RootView {
                 self.close_settings(window, cx);
                 self.open_project_dialog(cx);
             }
+            Some(ShortcutCommandId::ToggleSidebar) if !self.settings.open => self.toggle_sidebar(),
+            Some(ShortcutCommandId::ZoomIn) => self.zoom(Some(1.), cx),
+            Some(ShortcutCommandId::ZoomOut) => self.zoom(Some(-1.), cx),
+            Some(ShortcutCommandId::ResetZoom) => self.zoom(None, cx),
+            Some(ShortcutCommandId::CloseActiveContext) if !self.settings.open => {
+                if !self.close_active_context() {
+                    return false;
+                }
+            }
+            Some(ShortcutCommandId::PreviousConversation) => {
+                self.select_adjacent_conversation(false, window, cx)
+            }
+            Some(ShortcutCommandId::NextConversation) => {
+                self.select_adjacent_conversation(true, window, cx)
+            }
             _ => return self.handle_transcript_scroll_key(event, window, cx),
         }
         cx.notify();

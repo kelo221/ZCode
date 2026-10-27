@@ -1,7 +1,7 @@
 use super::*;
 use crate::sessions::items::{
-    SESSION_EXTENDED_ROWS, SESSION_PREVIEW_ROWS, load_more_label, next_limit_step,
-    visible_row_indices, visible_session_count,
+    SESSION_EXTENDED_ROWS, SESSION_PREVIEW_ROWS, latest_activity, load_more_label, next_limit_step,
+    sort_by_latest_activity, visible_row_indices, visible_session_count,
 };
 use std::collections::HashSet;
 
@@ -81,6 +81,40 @@ fn load_more_escalates_to_all_on_the_second_click() {
     assert_eq!(next_limit_step(2), 2, "no third step");
     assert_eq!(load_more_label(0, 97), "Load more (97 more)");
     assert_eq!(load_more_label(1, 75), "Load all (75 more)");
+}
+
+fn at(id: &str, ts: Option<i64>) -> crate::conversation::model::SessionEntry {
+    let mut s = dummy_session(id, id, "");
+    s.last_activity_at = ts;
+    s
+}
+
+#[test]
+fn latest_activity_ignores_filtered_out_subagents() {
+    let sessions = vec![at("p", Some(10)), at("sub", Some(99)), at("q", Some(20))];
+    let child_sids: HashSet<&str> = ["sub"].into_iter().collect();
+    let indices = filter_session_indices(&sessions, &child_sids, "");
+    assert_eq!(latest_activity(&sessions, &indices), Some(20));
+    assert_eq!(latest_activity(&sessions, &[]), None);
+}
+
+#[test]
+fn projects_sort_newest_activity_first_and_empty_last() {
+    let mut projects = vec![
+        ("empty-a", None),
+        ("old", Some(10)),
+        ("new", Some(30)),
+        ("empty-b", None),
+        ("tie-1", Some(20)),
+        ("tie-2", Some(20)),
+    ];
+    sort_by_latest_activity(&mut projects, |(_, t)| *t);
+    let order: Vec<&str> = projects.iter().map(|(n, _)| *n).collect();
+    assert_eq!(
+        order,
+        ["new", "tie-1", "tie-2", "old", "empty-a", "empty-b"],
+        "ties and task-less projects keep insertion order"
+    );
 }
 
 #[test]
