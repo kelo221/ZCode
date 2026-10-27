@@ -92,12 +92,19 @@ export function toAiSdkMessages(
         break;
 
       case "assistant": {
+        const content = toAiSdkAssistantContent(message.content, message.toolCalls, {
+          ...options,
+          stripOpenAiResponsesStoredReasoning: shouldStripOpenAiResponsesStoredReasoning,
+        });
+        // 模型空回复（如 Speak-only 步骤后 finishReason=stop、text=""）会落成 content ""
+        // 的 assistant 记录；Anthropic 把它序列化为空 text block 并以 400
+        // "text content blocks must be non-empty" 拒绝，且之后每轮都会回放，会话永久卡死。
+        // 只在投影边界丢弃，不改写会话事实，已损坏的会话也能恢复。AI SDK 会合并随后相邻的
+        // user 消息；OpenAI 兼容端点（如 DeepSeek）需要交替角色，仍保留空 assistant。
+        if (content.length === 0 && isAnthropicWire(options)) break;
         transformedMessages.push({
           role: "assistant",
-          content: toAiSdkAssistantContent(message.content, message.toolCalls, {
-            ...options,
-            stripOpenAiResponsesStoredReasoning: shouldStripOpenAiResponsesStoredReasoning,
-          }),
+          content,
           ...providerOptionsForCacheControl(message.cacheControl),
         });
         break;
@@ -309,13 +316,14 @@ function toAiSdkAssistantContent(
       }),
     ) ?? [];
 
+  // Anthropic 同样拒绝只含空白的 text block。
   if (typeof content === "string" && toolCallParts.length === 0) {
-    return content;
+    return content.trim().length > 0 ? content : "";
   }
 
   const contentParts =
     typeof content === "string"
-      ? content.length > 0
+      ? content.trim().length > 0
         ? [{ type: "text" as const, text: content }]
         : []
       : content.flatMap((block) => contentBlockToAiSdkAssistantParts(block, options));
@@ -334,7 +342,7 @@ function contentBlockToAiSdkAssistantParts(
         "Tool references must appear inside tool results",
       );
     case "text":
-      return block.text.length > 0 ? [{ type: "text", text: block.text }] : [];
+      return block.text.trim().length > 0 ? [{ type: "text", text: block.text }] : [];
 
     case "reasoning": {
       if (
@@ -401,14 +409,15 @@ function projectToolNameForProvider(
   }
   if (toolName.trim().length > 0) return toolName;
 
-  const apiFormat = resolveApiFormat(options);
-  if (apiFormat !== undefined) {
-    return apiFormat === "anthropic-messages" ? toolName : "empty_tool_name";
-  }
-
   // OpenAI-compatible wire 不可靠接受空 function name，但历史中的原始
   // 名称仍需保留给 Anthropic 回放；占位值只在 provider 投影边界生成。
-  return options.providerKind === "anthropic" ? toolName : "empty_tool_name";
+  return isAnthropicWire(options) ? toolName : "empty_tool_name";
+}
+
+function isAnthropicWire(options: AiSdkMessageTransformOptions): boolean {
+  const apiFormat = resolveApiFormat(options);
+  if (apiFormat !== undefined) return apiFormat === "anthropic-messages";
+  return options.providerKind === "anthropic";
 }
 
 function hasOpenAiStoredReasoningItemId(providerOptions: unknown): boolean {

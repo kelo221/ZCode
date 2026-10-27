@@ -25,6 +25,60 @@ describe("AI SDK model message transform", () => {
     ]);
   });
 
+  it("drops assistant turns that have nothing to send on the Anthropic wire", () => {
+    // A turn that ended with an empty model reply (e.g. after a Speak-only step) is
+    // stored as content "" and must not be replayed as an empty text block.
+    const history = [
+      { role: "user" as const, content: "write the doc" },
+      { role: "assistant" as const, content: "" },
+      { role: "user" as const, content: "where is it?" },
+      { role: "assistant" as const, content: " \n" },
+      { role: "assistant" as const, content: [{ type: "text" as const, text: "" }] },
+      { role: "user" as const, content: "still there?" },
+      {
+        role: "assistant" as const,
+        content: [
+          { type: "text" as const, text: "  " },
+          { type: "text" as const, text: "yes" },
+        ],
+      },
+    ];
+    for (const options of [
+      { providerKind: "anthropic" as const },
+      { providerKind: "custom" as const, apiFormat: "anthropic-messages" },
+    ]) {
+      expect(toAiSdkMessages(history, options)).toEqual([
+        { role: "user", content: "write the doc" },
+        { role: "user", content: "where is it?" },
+        { role: "user", content: "still there?" },
+        { role: "assistant", content: [{ type: "text", text: "yes" }] },
+      ]);
+    }
+    // OpenAI-compatible endpoints may require alternating roles, so the empty turn stays.
+    expect(toAiSdkMessages(history, { providerKind: "openai-compatible" })).toEqual([
+      { role: "user", content: "write the doc" },
+      { role: "assistant", content: "" },
+      { role: "user", content: "where is it?" },
+      { role: "assistant", content: "" },
+      { role: "assistant", content: [] },
+      { role: "user", content: "still there?" },
+      { role: "assistant", content: [{ type: "text", text: "yes" }] },
+    ]);
+  });
+
+  it("keeps an empty-text assistant turn that still carries tool calls", () => {
+    expect(
+      toAiSdkMessages([
+        { role: "assistant", content: "", toolCalls: [{ id: "t1", name: "Speak", input: {} }] },
+      ]),
+    ).toEqual([
+      {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "t1", toolName: "Speak", input: {} }],
+      },
+    ]);
+  });
+
   it("never declares an image media type the provider rejects", () => {
     const image = (mediaType: string, base64: string) => ({
       type: "image" as const,
