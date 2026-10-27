@@ -65,6 +65,7 @@ export const speakToolEntry: ToolEntry = {
       "Say one plain spoken sentence, ideally under 15 words. No code, file paths, URLs, markdown or lists: it is read aloud.",
       "Do not narrate progress, and do not call Speak twice in a row or for every step. One call at the end of a task is the normal case.",
       "Speak is in addition to your written reply, never a replacement for it.",
+      "To close a turn, write your complete final reply first and call Speak in that same response. A response with reply text whose only tool calls are Speak ends the turn right there, with no further step, so put nothing you still need to say after the call.",
     ],
     readOnly: true,
     destructive: false,

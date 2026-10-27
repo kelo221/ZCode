@@ -27,6 +27,7 @@ import {
 } from "./turn-loop-state.js";
 import type { ToolCallInput } from "../../agent/message-history.js";
 import { settleToolResults, type ToolResultPart } from "./tool-result-settlement.js";
+import { SPEAK_TOOL_NAME } from "@zcode/contracts";
 
 export async function executeToolCallsForModelStep(
   this: AgentRuntimeInternal,
@@ -238,7 +239,9 @@ export async function executeToolCallsForModelStep(
     streamedResultsById,
   });
 
-  const stopTurnResult = results.find((result) => result.turnControl?.stopTurnAfterResult === true);
+  const stopTurnResult =
+    results.find((result) => result.turnControl?.stopTurnAfterResult === true) ??
+    speakClosingStop(options.result.text, results);
   if (stopTurnResult) {
     await persistToolModelStepFinish(this, state, options);
     if (stopTurnResult.turnControl?.reason === "automation_create_limit") {
@@ -295,4 +298,24 @@ export async function executeToolCallsForModelStep(
     reactiveCompactAttemptedInCurrentModelStep: state.reactiveCompactAttemptedInCurrentModelStep,
   });
   return "continue";
+}
+
+/**
+ * 一个模型步骤已经写出回复文本、且只调用了 Speak 时，Speak 就是这一轮的收尾：
+ * 结果已经交回客户端，再发一次模型请求只会让模型重复或空写一段收尾，用户要多等一个往返。
+ * 混有其他工具、或步骤没有文本时照常继续，模型还要看那些结果再回复。
+ */
+export function speakClosingStop(
+  stepText: string,
+  results: readonly ToolExecutionResult[],
+): ToolExecutionResult | undefined {
+  if (stepText.trim().length === 0) return undefined;
+  const [first] = results;
+  if (!first || !results.every((result) => result.toolName === SPEAK_TOOL_NAME)) {
+    return undefined;
+  }
+  return {
+    ...first,
+    turnControl: { reason: "speak_closing", stopTurnAfterResult: true },
+  };
 }

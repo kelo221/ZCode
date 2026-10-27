@@ -77,6 +77,15 @@ desktop sends `true` when it has a voice service and the setting is on.
 
 The tool returns once GPUI has accepted the speech, not when playback ends.
 
+**Speak closes a turn (2026-10-27).** When a model response has reply text and its only tool
+calls are Speak, the turn ends once the Speak result is recorded, and the CLI sends no
+further model request (`turnControl.reason: "speak_closing"`,
+`speakClosingStop` in `core/src/runtime/methods/turn-tools.ts`). The tool_use/tool_result pair is still
+persisted, so the next turn's history stays valid. The tool instructions tell the model to
+write its final reply and call Speak in that same response. A Speak call without reply text,
+or alongside any other tool, continues the turn as before, since the model still has to
+answer. This removes the extra model round trip that used to follow every closing Speak.
+
 ## Sidecar `apps/zcode-voice`
 
 Separate Cargo project (GPL-3.0: it statically links espeak-ng through kokoro-tiny/espeak-rs).

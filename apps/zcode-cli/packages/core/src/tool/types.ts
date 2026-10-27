@@ -490,7 +490,7 @@ export interface ToolExecutionFollowUpUserInput {
 }
 
 export interface ToolExecutionTurnControl {
-  reason: "automation_create_limit" | "plan_exit_denied" | "subagent_terminal";
+  reason: "automation_create_limit" | "plan_exit_denied" | "speak_closing" | "subagent_terminal";
   stopTurnAfterResult: boolean;
 }
 
