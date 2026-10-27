@@ -64,6 +64,15 @@ impl crate::app::root::RootView {
             } => {
                 let streaming = state == "streaming";
                 let can_retry = *can_retry && !streaming && row_actions;
+                let images = if streaming || !text.contains("![") {
+                    None
+                } else {
+                    let refs = crate::shared::markdown::image_targets(text)
+                        .into_iter()
+                        .map(crate::transcript::tool_images::ImageRef::File)
+                        .collect();
+                    self.tool_images_view(*row_id, refs, cx)
+                };
                 Some(
                     div()
                         .w_full()
@@ -76,6 +85,7 @@ impl crate::app::root::RootView {
                         .child(crate::shared::markdown::render_markdown(
                             text, *row_id, streaming,
                         ))
+                        .children(images)
                         .when(!streaming && !text.is_empty(), |el| {
                             el.child(
                                 div()

@@ -488,6 +488,10 @@ image cache, composer selection).
   `display.media`, and images read by the Read tool from absolute local paths. Images are
   decoded in the background with the Files-pane limits, cached by source, and enlarge on
   click. User attachments show name/size chips only: rows carry references, not bytes.
+  Finished assistant replies show the same thumbnails below the text for Markdown images
+  (`![alt](path)`) that point at absolute local paths or `file://` URLs with an image
+  extension (2026-10-27); the inline `[image: path]` link stays. Relative paths and remote
+  URLs are not loaded. The Desktop context prompt tells the model to use this syntax.
 - **Reasoning.** Investigated: main-session Claude models return mostly signature-only
   thinking (85% empty blocks in the model-io log), while subagent models return full text.
   GPUI is correct to mirror empty rows. An expanded empty block says the model did not share

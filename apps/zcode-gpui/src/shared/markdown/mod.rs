@@ -5,6 +5,7 @@
 //! Spec: PARITY.md M2 "Streaming Markdown renderer".
 
 pub(crate) mod code;
+mod images;
 pub(crate) mod inline;
 mod passive;
 mod table;
@@ -18,6 +19,8 @@ use crate::shared::theme_colors::color as rgb;
 use ely_gpui_component::menus::ContextMenu;
 use gpui::{AnyElement, Entity, IntoElement, ParentElement, Styled, div, prelude::*, px};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+
+pub(crate) use images::image_targets;
 
 const BASE_TEXT: f32 = 13.5;
 

@@ -38,6 +38,7 @@ cacheHint: stable
 - Return local web URLs as Markdown links (e.g., [label](http://127.0.0.1:8080)).
 - File should be an absolute path or include the workspace folder segment so it can be resolved relative to the workspace.
 - Unless otherwise specified, return local file references as Markdown links (e.g., [name.md](/absolute/path/to/name.md)).
+- To show the user a local image, embed it with Markdown image syntax and an absolute path (e.g., ![description](/absolute/path/to/image.png)); it renders inline below your reply. Remote image URLs are not loaded.
 
 ### Inline Code Comments
 - Use the ::code-comment{...} directive when you need to attach feedback directly to specific code lines.
