@@ -263,6 +263,7 @@ impl AppState {
             }
             _ => None,
         };
+        self.note_project_activity(ws_key);
         if self.active.is_none()
             && !self.draft
             && let Some(sid) = first_sid

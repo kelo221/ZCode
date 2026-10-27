@@ -70,6 +70,7 @@ mod profile_results;
 pub(crate) mod profile_state;
 #[cfg(test)]
 mod profile_state_tests;
+mod project_order;
 pub(crate) mod quickpick;
 pub(crate) mod quickpick_items;
 pub(crate) mod root;

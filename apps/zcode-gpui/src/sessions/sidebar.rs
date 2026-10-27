@@ -9,7 +9,7 @@
 
 use crate::backend::workspace::WorkspacePurpose;
 pub use crate::sessions::items::filter_session_indices;
-use crate::sessions::items::{latest_activity, nav_row, sort_by_latest_activity};
+use crate::sessions::items::{nav_row, sort_by_latest_activity};
 use crate::sessions::section_header::section_header;
 use crate::shared::theme::ui_size;
 use crate::shared::theme::{
@@ -217,7 +217,7 @@ impl crate::app::root::RootView {
                         tasks.push((w.key.clone(), indices, active_index));
                     }
                     WorkspacePurpose::Project => {
-                        let latest = latest_activity(&w.sessions, &indices);
+                        let latest = state.project_sort_activity(w, &indices);
                         projects.push((
                             latest,
                             (

@@ -88,6 +88,8 @@ pub struct AppState {
     /// GPUI-only main-agent system prompt override (system_prompt/mod.rs).
     pub(crate) system_prompt: crate::system_prompt::SystemPromptState,
     pub(crate) provider_settings: crate::provider_settings::ProviderSettingsState,
+    /// Remembered project activity for sidebar order (app/project_order.rs).
+    pub(crate) project_activity: crate::shared::project_activity::ProjectActivity,
 }
 
 impl AppState {
@@ -125,6 +127,7 @@ impl AppState {
             } else {
                 crate::system_prompt::SystemPromptState::load(crate::system_prompt::override_path())
             },
+            project_activity: Self::load_project_activity(remote),
             workspaces: workspace_paths
                 .into_iter()
                 .map(|p| WorkspaceHandle::new(p, candidates.clone()))
@@ -199,6 +202,7 @@ impl AppState {
         // exists (non-Windows, or a failed job assignment).
         cx.on_app_quit(|this, _cx| {
             this.shutdown_all_workspaces();
+            this.flush_project_activity_now();
             // Submitted pasted images may still be referenced by the backend
             // until now; quit is the point where they can finally go.
             for path in this.retired_temp_files.drain(..) {

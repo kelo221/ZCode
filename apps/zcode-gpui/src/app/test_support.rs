@@ -80,6 +80,7 @@ impl AppState {
             voice: None,
             system_prompt: Default::default(),
             provider_settings: Default::default(),
+            project_activity: Default::default(),
         }
     }
 }

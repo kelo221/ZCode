@@ -17,6 +17,7 @@ impl AppState {
                     .update(cx, |state, cx| {
                         state.reap_idle_agents();
                         state.maintain_profiles(cx);
+                        state.flush_project_activity(cx);
                         // Resync routes whose frame assembly got stuck >30s.
                         for topic in state.assembler.sweep_timeouts() {
                             if let Some(ws_key) = state.ws_for_topic(&topic) {

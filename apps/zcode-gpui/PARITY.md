@@ -396,6 +396,15 @@ limits below take precedence over the retained historical milestone requirements
   Projects without tasks follow in discovery order; ties keep discovery order. This is a
   render-time sort (`sessions/items.rs` `sort_by_latest_activity`); the workspace list
   itself keeps the discovery order above, which picks the startup project.
+  A project's task list only arrives once its agent starts (startup project, or first
+  open), so the newest activity seen for each project is kept in
+  `~/.zcode/v2/gpui_project_activity.json` (`shared/project_activity.rs`, GPUI-owned,
+  `{ canonical workspace key: ms }`). It is loaded at startup; a project sorts by the later
+  of its live list and the remembered value, so projects whose list hasn't arrived yet keep
+  their last known place (`app/project_order.rs`). Every sessions-index snapshot
+  or delta that moves a project's newest activity forward updates it, and the maintenance
+  sweep writes it to disk (atomic temp-file rename) when it changed. Activity made outside
+  GPUI in a project GPUI hasn't opened this run shows up once that project is opened.
 - **Shell conveniences (2026-10-27).** Ctrl/Cmd+B hides or shows the sidebar (in-memory, not
   persisted); Ctrl/Cmd+= / - / 0 step the interface font size by 1px within the settings
   range and reset it, through the same `FontSize` preference as the slider; Ctrl/Cmd+W
