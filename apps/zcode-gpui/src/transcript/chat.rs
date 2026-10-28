@@ -64,6 +64,8 @@ impl crate::app::root::RootView {
             } => {
                 let streaming = state == "streaming";
                 let can_retry = *can_retry && !streaming && row_actions;
+                let text = crate::transcript::tagged_text::remaining_items_as_markdown(text);
+                let text = text.as_ref();
                 let images = if streaming || !text.contains("![") {
                     None
                 } else {
@@ -95,7 +97,7 @@ impl crate::app::root::RootView {
                                     .child(self.assistant_message_actions(
                                         *row_id,
                                         entity_id.clone(),
-                                        text.clone(),
+                                        text.to_string(),
                                         can_retry,
                                         cx,
                                     ))

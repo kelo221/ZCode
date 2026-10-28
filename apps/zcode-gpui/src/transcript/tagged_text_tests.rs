@@ -52,6 +52,45 @@ fn system_reminders_are_removed_everywhere() {
 }
 
 #[test]
+fn remaining_items_block_becomes_a_list() {
+    let text = "Two items done.\n\n<remaining_items>\n- Enemy effects\n2. Master bugs\n\n</remaining_items>";
+    assert_eq!(
+        remaining_items_as_markdown(text),
+        "Two items done.\n\n**Unfinished items**\n\n- Enemy effects\n- Master bugs"
+    );
+    // Unclosed at the end (still streaming, or the model never closed it).
+    assert_eq!(
+        remaining_items_as_markdown("Done.\n<remaining_items>\n* Item three"),
+        "Done.\n\n**Unfinished items**\n\n- Item three"
+    );
+    // Text after the block stays a separate paragraph.
+    assert_eq!(
+        remaining_items_as_markdown("A\n<remaining_items>\n- x\n</remaining_items>\nTail"),
+        "A\n\n**Unfinished items**\n\n- x\n\nTail"
+    );
+}
+
+#[test]
+fn empty_remaining_items_block_is_dropped() {
+    assert_eq!(
+        remaining_items_as_markdown("All done.\n<remaining_items>\n</remaining_items>"),
+        "All done."
+    );
+}
+
+#[test]
+fn remaining_items_mentions_in_prose_or_code_are_untouched() {
+    let prose = "The runner strips the `<remaining_items>` block.";
+    assert_eq!(remaining_items_as_markdown(prose), prose);
+    let fenced = "Example:\n```\n<remaining_items>\n- a\n</remaining_items>\n```";
+    assert_eq!(remaining_items_as_markdown(fenced), fenced);
+    assert!(matches!(
+        remaining_items_as_markdown("plain"),
+        Cow::Borrowed(_)
+    ));
+}
+
+#[test]
 fn plain_output_is_untouched() {
     assert_eq!(clean_tool_output("a < b and c > d"), "a < b and c > d");
 }
