@@ -205,6 +205,8 @@ async function sendText(
       );
       preempted = await preemptActiveTurnAndWait(host, record, {
         abortMessage: "v4 sendText startNow preempts active turn",
+        // 修复原因：立即发送曾把前台 subagent 随 turn 一起取消；改为转后台继续运行。
+        backgroundSubagents: true,
         goalPausedMutationReason: "send_now_goal_paused",
         preserveQueueAutoDrainOnCancel: true,
       });
@@ -408,6 +410,8 @@ export async function preemptActiveTurnAndWait(
   record: V4SessionRecordView,
   options: {
     abortMessage: string;
+    /** 「立即发送」：抢占前把前台 subagent 转后台，而不是随 turn 取消。 */
+    backgroundSubagents?: boolean;
     goalPausedMutationReason: string;
     preserveQueueAutoDrainOnCancel?: boolean;
   },
@@ -417,6 +421,7 @@ export async function preemptActiveTurnAndWait(
   // 独立持有 foreground authority，不会创建 Bootstrap activeAbortController。
   // 忽略这点会误判 idle，随后把被提升的 queue item steer 回旧 notification turn。
   const runtimeStop = record.app.runtime?.stopActiveForegroundExecution?.({
+    backgroundSubagents: options.backgroundSubagents === true,
     preserveQueueAutoDrainOnCancel: options.preserveQueueAutoDrainOnCancel === true,
     reason: options.abortMessage,
   });

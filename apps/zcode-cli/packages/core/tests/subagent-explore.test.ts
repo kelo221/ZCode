@@ -4471,6 +4471,169 @@ describe("Explore subagent", () => {
     expect(output.status).toBe("completed");
   });
 
+  async function startBlockedForegroundChild(name: string) {
+    const sessionId = createSessionId(`runtime-subagent-preempt-${name}`);
+    let releaseChild!: () => void;
+    const childGate = new Promise<void>((resolve) => {
+      releaseChild = resolve;
+    });
+    let markChildStarted!: () => void;
+    const childStarted = new Promise<void>((resolve) => {
+      markChildStarted = resolve;
+    });
+    const runtime = createTestAgentRuntime(
+      sessionId,
+      {
+        mode: "build",
+        modelSelection: {
+          providerId: createModelProviderId("provider-main"),
+          modelId: createModelId("main-model"),
+        },
+        subagents: {
+          outputRootDir: await mkdtemp(join(tmpdir(), "zcode-subagent-preempt-")),
+          profiles: [
+            {
+              name: "auditor",
+              description: "Audit items",
+              source: "user",
+              systemPrompt: "Audit carefully.",
+              modelSelection: { providerId: "custom-openai", modelId: "haiku-like" },
+              tools: ["TodoWrite"],
+            },
+          ],
+        },
+        workingDirectory: "/workspace/project",
+      },
+      {
+        eventStore: createTestSessionEventStore(),
+        modelFactory: createTestModelFactory({
+          async generateText() {
+            markChildStarted();
+            await childGate;
+            return {
+              finishReason: "stop",
+              providerMetadata: undefined,
+              text: "Audit finished.",
+              usage: { inputTokens: 1_000, outputTokens: 10, totalTokens: 1_010 },
+            };
+          },
+        } as never),
+        sessionStore: createRecordingSubagentSessionStore(),
+      },
+    );
+    const port = (runtime as any).subagentPort;
+    const parentTurn = new AbortController();
+    const runPromise = port.run(
+      {
+        agentType: "auditor",
+        description: "Audit weapons",
+        parentToolCallId: "call_auditor",
+        prompt: "Audit the weapons.",
+        sessionId,
+        trace: {
+          traceId: createTraceId(`trace-subagent-preempt-${name}`),
+          sessionId,
+          turnId: createTurnId(`turn-subagent-preempt-${name}`),
+        },
+        turnId: createTurnId(`turn-subagent-preempt-${name}`),
+        workingDirectory: "/workspace/project",
+        workspaceRoot: "/workspace/project",
+      },
+      { signal: parentTurn.signal },
+    );
+    void runPromise.catch(() => undefined);
+    await childStarted;
+    return { parentTurn, port, releaseChild, runPromise, runtime };
+  }
+
+  it("keeps a foreground child running when it is moved to the background right before the parent turn aborts", async () => {
+    const { parentTurn, port, releaseChild, runPromise } =
+      await startBlockedForegroundChild("backgrounded");
+
+    // 与 stopActiveForegroundExecution 相同的顺序：同步转后台，紧接着 abort 父 turn。
+    const moved = port.backgroundForegroundAgents();
+    parentTurn.abort(new Error("v4 sendQueuedNow preempts active turn"));
+
+    expect(moved).toEqual([
+      expect.objectContaining({ agentId: expect.any(String), description: "Audit weapons" }),
+    ]);
+    const output = await runPromise;
+    expect(output).toMatchObject({ status: "async_launched", agentId: moved[0].agentId });
+
+    releaseChild();
+    const finished = await port.waitForTask(moved[0].agentId);
+    expect(finished?.status).toBe("completed");
+    expect(port.backgroundForegroundAgents()).toEqual([]);
+  });
+
+  it("still cancels a foreground child when the parent turn aborts without backgrounding", async () => {
+    const { parentTurn, releaseChild, runPromise } = await startBlockedForegroundChild("stopped");
+
+    parentTurn.abort(new Error("user pressed Stop"));
+
+    await expect(runPromise).rejects.toThrow();
+    releaseChild();
+  });
+
+  it("tells the next turn which subagents were moved to the background by a preemption", async () => {
+    const sessionId = createSessionId("runtime-subagent-preempt-reminder");
+    const requestTexts: string[] = [];
+    const runtime = createTestAgentRuntime(
+      sessionId,
+      { mode: "build", workingDirectory: "/workspace/project" },
+      {
+        eventStore: createTestSessionEventStore(),
+        modelFactory: createTestModelFactory({
+          async generateText(request: any) {
+            requestTexts.push(
+              request.messages
+                .map((message: any) => modelMessageContentToText(message.content))
+                .join("\n"),
+            );
+            return {
+              finishReason: "stop",
+              providerMetadata: undefined,
+              text: "ok",
+              usage: { inputTokens: 100, outputTokens: 5, totalTokens: 105 },
+            };
+          },
+        } as never),
+      },
+    );
+    let abortedBeforeBackgrounding: boolean | undefined;
+    const activeController = new AbortController();
+    (runtime as any).subagentPort = {
+      backgroundForegroundAgents() {
+        abortedBeforeBackgrounding = activeController.signal.aborted;
+        return [{ agentId: "agent_audit", description: "Audit weapons" }];
+      },
+    };
+    (runtime as any).activeForegroundExecution = {
+      controller: activeController,
+      disposeParentAbort: () => undefined,
+      foregroundExecutionId: "fg-1",
+      preserveQueueAutoDrainOnCancel: false,
+    };
+
+    const stopped = runtime.stopActiveForegroundExecution({
+      backgroundSubagents: true,
+      preserveQueueAutoDrainOnCancel: true,
+      reason: "v4 sendQueuedNow preempts active turn",
+    });
+    expect(stopped).toMatchObject({ kind: "stopped" });
+    expect(abortedBeforeBackgrounding).toBe(false);
+    expect(activeController.signal.aborted).toBe(true);
+    (runtime as any).activeForegroundExecution = undefined;
+
+    await runtime.executeTurn("What is the status?");
+    expect(requestTexts[0]).toContain("They were moved to the background instead of being stopped");
+    expect(requestTexts[0]).toContain("- agent_audit: Audit weapons");
+
+    await runtime.executeTurn("And now?");
+    const laterReminders = (requestTexts[1] ?? "").split("instead of being stopped").length - 1;
+    expect(laterReminders).toBe(1);
+  });
+
   it("fails custom profiles instead of falling back when the configured model is invalid", async () => {
     const sessionId = createSessionId("runtime-subagent-invalid-model");
     const eventStore = createTestSessionEventStore();

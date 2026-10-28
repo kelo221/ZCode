@@ -25,6 +25,7 @@ import type {
   McpPort,
   DynamicWorkflowRunPort,
   ModelCatalogPort,
+  SubagentBackgroundedForegroundAgent,
   SubagentPort,
   ToolArtifactStorePort,
   TraceContext,
@@ -144,6 +145,8 @@ export interface AgentRuntimeInternal
   sessionMailboxPort?: SessionMailboxPort;
   sessionPersisted: boolean;
   needsPlanModeExitReminder: boolean;
+  /** 「立即发送」抢占时被转后台的前台 subagent；下一轮第一次模型请求前提醒一次。 */
+  subagentsBackgroundedByPreempt: SubagentBackgroundedForegroundAgent[];
   latestConversationMessageId?: MessageId;
   latestAssistantMessageId?: MessageId;
   latestAssistantTurnId?: TurnId;

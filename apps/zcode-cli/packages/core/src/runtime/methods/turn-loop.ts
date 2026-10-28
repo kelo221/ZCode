@@ -1,7 +1,10 @@
 import { getTurnTools } from "./turn-tool-visibility.js";
 import { refreshOffPeakTurnAfterTakeover } from "../off-peak/turn.js";
 import { appendRuntimeAgentListing } from "../helpers/agent-listing.js";
-import { beginLocalTurnPreparation } from "@zcode/contracts";
+import {
+  beginLocalTurnPreparation,
+  type SubagentBackgroundedForegroundAgent,
+} from "@zcode/contracts";
 import { buildToolSearchAnnouncement } from "../../tool/search/exposure.js";
 import {
   CompactPhase,
@@ -145,6 +148,13 @@ export async function runRegularTurnLoop(
     if (!outputTokenRecoveryActive) {
       await appendRuntimeAgentListing(this, state.turnRequestState, tools, state.turnTraceContext);
     }
+    if (!outputTokenRecoveryActive && this.subagentsBackgroundedByPreempt.length > 0) {
+      const moved = this.subagentsBackgroundedByPreempt;
+      this.subagentsBackgroundedByPreempt = [];
+      commitTurnRequestEntries(this, state.turnRequestState, [
+        systemReminderAttachmentEntry("task_status", buildBackgroundedByPreemptReminder(moved)),
+      ]);
+    }
     if (!outputTokenRecoveryActive && this.needsPlanModeExitReminder) {
       this.needsPlanModeExitReminder = false;
       commitTurnRequestEntries(this, state.turnRequestState, [
@@ -287,4 +297,17 @@ export async function runRegularTurnLoop(
       break;
     }
   }
+}
+
+/** 被抢占的 Agent 调用在历史里显示为 cancelled；不说明的话模型会以为子 agent 已停而重开一个。 */
+function buildBackgroundedByPreemptReminder(
+  agents: readonly SubagentBackgroundedForegroundAgent[],
+): string {
+  return [
+    "The user sent a new message while these agents were running in the foreground. They were moved to the background instead of being stopped, so their Agent calls above show as cancelled, but they are still working:",
+    ...agents.map((agent) =>
+      agent.description ? `- ${agent.agentId}: ${agent.description}` : `- ${agent.agentId}`,
+    ),
+    "Their results will arrive as task notifications. Do not start them again; use SendMessage with the agentId if you need to change what one is doing.",
+  ].join("\n");
 }

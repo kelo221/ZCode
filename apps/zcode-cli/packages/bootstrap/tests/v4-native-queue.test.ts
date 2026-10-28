@@ -841,6 +841,7 @@ describe("v4 原生 sendQueuedNow", () => {
     );
 
     expect(stopActiveForegroundExecution).toHaveBeenCalledWith({
+      backgroundSubagents: true,
       preserveQueueAutoDrainOnCancel: true,
       reason: "v4 sendQueuedNow preempts active turn",
     });
@@ -889,6 +890,7 @@ describe("v4 原生 sendQueuedNow", () => {
 
     expect(record.activeAbortController).toBeUndefined();
     expect(stopActiveForegroundExecution).toHaveBeenCalledWith({
+      backgroundSubagents: true,
       preserveQueueAutoDrainOnCancel: true,
       reason: "v4 sendQueuedNow preempts active turn",
     });
@@ -1060,6 +1062,7 @@ describe("v4 原生 sendQueuedNow", () => {
       expect.any(Object),
     );
     expect(stopActiveForegroundExecution).toHaveBeenCalledWith({
+      backgroundSubagents: true,
       preserveQueueAutoDrainOnCancel: true,
       reason: "v4 sendQueuedNow preempts active turn",
     });

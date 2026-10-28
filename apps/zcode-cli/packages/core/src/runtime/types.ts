@@ -590,6 +590,11 @@ export interface ActiveForegroundExecutionState {
 }
 
 export interface StopActiveForegroundExecutionOptions {
+  /**
+   * 「立即发送」抢占：abort 之前先把运行中的前台 subagent 转后台，让它们继续工作
+   * （docs/design/v2/tool/07-subagent.md「立即发送时转后台」）。Stop 不传，照旧取消。
+   */
+  backgroundSubagents?: boolean;
   expectedForegroundExecutionId?: string;
   preserveQueueAutoDrainOnCancel?: boolean;
   reason?: string;

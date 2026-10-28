@@ -506,6 +506,20 @@ Child finish    -> no parent MCP cleanup
   lifecycle/progress event，也不是 child transcript 镜像。完整契约见
   [Subagent RespondToCoordinator](../../../../../../docs/subagent-respond-to-coordinator.md)。
 
+### 立即发送时转后台（Fork，2026-10-28）
+
+背景：用户在主 agent 忙碌时把排队消息「立即发送」（`sendQueuedNow`，或 `sendText` 的 `requestedDelivery: startNow`），bootstrap 会抢占当前 turn。前台 `Agent` 调用属于该 turn，抢占的 abort 经 `createSubagentTaskAbortController` 传到 child，子 agent 随之被取消（2026-10-27/28 日志：20 次抢占，7 个 child 以 "Agent was cancelled before the subagent returned findings" 结束）。
+
+规则：
+
+- 「立即发送」抢占前，把当前会话所有运行中的前台 subagent 转为后台：child 与父 abort signal 解绑，registry 标记 `isBackgrounded`，child 继续运行，完成后照常以 task notification 回报。用户点 Stop、编辑重发（`editUserQuery`）仍取消前台 subagent。
+- 时序：转后台必须在 abort 之前同步完成。`SubagentPort.backgroundForegroundAgents()` 同步执行「解绑父 signal → `requestBackground`」，由 `stopActiveForegroundExecution({ backgroundSubagents: true })` 在 `controller.abort()` 之前调用；不靠异步等待或超时排序。`backgroundTask(taskId)` 同样先同步解绑。
+- 带模型覆盖（`background: "deny"`）借用父 turn 模型的前台 child 不能转后台，照旧随 turn 取消。
+- 被抢占的 `Agent` 工具结果仍显示为 cancelled（executor 在 abort 时立即结算）。为避免主 agent 误以为子 agent 已停止而重开，runtime 记录被转后台的 agent，下一轮第一次模型请求前追加一条 `task_status` reminder：列出 agentId 与描述，说明它们仍在后台运行、结果会以 notification 返回、不要重新启动；需要追加指示时用 SendMessage。
+- 状态所有者：subagent port（registry 与 abort handle）；reminder 待发列表由 runtime 持有，被下一轮消费一次。
+
+验收：主 agent 运行前台 subagent 时点「立即发送」，subagent 不被取消，新消息立即开始处理；subagent 完成后主会话收到 task notification；Stop 仍取消前台 subagent。
+
 ### SendMessage 与 TaskStop display projection
 
 - 工具 output 和 model content 保持各自 provider-visible 契约；展示层数据通过独立 `ToolResultDisplayPayload` 生成，不得反向修改模型可见结果。

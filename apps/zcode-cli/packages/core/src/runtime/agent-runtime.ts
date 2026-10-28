@@ -51,6 +51,7 @@ import type {
   McpPort,
   DynamicWorkflowRunPort,
   ModelCatalogPort,
+  SubagentBackgroundedForegroundAgent,
   SubagentPort,
   ToolArtifactStorePort,
   ToolCallId,
@@ -228,6 +229,7 @@ export class AgentRuntime {
   private sessionStore?: SessionStorePort;
   private sessionPersisted = false;
   private needsPlanModeExitReminder = false;
+  private subagentsBackgroundedByPreempt: SubagentBackgroundedForegroundAgent[] = [];
   private latestConversationMessageId?: MessageId;
   private latestAssistantMessageId?: MessageId;
   private latestAssistantTurnId?: TurnId;

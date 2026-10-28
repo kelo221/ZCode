@@ -221,6 +221,7 @@ export type {
   McpConnectionSnapshot,
   McpPort,
   McpServerConfig,
+  SubagentBackgroundedForegroundAgent,
   SubagentPort,
   SubagentTaskSnapshot,
   ToolArtifactStorePort,

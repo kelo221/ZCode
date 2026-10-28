@@ -120,6 +120,11 @@ export interface SubagentListEntry {
   worktree?: WorktreeRecord;
 }
 
+export interface SubagentBackgroundedForegroundAgent {
+  agentId: string;
+  description?: string;
+}
+
 export interface SubagentPort {
   launch(request: SubagentLaunchRequest, options?: SubagentLaunchOptions): Promise<AgentOutput>;
   run(request: SubagentRunRequest, options?: SubagentRunOptions): Promise<AgentOutput>;
@@ -128,6 +133,11 @@ export interface SubagentPort {
     options?: SubagentStartOptions,
   ): Promise<AgentBackgroundedOutput>;
   backgroundTask?(taskId: string): Promise<SubagentTaskSnapshot | undefined>;
+  /**
+   * 同步把所有运行中的前台 subagent 转后台（先解绑父 abort signal 再标记），返回被转的 agent。
+   * 必须同步：调用方紧接着 abort 当前 turn，解绑晚于 abort 会把 child 一起取消。
+   */
+  backgroundForegroundAgents?(): SubagentBackgroundedForegroundAgent[];
   getTask?(taskId: string): Promise<SubagentTaskSnapshot | undefined>;
   waitForTask?(
     taskId: string,

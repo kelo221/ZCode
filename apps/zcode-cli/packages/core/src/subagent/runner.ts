@@ -28,6 +28,7 @@ import {
   type SessionId,
   type SubagentLaunchOptions,
   type SubagentLaunchRequest,
+  type SubagentBackgroundedForegroundAgent,
   type SubagentListEntry,
   type SubagentPort,
   type SubagentRunOptions,
@@ -169,6 +170,16 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
   const registry = options.runtimeTaskRegistry ?? new InMemoryRuntimeTaskRegistry();
   const abortControllers = new Map<string, AbortController>();
   const borrowedForegroundAgentIds = new Set<string>();
+  // 运行中前台 child 的「解绑父 abort」句柄。转后台必须同步解绑：调用方可能紧接着 abort
+  // 父 turn，而 run() 里 race 胜出后的 detachParent 要晚几个 microtask，child 会被一起取消。
+  const foregroundParentDetachers = new Map<string, () => void>();
+  const detachForegroundAndRequestBackground = (taskId: string): boolean => {
+    if (borrowedForegroundAgentIds.has(taskId)) return false;
+    const task = registry.get(taskId);
+    if (!task || task.isBackgrounded || isTerminalRuntimeTask(task)) return false;
+    foregroundParentDetachers.get(taskId)?.();
+    return registry.requestBackground(taskId);
+  };
   const initialProfiles = normalizeAgentProfiles(options.profiles ?? [], {
     builtInModelSelectionOverrides: options.builtInModelSelectionOverrides,
   });
@@ -245,6 +256,12 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       if (hasForegroundModelOverride) {
         borrowedForegroundAgentIds.add(lifecycle.agentId);
       }
+      foregroundParentDetachers.set(lifecycle.agentId, taskAbort.detachParent);
+      const releaseForegroundDetacher = () => {
+        if (foregroundParentDetachers.get(lifecycle.agentId) === taskAbort.detachParent) {
+          foregroundParentDetachers.delete(lifecycle.agentId);
+        }
+      };
       const activityWatchdog = createSubagentActivityWatchdog({
         abort: taskAbort.abort,
         lifecycle,
@@ -305,6 +322,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         activityWatchdog.stop();
         taskAbort.abort(error);
         taskAbort.dispose();
+        releaseForegroundDetacher();
         borrowedForegroundAgentIds.delete(lifecycle.agentId);
         registry.remove(lifecycle.agentId);
         throw error;
@@ -355,6 +373,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
 
         if (winner.kind === "backgrounded") {
           taskAbort.detachParent();
+          releaseForegroundDetacher();
           activityWatchdog.stop();
           void completionPromise
             .then((completed) =>
@@ -372,6 +391,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
         autoBackgroundTimer?.cancel();
         activityWatchdog.stop();
         taskAbort.dispose();
+        releaseForegroundDetacher();
         borrowedForegroundAgentIds.delete(lifecycle.agentId);
 
         await writeCompletedAgentArtifacts(lifecycle, request, completed.output);
@@ -420,6 +440,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       } catch (error) {
         activityWatchdog.stop();
         taskAbort.dispose();
+        releaseForegroundDetacher();
         borrowedForegroundAgentIds.delete(lifecycle.agentId);
         const totalDurationMs = Date.now() - lifecycle.startedAt;
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -575,11 +596,21 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
     },
 
     async backgroundTask(taskId: string): Promise<SubagentTaskSnapshot | undefined> {
-      if (borrowedForegroundAgentIds.has(taskId)) {
-        return registry.get(taskId);
-      }
-      registry.requestBackground(taskId);
+      detachForegroundAndRequestBackground(taskId);
       return registry.get(taskId);
+    },
+
+    backgroundForegroundAgents(): SubagentBackgroundedForegroundAgent[] {
+      const moved: SubagentBackgroundedForegroundAgent[] = [];
+      for (const taskId of foregroundParentDetachers.keys()) {
+        const task = registry.get(taskId);
+        if (!detachForegroundAndRequestBackground(taskId)) continue;
+        moved.push({
+          agentId: taskId,
+          ...(task?.description ? { description: task.description } : {}),
+        });
+      }
+      return moved;
     },
 
     async waitForTask(

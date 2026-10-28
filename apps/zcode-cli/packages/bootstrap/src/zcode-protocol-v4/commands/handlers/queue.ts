@@ -222,6 +222,8 @@ async function sendQueuedNow(
     if (!autoDrainPromotion) {
       preempted = await preemptActiveTurnAndWait(host, record, {
         abortMessage: "v4 sendQueuedNow preempts active turn",
+        // 修复原因：「Send now」曾把前台 subagent 随 turn 一起取消；改为转后台继续运行。
+        backgroundSubagents: true,
         goalPausedMutationReason: "send_queued_now_goal_paused",
         preserveQueueAutoDrainOnCancel: true,
       });

@@ -469,10 +469,9 @@ export function stopActiveForegroundExecution(
   options: StopActiveForegroundExecutionOptions = {},
 ): StopActiveForegroundExecutionResult {
   const active = this.activeForegroundExecution;
-  if (!active || active.controller.signal.aborted) {
-    return { kind: "idle" };
-  }
+  const running = active !== undefined && !active.controller.signal.aborted;
   if (
+    running &&
     options.expectedForegroundExecutionId !== undefined &&
     options.expectedForegroundExecutionId !== active.foregroundExecutionId
   ) {
@@ -480,6 +479,14 @@ export function stopActiveForegroundExecution(
       kind: "mismatch",
       activeForegroundExecutionId: active.foregroundExecutionId,
     };
+  }
+  // 放在 idle 判断之前：runtime 报 idle 时 bootstrap 会改用自己的 abort controller 结束
+  // turn，前台 child 同样会被取消。必须在任何 abort 之前同步完成。
+  if (options.backgroundSubagents === true) {
+    backgroundForegroundSubagentsForPreempt(this, active?.foregroundExecutionId);
+  }
+  if (!running) {
+    return { kind: "idle" };
   }
   // sendQueuedNow 的内部抢占过去与用户手动 Stop 共用同一种 cancelled，
   // turn catch 因而把 queueAutoDrain 关闭。把调用意图固定在当前 foreground
@@ -490,6 +497,21 @@ export function stopActiveForegroundExecution(
     kind: "stopped",
     foregroundExecutionId: active.foregroundExecutionId,
   };
+}
+
+function backgroundForegroundSubagentsForPreempt(
+  runtime: AgentRuntimeInternal,
+  foregroundExecutionId: string | undefined,
+): void {
+  const moved = runtime.subagentPort?.backgroundForegroundAgents?.() ?? [];
+  if (moved.length === 0) return;
+  runtime.subagentsBackgroundedByPreempt.push(...moved);
+  runtime.logger?.info("Moved foreground subagents to background before preempting the turn", {
+    agentIds: moved.map((agent) => agent.agentId),
+    event: "subagent.preempt.backgrounded",
+    foregroundExecutionId,
+    module: "core.runtime",
+  });
 }
 
 export function getActiveForegroundExecutionId(this: AgentRuntimeInternal): string | undefined {
