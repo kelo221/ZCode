@@ -5,6 +5,8 @@ import {
   type PermissionContext,
   type PermissionToolCapability,
 } from "../src/permission/service.js";
+import { compactToolEntry } from "../src/tool/handlers/compact.js";
+import { sendMessageToolEntry } from "../src/tool/handlers/send-message.js";
 
 const readCapability: PermissionToolCapability = {
   destructive: false,
@@ -241,6 +243,38 @@ describe("PermissionService mode policy", () => {
       decision: "allow",
       ruleId: "mode.plan.explicitSessionCapability",
       sideEffectScope: "session",
+    });
+  });
+
+  it.each([
+    ["SendMessage", sendMessageToolEntry, { to: "agent_1", summary: "follow-up", message: "?" }],
+    ["Compact", compactToolEntry, {}],
+  ] as const)("allows %s in plan mode", (_name, entry, input) => {
+    const service = new PermissionService();
+    const { metadata, permission } = entry;
+
+    const decision = service.checkPermission(
+      {
+        input,
+        mode: "plan",
+        riskLevel: "low",
+        toolName: metadata.name,
+      },
+      {
+        allowedInPlanMode: metadata.allowedInPlanMode,
+        destructive: metadata.destructive,
+        needsApproval: metadata.needsApproval,
+        permission,
+        readOnly: metadata.readOnly,
+        riskLevel: metadata.riskLevel,
+        sideEffectScope: metadata.sideEffectScope,
+      },
+    );
+
+    expect(decision).toMatchObject({
+      allowed: true,
+      decision: "allow",
+      ruleId: "mode.plan.explicitSessionCapability",
     });
   });
 

@@ -50,6 +50,10 @@ export interface RapidRefillDecision {
 
 export type CompactAttemptOutcome = "skipped" | "compacted" | "failed";
 
+export interface RequestedCompact {
+  instructions?: string;
+}
+
 export type AutoCompactOutcome = CompactAttemptOutcome | "rapid_refill_blocked";
 
 export interface AutoCompactLoopContext {
@@ -61,6 +65,8 @@ export interface AutoCompactLoopContext {
   model: Model;
   turnRequestState: TurnRequestState;
   getContinuationTools?: () => readonly ModelToolContract[];
+  /** Agent 用 Compact 工具请求的压缩：跳过阈值判断与 rapid-refill 熔断。 */
+  requested?: RequestedCompact;
 }
 
 export interface ReactiveCompactLoopContext {
@@ -93,6 +99,8 @@ export interface RegularTurnLoopState {
   /** 本轮是否已消费来源为 workflow（dynamic-workflow run）的后台通知。 */
   workflowResultConsumed: boolean;
   compactTracking?: CompactLoopTracking;
+  /** 本轮工具批次里成功的 Compact 调用；下一次模型请求前执行并清空（docs/design/v2/compact/README.md）。 */
+  requestedCompact?: RequestedCompact;
   currentUserMessageId: MessageId;
   drainedSteerForNextRequest?: DrainedPendingInputDiagnostics;
   events: SessionEvent[];

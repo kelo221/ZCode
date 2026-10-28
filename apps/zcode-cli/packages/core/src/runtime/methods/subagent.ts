@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- subagent runtime wiring 集中衔接 child runtime、tool pool、权限、MCP 与 activity watchdog，拆分需单独迁移。 */
 import {
+  COMPACT_TOOL_NAME,
   FIND_FILES_TOOL_NAME,
   RESPOND_TO_COORDINATOR_TOOL_NAME,
   SEARCH_CODE_TOOL_NAME,
@@ -663,6 +664,7 @@ function resolveSubagentToolAllowlist(
       [...new Set(availableToolNames)]
         .filter((toolName) => !isSubagentDispatchToolName(toolName))
         .filter((toolName) => filterSubagentChildToolNames([toolName], disallowedRules).length > 0),
+      disallowedRules,
     );
   }
   if (request.allowedTools.length > 0) {
@@ -673,9 +675,10 @@ function resolveSubagentToolAllowlist(
       : request.allowedTools;
     return appendCoordinatorResponseTool(
       filterSubagentChildToolNames(explicitTools, disallowedRules),
+      disallowedRules,
     );
   }
-  return appendCoordinatorResponseTool([]);
+  return appendCoordinatorResponseTool([], disallowedRules);
 }
 
 function filterMcpToolNamesByParentAllowlist(
@@ -691,13 +694,24 @@ function isModelVisibleMcpToolName(toolName: string): boolean {
   return toolName.startsWith("mcp__");
 }
 
-function appendCoordinatorResponseTool(toolNames: readonly string[]): readonly string[] {
-  if (toolNames.includes(RESPOND_TO_COORDINATOR_TOOL_NAME)) {
-    return toolNames;
-  }
-
+function appendCoordinatorResponseTool(
+  toolNames: readonly string[],
+  disallowedRules: Parameters<typeof filterSubagentChildToolNames>[1],
+): readonly string[] {
+  const result = [...toolNames];
   // child 控制通道不受 profile 工具列表约束；全局 toolDisallowlist 仍在 runtime 注册边界生效。
-  return [...toolNames, RESPOND_TO_COORDINATOR_TOOL_NAME];
+  if (!result.includes(RESPOND_TO_COORDINATOR_TOOL_NAME)) {
+    result.push(RESPOND_TO_COORDINATOR_TOOL_NAME);
+  }
+  // 父 agent 可以通过 SendMessage 要求 child 压缩上下文，所以 Compact 同样不受 profile
+  // 工具列表约束；但 profile 显式禁用时尊重禁用。
+  if (
+    !result.includes(COMPACT_TOOL_NAME) &&
+    filterSubagentChildToolNames([COMPACT_TOOL_NAME], disallowedRules).length > 0
+  ) {
+    result.push(COMPACT_TOOL_NAME);
+  }
+  return result;
 }
 
 interface ResolvedSubagentMcpAccess {

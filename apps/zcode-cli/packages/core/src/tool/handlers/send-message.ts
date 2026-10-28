@@ -80,6 +80,9 @@ export const sendMessageToolEntry: ToolEntry = {
     name: SEND_MESSAGE_TOOL_NAME,
     searchHint: "send messages to agent teammates",
     description: SEND_MESSAGE_PROVIDER_DESCRIPTION,
+    // 计划模式下被唤醒的子代理会按父会话当时的 plan 状态重建运行时（resolveSubagentPermissionMode），
+    // 所以续问只能让它继续只读调查，不会借此获得写权限。
+    allowedInPlanMode: true,
     readOnly: false,
     destructive: false,
     concurrentSafe: true,

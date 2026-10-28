@@ -4338,6 +4338,139 @@ describe("Explore subagent", () => {
     expect(output.contextReport.cumulativeBilledTokens).toBe(output.totalTokens);
   });
 
+  async function runCompactToolChild(options: { compactAtStep: number; name: string }) {
+    const sessionId = createSessionId(`runtime-subagent-compact-tool-${options.name}`);
+    const compactRequestTexts: string[] = [];
+    const requestTexts: string[] = [];
+    const childToolNames: string[][] = [];
+    let childStep = 0;
+    const runtime = createTestAgentRuntime(
+      sessionId,
+      {
+        mode: "build",
+        modelSelection: {
+          providerId: createModelProviderId("provider-main"),
+          modelId: createModelId("main-model"),
+        },
+        subagents: {
+          outputRootDir: await mkdtemp(join(tmpdir(), "zcode-subagent-compact-tool-")),
+          profiles: [
+            {
+              name: "auditor",
+              description: "Audit items",
+              source: "user",
+              systemPrompt: "Audit carefully.",
+              modelSelection: { providerId: "custom-openai", modelId: "haiku-like" },
+              // profile 只列了 TodoWrite：Compact 必须照 RespondToCoordinator 一样被补回。
+              tools: ["TodoWrite"],
+            },
+          ],
+        },
+        workingDirectory: "/workspace/project",
+      },
+      {
+        eventStore: createTestSessionEventStore(),
+        modelFactory: createTestModelFactory({
+          properties: { contextWindow: 100_000 },
+          async generateText(request: any) {
+            const requestText = request.messages
+              .map((message: any) => modelMessageContentToText(message.content))
+              .join("\n");
+            if (requestText.includes("create a detailed summary")) {
+              compactRequestTexts.push(requestText);
+              return {
+                finishReason: "stop",
+                providerMetadata: undefined,
+                text: "<summary>Original Brief:\n   Audit.\n\nWork Items:\n   - [done] Item 1 — evidence: a.ts:1 — next: none\n</summary>",
+                usage: { inputTokens: 3_000, outputTokens: 100, totalTokens: 3_100 },
+              };
+            }
+            requestTexts.push(requestText);
+            childToolNames.push((request.tools ?? []).map((tool: any) => tool.name));
+            childStep += 1;
+            if (childStep > options.compactAtStep) {
+              return {
+                finishReason: "stop",
+                providerMetadata: undefined,
+                text: "All items done.",
+                usage: { inputTokens: 3_000, outputTokens: 10, totalTokens: 3_010 },
+              };
+            }
+            const toolCall =
+              childStep === options.compactAtStep
+                ? {
+                    id: `call_child_compact_${childStep}`,
+                    name: "Compact",
+                    input: { instructions: "Keep the file:line evidence." },
+                  }
+                : {
+                    id: `call_child_todo_${childStep}`,
+                    name: "TodoWrite",
+                    input: {
+                      todos: [
+                        { content: `Item ${childStep}`, priority: "high", status: "in_progress" },
+                      ],
+                    },
+                  };
+            // 用量远低于 66K 阈值：只有 Compact 请求能触发压缩。
+            return {
+              finishReason: "tool-calls",
+              providerMetadata: undefined,
+              text: "",
+              toolCalls: [toolCall],
+              usage: { inputTokens: 2_000, outputTokens: 20, totalTokens: 2_020 },
+            };
+          },
+        } as never),
+        sessionStore: createRecordingSubagentSessionStore(),
+      },
+    );
+    const output = await (runtime as any).subagentPort.run({
+      agentType: "auditor",
+      description: "Audit items",
+      parentToolCallId: "call_auditor",
+      prompt: "Audit items one through three.",
+      sessionId,
+      trace: {
+        traceId: createTraceId(`trace-subagent-compact-tool-${options.name}`),
+        sessionId,
+        turnId: createTurnId(`turn-subagent-compact-tool-${options.name}`),
+      },
+      turnId: createTurnId(`turn-subagent-compact-tool-${options.name}`),
+      workingDirectory: "/workspace/project",
+      workspaceRoot: "/workspace/project",
+    });
+    return { childToolNames, compactRequestTexts, output, requestTexts };
+  }
+
+  it("compacts a child's context before its next step when it calls the Compact tool", async () => {
+    const { childToolNames, compactRequestTexts, output, requestTexts } = await runCompactToolChild(
+      { compactAtStep: 3, name: "compacted" },
+    );
+
+    expect(childToolNames[0]).toContain("Compact");
+    expect(compactRequestTexts).toHaveLength(1);
+    expect(compactRequestTexts[0]).toContain("Keep the file:line evidence.");
+    // 压缩后的请求以 summary 续接，并带 subagent 续接提醒。
+    const afterCompact = requestTexts.at(-1) ?? "";
+    expect(afterCompact).toContain("Your context was just compacted to make room.");
+    expect(output.status).toBe("completed");
+    expect(output.contextReport).toMatchObject({ compactionCount: 1 });
+  });
+
+  it("tells the child when a requested compaction had nothing to summarize", async () => {
+    const { compactRequestTexts, output, requestTexts } = await runCompactToolChild({
+      compactAtStep: 1,
+      name: "skipped",
+    });
+
+    expect(compactRequestTexts).toHaveLength(0);
+    expect(requestTexts.at(-1)).toContain(
+      "The compaction you requested with the Compact tool did not run",
+    );
+    expect(output.status).toBe("completed");
+  });
+
   it("fails custom profiles instead of falling back when the configured model is invalid", async () => {
     const sessionId = createSessionId("runtime-subagent-invalid-model");
     const eventStore = createTestSessionEventStore();

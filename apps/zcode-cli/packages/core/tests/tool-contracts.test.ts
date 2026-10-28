@@ -76,6 +76,8 @@ const DIRECT_BRANCH_EXPECTED_PROVIDER_TOOL_ORDER = [
   // 模型目录（docs/dynamic-workflow/launch.md）：同样不进 SORTED_PROVIDER_TOOL_NAMES，
   // 所以按注册序排在定义清单之后。
   "ListModels",
+  // Agent 请求的 compact（fork）：本地工具，按注册序排在最后。
+  "Compact",
 ] as const;
 
 const EMBEDDED_SEARCH_EXPECTED_PROVIDER_TOOL_ORDER =

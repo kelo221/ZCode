@@ -91,16 +91,20 @@ export async function runRegularTurnLoop(
     throwIfTurnAborted(state.turnAbortSignal);
 
     const rapidRefill = evaluateRapidRefill(state.compactTracking);
+    // 输出续写恢复期间不插入压缩，请求留到恢复结束后的下一步。
+    const requestedCompact = outputTokenRecoveryActive ? undefined : state.requestedCompact;
+    if (requestedCompact) state.requestedCompact = undefined;
     const autoCompactOutcome = await this.autoCompactIfNeeded(
       state.turnTraceContext,
       state.events,
       state.turnAbortSignal,
       {
         getAgentListingTools: () => getTurnTools(this, state),
-        compactReason: CompactReason.ContextLimit,
+        compactReason: requestedCompact ? CompactReason.UserRequested : CompactReason.ContextLimit,
         modelStepIndex: state.modelStepCount,
         phase: compactPhase,
         rapidRefill,
+        ...(requestedCompact ? { requested: requestedCompact } : {}),
         model: state.model,
         turnRequestState: state.turnRequestState,
         getContinuationTools: () => getTurnTools(this, state),
@@ -117,6 +121,15 @@ export async function runRegularTurnLoop(
     if (autoCompactOutcome === "compacted") {
       recordCompactSuccess(state, rapidRefill);
       recordCompactHistoryRound(state);
+    } else if (requestedCompact) {
+      commitTurnRequestEntries(this, state.turnRequestState, [
+        systemReminderAttachmentEntry(
+          "tool_result_warning",
+          autoCompactOutcome === "failed"
+            ? "The compaction you requested with the Compact tool failed, so your context was not compacted. Continue the task; do not call Compact again unless asked."
+            : "The compaction you requested with the Compact tool did not run: there is not enough earlier conversation to summarize yet. Continue the task.",
+        ),
+      ]);
     }
     throwIfTurnAborted(state.turnAbortSignal);
 

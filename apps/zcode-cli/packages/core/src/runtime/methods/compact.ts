@@ -213,7 +213,9 @@ export async function autoCompactIfNeeded(
     tokenOverride,
   });
 
-  if (!decision.shouldCompact) {
+  // Agent 用 Compact 工具明确请求时不看阈值；历史不够长仍由 compactActiveConversation 返回 skipped。
+  const requested = context.requested;
+  if (!requested && !decision.shouldCompact) {
     this.logger?.debug("Auto compact skipped", {
       ...traceContextToLogContext(turnTraceContext),
       event: "compact.auto.skipped",
@@ -227,7 +229,7 @@ export async function autoCompactIfNeeded(
     return "skipped";
   }
 
-  if (context.rapidRefill.shouldBlock) {
+  if (!requested && context.rapidRefill.shouldBlock) {
     this.logger?.warn("Autocompact rapid-refill breaker tripped", {
       ...traceContextToLogContext(turnTraceContext),
       event: "compact.rapid_refill_breaker",
@@ -253,12 +255,13 @@ export async function autoCompactIfNeeded(
     modelStepIndex: context.modelStepIndex,
     module: "core.runtime",
     phase: context.phase,
+    requested: requested !== undefined,
     ...autoCompactDecisionLogContext(decision),
   });
 
   try {
     const compactResult = await this.compactActiveConversation(
-      undefined,
+      requested?.instructions,
       turnTraceContext,
       events,
       {
@@ -298,7 +301,8 @@ export async function autoCompactIfNeeded(
     if (isTurnCancellationError(error, abortSignal)) {
       throw error;
     }
-    this.autoCompactConsecutiveFailures++;
+    // 熔断计数只约束阈值触发的自动压缩；agent 请求失败不应让后续自动压缩提前停用。
+    if (!requested) this.autoCompactConsecutiveFailures++;
     this.logger?.warn("Auto compact failed", {
       ...traceContextToLogContext(turnTraceContext),
       errorMessage: error instanceof Error ? error.message : String(error),

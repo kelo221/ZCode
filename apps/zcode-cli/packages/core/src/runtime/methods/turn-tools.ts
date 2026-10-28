@@ -28,6 +28,7 @@ import {
 import type { ToolCallInput } from "../../agent/message-history.js";
 import { settleToolResults, type ToolResultPart } from "./tool-result-settlement.js";
 import { SPEAK_TOOL_NAME } from "@zcode/contracts";
+import { requestedCompactFromResults } from "../../tool/handlers/compact.js";
 
 export async function executeToolCallsForModelStep(
   this: AgentRuntimeInternal,
@@ -238,6 +239,13 @@ export async function executeToolCallsForModelStep(
     toolCallById,
     streamedResultsById,
   });
+  const requestedCompact = requestedCompactFromResults(results);
+  if (requestedCompact) {
+    state.requestedCompact = {
+      ...state.requestedCompact,
+      ...requestedCompact,
+    };
+  }
 
   const stopTurnResult =
     results.find((result) => result.turnControl?.stopTurnAfterResult === true) ??

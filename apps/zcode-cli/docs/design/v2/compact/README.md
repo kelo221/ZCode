@@ -48,6 +48,16 @@ Compact 至少需要三类触发路径。
 
 局部 compact：用户在 rewind/message selector 等 UI 中选择“从这里开始总结”或“总结到这里”。这不是普通 rewind，而是把一段历史替换成 summary，同时保留另一段原始消息。
 
+Agent 请求的 compact（Fork，2026-10-28）：模型调用 `Compact` 工具，在当前 turn 内压缩自己的上下文。主会话和 subagent 都注册这个工具；只在用户（或父 agent 通过 SendMessage）明确要求压缩时调用，不靠它代替自动 compact。
+
+- 状态所有者：当前 turn 的 `RegularTurnLoopState.requestedCompact`。工具 handler 不持有状态，也不调用 runtime；它只校验输入并回显 `instructions`。工具批次结算后，turn loop 看到成功的 `Compact` 结果就记录请求。
+- 时序：工具批次结束 → 记录请求 → 下一次模型请求之前、microcompact 之后执行 → 请求被消费（只执行一次）。同一批次里多次调用合并为一次，后出现的 `instructions` 覆盖前面的。
+- 执行路径复用轮次中途的 auto compact：`trigger: auto`、`phase: mid_turn`、`compactReason: user_requested`，跳过阈值判断和 rapid-refill 熔断，保留最近消息、subagent continuation reminder 和自动重试。`instructions` 作为 summary 的自定义指令传入。
+- 历史不足以压缩（`skipped`）或失败时，向模型追加一条 `tool_result_warning` reminder 说明没有压缩，turn 继续，不抛错。
+- 权限：`sideEffectScope: session`、无需审批、plan 模式下允许（只改写本会话上下文）。
+
+验收：模型调用 `Compact` 后，下一次模型请求前出现一次 compact（timeline 上的 compact 标记），请求的 messages 以 summary 开头；历史太短时模型收到"未压缩"提示并继续。
+
 触发前必须有递归保护。compact 自身调用模型生成 summary 时，不能再次触发 compact；session memory、summary agent、subagent 等 forked query 也应根据 `querySource` 或执行上下文避免互相压缩。
 
 #### 1.2.1 本地 token 估算合同

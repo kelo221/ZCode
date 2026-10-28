@@ -76,6 +76,7 @@ import { listModelsToolEntry } from "./list-models.js";
 import { speakToolEntry } from "./speak.js";
 import { findFilesToolEntry, searchCodeToolEntry } from "./code-search.js";
 import { diagnosticsToolEntry } from "./diagnostics.js";
+import { compactToolEntry } from "./compact.js";
 import { evalWorkflowSnippetToolEntry } from "./eval-workflow-snippet.js";
 import { listWorkflowRunsToolEntry } from "./list-workflow-runs.js";
 import { getWorkflowRunToolEntry } from "./get-workflow-run.js";
@@ -161,6 +162,8 @@ export const builtInTools: ToolEntry[] = [
   searchCodeToolEntry,
   // GPUI 语言服务器诊断：注入了 DiagnosticsPort 的会话才注册。
   diagnosticsToolEntry,
+  // Agent 请求的 compact：主会话与 subagent 都注册，turn loop 在下一步前执行。
+  compactToolEntry,
   // workflowToolEntry,
 ];
 
