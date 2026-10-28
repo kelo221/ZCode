@@ -74,7 +74,7 @@ pub(crate) fn latest_activity(
 ) -> Option<i64> {
     indices
         .iter()
-        .filter_map(|&i| sessions.get(i)?.last_activity_at)
+        .filter_map(|&i| sessions.get(i)?.sort_activity_at)
         .max()
 }
 

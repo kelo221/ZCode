@@ -393,6 +393,12 @@ limits below take precedence over the retained historical milestone requirements
 - **Project order (2026-10-27).** The sidebar shows projects with the most recent task
   activity first: the newest `lastActivityAt` among the project's listed tasks (subagent
   sessions excluded), so starting a task or continuing one moves its project to the top.
+  While a task is running its sort time stays at the moment the run started (2026-10-28):
+  `lastActivityAt` moves on every agent step, so two busy projects kept swapping places.
+  Each session's sort time (`SessionEntry::sort_activity_at`, set in `backend/route.rs`)
+  only advances when a run starts (the user's message) or when the session is not running
+  (the run finished); the same key orders tasks within a project. The row's relative time
+  still shows `lastActivityAt`.
   Projects without tasks follow in discovery order; ties keep discovery order. This is a
   render-time sort (`sessions/items.rs` `sort_by_latest_activity`); the workspace list
   itself keeps the discovery order above, which picks the startup project.

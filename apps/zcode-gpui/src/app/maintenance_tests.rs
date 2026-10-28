@@ -9,6 +9,7 @@ fn entry(sid: &str, has_background_work: bool) -> SessionEntry {
         title: sid.into(),
         phase: "completedSuccess".into(),
         last_activity_at: None,
+        sort_activity_at: None,
         preview: String::new(),
         has_background_work,
     }

@@ -349,7 +349,7 @@ impl WorkspaceHandle {
 
     pub fn sort_sessions(&mut self) {
         self.sessions
-            .sort_by_key(|s| std::cmp::Reverse(s.last_activity_at));
+            .sort_by_key(|s| std::cmp::Reverse(s.sort_activity_at));
     }
 }
 

@@ -215,6 +215,11 @@ impl AppState {
                 was_empty = ws.sessions.is_empty();
                 // `sessions` is validated to be an array; individual invalid
                 // entries are skipped (forward compatibility).
+                let previous: std::collections::HashMap<String, SessionEntry> = ws
+                    .sessions
+                    .drain(..)
+                    .map(|s| (s.session_id.clone(), s))
+                    .collect();
                 let mut list: Vec<SessionEntry> = payload
                     .get("snapshot")
                     .and_then(|s| s.get("sessions"))
@@ -222,8 +227,12 @@ impl AppState {
                     .ok_or_else(|| "sessions-index snapshot missing sessions array".to_string())?
                     .iter()
                     .filter_map(SessionEntry::from_value)
+                    .map(|mut s| {
+                        s.settle_sort_activity(previous.get(&s.session_id));
+                        s
+                    })
                     .collect();
-                list.sort_by_key(|s| std::cmp::Reverse(s.last_activity_at));
+                list.sort_by_key(|s| std::cmp::Reverse(s.sort_activity_at));
                 let first = list.first().map(|s| s.session_id.clone());
                 ws.sessions = list;
                 first
@@ -238,7 +247,11 @@ impl AppState {
                 for d in deltas {
                     match d.get("op").and_then(Value::as_str).unwrap_or("") {
                         "session.upserted" => {
-                            if let Some(e) = d.get("session").and_then(SessionEntry::from_value) {
+                            if let Some(mut e) = d.get("session").and_then(SessionEntry::from_value)
+                            {
+                                e.settle_sort_activity(
+                                    ws.sessions.iter().find(|s| s.session_id == e.session_id),
+                                );
                                 if let Some(s) = ws
                                     .sessions
                                     .iter_mut()
@@ -275,3 +288,7 @@ impl AppState {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "route_tests.rs"]
+mod tests;

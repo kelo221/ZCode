@@ -76,6 +76,7 @@ mod tests {
             title: sid.into(),
             phase: "completedSuccess".into(),
             last_activity_at: Some(ts),
+            sort_activity_at: Some(ts),
             preview: String::new(),
             has_background_work: false,
         }

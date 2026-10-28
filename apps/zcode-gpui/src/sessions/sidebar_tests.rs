@@ -11,6 +11,7 @@ fn dummy_session(id: &str, title: &str, preview: &str) -> crate::conversation::m
         title: title.to_string(),
         phase: "idle".to_string(),
         last_activity_at: None,
+        sort_activity_at: None,
         preview: preview.to_string(),
         has_background_work: false,
     }
@@ -86,6 +87,7 @@ fn load_more_escalates_to_all_on_the_second_click() {
 fn at(id: &str, ts: Option<i64>) -> crate::conversation::model::SessionEntry {
     let mut s = dummy_session(id, id, "");
     s.last_activity_at = ts;
+    s.sort_activity_at = ts;
     s
 }
 
