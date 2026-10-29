@@ -1202,6 +1202,15 @@ impl Platform for AndroidPlatform {
                         common.extra_windows.values().cloned().collect::<Vec<_>>(),
                     )
                 };
+                // Momentum scroll steps once per vsync, before the paint
+                // that shows them.
+                let now = std::time::Instant::now();
+                for window_ptr in primary.iter().chain(extras.iter()) {
+                    let step = window_ptr.state.borrow_mut().touch.tick_fling(now);
+                    if let Some(input) = step {
+                        window_ptr.handle_input(input);
+                    }
+                }
                 crate::frame_timing::paint_started();
                 if let Some(window_ptr) = primary {
                     window_ptr.refresh();

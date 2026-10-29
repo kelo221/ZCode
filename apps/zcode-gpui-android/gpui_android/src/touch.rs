@@ -91,6 +91,65 @@ pub(crate) struct TouchEvent {
     pub action: TouchAction,
     pub modifiers: gpui::Modifiers,
     pub pointers: Vec<TouchPointer>,
+    /// Event time in milliseconds; only differences within one gesture
+    /// are used (fling velocity).
+    pub time_ms: f64,
+}
+
+/// Fling tuning, in logical pixels. A fling starts when the finger lifts
+/// faster than `MIN` (and moved within `MAX_PAUSE` of lifting), then
+/// decays exponentially with time constant `1 / FLING_FRICTION` s.
+const FLING_MIN_VELOCITY: f32 = 120.0;
+const FLING_MAX_VELOCITY: f32 = 8000.0;
+const FLING_STOP_VELOCITY: f32 = 25.0;
+const FLING_FRICTION: f32 = 2.6;
+const FLING_SAMPLE_WINDOW_MS: f64 = 100.0;
+const FLING_MAX_PAUSE_MS: f64 = 50.0;
+
+fn now_ms() -> f64 {
+    static ORIGIN: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    ORIGIN.get_or_init(Instant::now).elapsed().as_secs_f64() * 1000.0
+}
+
+/// Momentum scroll after the finger lifted from a scroll gesture.
+struct Fling {
+    /// Logical pixels per second, same sign as the scroll deltas.
+    velocity: Point<f32>,
+    anchor: Point<Pixels>,
+    modifiers: gpui::Modifiers,
+    last_tick: Instant,
+}
+
+/// Finger velocity (px/s) over the last [`FLING_SAMPLE_WINDOW_MS`] of
+/// `(time_ms, delta)` scroll samples, or `None` if the finger had stopped.
+fn release_velocity(samples: &[(f64, Point<Pixels>)], up_ms: f64) -> Option<Point<f32>> {
+    let (last_t, _) = *samples.last()?;
+    if up_ms - last_t > FLING_MAX_PAUSE_MS {
+        return None;
+    }
+    let recent: Vec<_> = samples
+        .iter()
+        .filter(|(t, _)| last_t - t <= FLING_SAMPLE_WINDOW_MS)
+        .collect();
+    let first_t = recent.first()?.0;
+    let span_s = ((last_t - first_t) / 1000.0) as f32;
+    if recent.len() < 2 || span_s <= 0.0 {
+        return None;
+    }
+    // The first sample's motion happened before `first_t`.
+    let (dx, dy) = recent[1..].iter().fold((0.0f32, 0.0f32), |(x, y), (_, d)| {
+        (x + f32::from(d.x), y + f32::from(d.y))
+    });
+    let mut v = point(dx / span_s, dy / span_s);
+    let speed = (v.x * v.x + v.y * v.y).sqrt();
+    if speed < FLING_MIN_VELOCITY {
+        return None;
+    }
+    if speed > FLING_MAX_VELOCITY {
+        let k = FLING_MAX_VELOCITY / speed;
+        v = point(v.x * k, v.y * k);
+    }
+    Some(v)
 }
 
 /// Action the SM dispatches on. Java `MotionEvent.ACTION_*` collapsed
@@ -216,6 +275,7 @@ fn build_from_motion_event(event: &MotionEvent, scale_factor: f32) -> Option<Tou
         action,
         modifiers,
         pointers,
+        time_ms: event.event_time() as f64 / 1_000_000.0,
     })
 }
 
@@ -256,6 +316,7 @@ fn build_from_extra_fields(
         action,
         modifiers,
         pointers,
+        time_ms: now_ms(),
     })
 }
 
@@ -313,6 +374,13 @@ pub(crate) struct TouchState {
     /// `cur_centroid - scroll_centroid` directly (no scale-factor divide;
     /// input is already in logical units).
     scroll_centroid: Option<Point<Pixels>>,
+    /// `(time_ms, delta)` of each emitted scroll step this gesture, for
+    /// the release velocity.
+    scroll_samples: Vec<(f64, Point<Pixels>)>,
+    fling: Option<Fling>,
+    /// This touch landed on a running fling: it only stops the fling, as
+    /// on native Android lists, and must not click what is under it.
+    stopped_fling: bool,
 }
 
 /// Average of all active pointers' logical-pixel positions. Returns
@@ -370,7 +438,9 @@ impl TouchState {
                 // latch this pointer. Always emit `click_count=1` —
                 // tap-tap-counting is dropped on touch; word-select
                 // comes from long-press, not tap repetition.
+                let stopped_fling = self.fling.take().is_some();
                 self.reset();
+                self.stopped_fling = stopped_fling;
                 let primary = &event.pointers[0];
                 let position = primary.pos;
                 self.pointers.insert(
@@ -571,6 +641,7 @@ impl TouchState {
                             if let Some(prev) = self.scroll_centroid {
                                 let delta = cur - prev;
                                 if delta.magnitude() > 0.0 {
+                                    self.scroll_samples.push((event.time_ms, delta));
                                     out.push(PlatformInput::ScrollWheel(ScrollWheelEvent {
                                         position: primary_anchor,
                                         delta: ScrollDelta::Pixels(delta),
@@ -641,6 +712,7 @@ impl TouchState {
                         self.phase = GesturePhase::SingleFingerScroll;
                         out.push(cancel_left(modifiers));
                         if delta.magnitude() > 0.0 {
+                            self.scroll_samples.push((event.time_ms, delta));
                             out.push(PlatformInput::ScrollWheel(ScrollWheelEvent {
                                 position: anchor,
                                 delta: ScrollDelta::Pixels(delta),
@@ -677,6 +749,7 @@ impl TouchState {
                         // Sticky anchor: see commit-to-scroll arm above.
                         let anchor = pstate.down_pos;
                         if delta.magnitude() > 0.0 {
+                            self.scroll_samples.push((event.time_ms, delta));
                             out.push(PlatformInput::ScrollWheel(ScrollWheelEvent {
                                 position: anchor,
                                 delta: ScrollDelta::Pixels(delta),
@@ -712,7 +785,29 @@ impl TouchState {
                 // Final finger lifted. Resolve the gesture per the
                 // phase we're closing out.
                 let position = event.pointers[0].pos;
+                let fling = match self.phase {
+                    GesturePhase::SingleFingerScroll | GesturePhase::MultiFingerScroll => {
+                        let anchor = event
+                            .pointers
+                            .first()
+                            .and_then(|p| self.pointers.get(&p.id))
+                            .map_or(position, |s| s.down_pos);
+                        release_velocity(&self.scroll_samples, event.time_ms).map(|velocity| {
+                            Fling {
+                                velocity,
+                                anchor,
+                                modifiers,
+                                last_tick: Instant::now(),
+                            }
+                        })
+                    }
+                    _ => None,
+                };
+                // A touch that only stopped a fling: release without a click.
+                let stop_only =
+                    self.stopped_fling && matches!(self.phase, GesturePhase::SingleFingerDown);
                 let close = match self.phase {
+                    _ if stop_only => None,
                     // Plain tap: emit `Up(Left, count=1)` to match the
                     // `Down(Left, count=1)` from `TouchAction::Down`.
                     GesturePhase::SingleFingerDown => Some(1usize),
@@ -732,7 +827,10 @@ impl TouchState {
                     _ => None,
                 };
                 self.reset();
-                if let Some(click_count) = close {
+                self.fling = fling;
+                if stop_only {
+                    out.push(cancel_left(modifiers));
+                } else if let Some(click_count) = close {
                     out.push(PlatformInput::MouseUp(MouseUpEvent {
                         button: MouseButton::Left,
                         position,
@@ -775,6 +873,38 @@ impl TouchState {
         self.pointers.clear();
         self.phase = GesturePhase::Idle;
         self.scroll_centroid = None;
+        self.scroll_samples.clear();
+        self.stopped_fling = false;
+    }
+
+    /// One frame of a running fling: the scroll step since the last tick,
+    /// or `None` once it has decayed (or none is running).
+    pub(crate) fn tick_fling(&mut self, now: Instant) -> Option<PlatformInput> {
+        let fling = self.fling.as_mut()?;
+        // A stalled loop (app paused) must not turn into one huge jump.
+        let dt = now
+            .saturating_duration_since(fling.last_tick)
+            .as_secs_f32()
+            .min(0.05);
+        fling.last_tick = now;
+        let decay = (-FLING_FRICTION * dt).exp();
+        // Exact integral of v·e^(-kt) over the step.
+        let travel = (1.0 - decay) / FLING_FRICTION;
+        let step = point(px(fling.velocity.x * travel), px(fling.velocity.y * travel));
+        fling.velocity = point(fling.velocity.x * decay, fling.velocity.y * decay);
+        let (anchor, modifiers) = (fling.anchor, fling.modifiers);
+        let v = fling.velocity;
+        if (v.x * v.x + v.y * v.y).sqrt() < FLING_STOP_VELOCITY {
+            self.fling = None;
+        }
+        (step.magnitude() > 0.0).then(|| {
+            PlatformInput::ScrollWheel(ScrollWheelEvent {
+                position: anchor,
+                delta: ScrollDelta::Pixels(step),
+                modifiers,
+                touch_phase: TouchPhase::Moved,
+            })
+        })
     }
 }
 
