@@ -21,6 +21,29 @@ pub(crate) struct UserRowView<'a> {
     pub attachments: &'a [crate::composer::attachment::AttachmentRef],
 }
 
+/// Bubble text with task / skill / file mentions shown as pills (Desktop
+/// `ConversationUserInputContent`); Copy and Edit still get the raw markdown.
+fn mention_text(row_id: u64, raw: &str) -> crate::shared::selectable::SelectableText {
+    let (shown, pills) = crate::shared::mention_parse::display_with_pills(raw);
+    let style = mention_pill_style();
+    crate::shared::selectable::SelectableText::new(
+        gpui::ElementId::NamedInteger("user-text".into(), row_id),
+        shown,
+    )
+    .styles(pills.into_iter().map(|r| (r, style)).collect())
+}
+
+pub(crate) fn mention_pill_style() -> gpui::HighlightStyle {
+    let mut bg = rgb(crate::shared::theme::ACCENT);
+    bg.a = 0.14;
+    gpui::HighlightStyle {
+        color: Some(rgb(crate::shared::theme::ACCENT).into()),
+        background_color: Some(bg.into()),
+        font_weight: Some(FontWeight::MEDIUM),
+        ..Default::default()
+    }
+}
+
 /// Attachment chips under the bubble. Only the reference reaches the
 /// transcript; the bytes stay with the backend, so no inline preview.
 fn attachment_chips(attachments: &[crate::composer::attachment::AttachmentRef]) -> Option<Div> {
@@ -147,10 +170,7 @@ impl crate::app::root::RootView {
                         .py_3()
                         .text_size(px(ui_size(14.)))
                         .text_color(rgb(TEXT))
-                        .child(crate::shared::selectable::SelectableText::new(
-                            gpui::ElementId::NamedInteger("user-text".into(), v.row_id),
-                            shown.clone(),
-                        )),
+                        .child(mention_text(v.row_id, &shown)),
                 )
                 .children(attachment_chips(v.attachments))
                 .child(

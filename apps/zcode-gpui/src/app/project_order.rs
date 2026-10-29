@@ -47,7 +47,11 @@ impl AppState {
 
     /// Maintenance sweep: write the remembered activity off the UI thread.
     pub(crate) fn flush_project_activity(&mut self, cx: &mut Context<Self>) {
-        if let Some((path, text)) = self.project_activity.take_write() {
+        let writes = [
+            self.project_activity.take_write(),
+            self.take_sidebar_cache_write(),
+        ];
+        for (path, text) in writes.into_iter().flatten() {
             cx.background_spawn(async move {
                 let _ = crate::shared::project_activity::write(&path, &text);
             })
@@ -57,7 +61,11 @@ impl AppState {
 
     /// App quit: the background executor may not run any more.
     pub(crate) fn flush_project_activity_now(&mut self) {
-        if let Some((path, text)) = self.project_activity.take_write() {
+        let writes = [
+            self.project_activity.take_write(),
+            self.take_sidebar_cache_write(),
+        ];
+        for (path, text) in writes.into_iter().flatten() {
             let _ = crate::shared::project_activity::write(&path, &text);
         }
     }

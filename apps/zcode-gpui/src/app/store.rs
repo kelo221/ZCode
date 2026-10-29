@@ -90,6 +90,8 @@ pub struct AppState {
     pub(crate) provider_settings: crate::provider_settings::ProviderSettingsState,
     /// Remembered project activity for sidebar order (app/project_order.rs).
     pub(crate) project_activity: crate::shared::project_activity::ProjectActivity,
+    /// Last known rows and open folders (app/sidebar_warm.rs).
+    pub(crate) sidebar_cache: crate::shared::sidebar_cache::SidebarCache,
 }
 
 impl AppState {
@@ -128,6 +130,7 @@ impl AppState {
                 crate::system_prompt::SystemPromptState::load(crate::system_prompt::override_path())
             },
             project_activity: Self::load_project_activity(remote),
+            sidebar_cache: Self::load_sidebar_cache(remote),
             workspaces: workspace_paths
                 .into_iter()
                 .map(|p| WorkspaceHandle::new(p, candidates.clone()))
@@ -189,6 +192,7 @@ impl AppState {
             if let Some(key) = state.active_workspace.clone() {
                 state.spawn_workspace(&key, cx);
             }
+            state.warm_sidebar(cx);
             state.init_phone_gateway(cx);
             state.init_browser_bridge(cx);
             state.voice = Some(crate::voice::VoiceService::new());

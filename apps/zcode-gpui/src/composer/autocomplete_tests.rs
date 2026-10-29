@@ -35,15 +35,30 @@ fn test_detect_mention_autocomplete() {
 }
 
 #[test]
-fn test_match_workspace_files() {
-    let temp_dir = std::env::temp_dir().join(format!("zcode_test_{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&temp_dir);
-    let test_file = temp_dir.join("sample.rs");
-    let _ = std::fs::write(&test_file, "fn main() {}");
-
-    let matches = match_workspace_files(&temp_dir, "sample", 5);
-    assert_eq!(matches.len(), 1);
-    assert_eq!(matches[0].1, "sample.rs");
-
-    let _ = std::fs::remove_dir_all(&temp_dir);
+fn file_mentions_come_from_the_index_with_desktop_markdown() {
+    let dir = std::env::temp_dir().join(format!("zcode_ac_{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("a")).unwrap();
+    std::fs::write(dir.join("a").join("sample.rs"), "fn main() {}").unwrap();
+    let builtins = builtin_slash_commands();
+    let mut list = vec![];
+    for _ in 0..200 {
+        list = detect_autocomplete("@sample", &builtins, &[], Some(&dir)).unwrap_or_default();
+        if list.iter().all(|s| !matches!(s, AutocompleteSuggestion::Mention { category, .. } if *category == INDEXING)) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let file = list
+        .iter()
+        .find_map(|s| match s {
+            AutocompleteSuggestion::Mention {
+                category: "file",
+                insert_text,
+                ..
+            } => Some(insert_text.clone()),
+            _ => None,
+        })
+        .expect("file suggestion");
+    assert_eq!(file, "[sample.rs](./a/sample.rs)");
+    let _ = std::fs::remove_dir_all(&dir);
 }

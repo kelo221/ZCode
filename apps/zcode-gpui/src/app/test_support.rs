@@ -81,6 +81,7 @@ impl AppState {
             system_prompt: Default::default(),
             provider_settings: Default::default(),
             project_activity: Default::default(),
+            sidebar_cache: Default::default(),
         }
     }
 }

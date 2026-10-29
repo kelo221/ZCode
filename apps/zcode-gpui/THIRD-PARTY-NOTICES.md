@@ -25,6 +25,8 @@ gpui; the `gpui` **crate** is Apache-2.0, unlike the GPL-3.0 Zed app sources.
 | futures | 0.3 | MIT OR Apache-2.0 | https://github.com/rust-lang/futures-rs |
 | base64 | 0.22 | MIT OR Apache-2.0 | https://github.com/marshallpierce/rust-base64 |
 | crc32fast | 1.x | MIT OR Apache-2.0 | https://github.com/srijs/rust-crc32fast |
+| ignore | 0.4 | Unlicense OR MIT | https://github.com/BurntSushi/ripgrep |
+| notify | 8.x | CC0-1.0 | https://github.com/notify-rs/notify |
 
 ## ely-gpui-component (MIT OR Apache-2.0)
 

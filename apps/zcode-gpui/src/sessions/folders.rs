@@ -38,6 +38,27 @@ impl Folders {
     }
 }
 
+impl crate::app::root::RootView {
+    /// Folders open last run open again (shared/sidebar_cache.rs).
+    pub(crate) fn restore_open_folders(&mut self, cx: &mut gpui::Context<Self>) {
+        let open = self.state.read(cx).sidebar_cache.open_folders();
+        self.folders.opened.extend(open);
+    }
+
+    /// Header click: toggle, and remember which folders are open.
+    pub(crate) fn toggle_folder(
+        &mut self,
+        key: &str,
+        was_open: bool,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.folders.toggle(key, was_open);
+        let open = self.folders.opened.clone();
+        self.state
+            .update(cx, |s, _| s.sidebar_cache.set_open_folders(&open));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Folders;

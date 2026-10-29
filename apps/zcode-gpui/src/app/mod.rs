@@ -117,6 +117,7 @@ mod settings_system_prompt_tests;
 mod settings_tests;
 mod settings_voice;
 mod shortcut_actions;
+mod sidebar_warm;
 #[cfg(test)]
 mod slash_catalog_controls_tests;
 mod stop_button;

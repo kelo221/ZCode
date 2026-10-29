@@ -153,6 +153,7 @@ pub fn desktop_main() {
     let explicit_workspace = workspace.is_some();
     let workspace = workspace
         .and_then(|p| p.canonicalize().ok())
+        .map(crate::backend::workspace::plain_path)
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(|| PathBuf::from("."));
 
@@ -249,6 +250,7 @@ pub fn open_window(cx: &mut App, startup: Startup) {
             });
             let root = cx.new(|cx| {
                 let mut root = RootView::new(state, cx);
+                root.restore_open_folders(cx);
                 if let Some(section) = settings_section {
                     root.open_settings_section(section, window, cx);
                 }

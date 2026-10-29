@@ -176,6 +176,20 @@ impl RootView {
                 .update(cx, |state, cx| state.ensure_slash_catalog(false, cx));
         }
         let suggestions = self.autocomplete_suggestions(cx);
+        let indexing = suggestions.is_some()
+            && self
+                .active_workspace_path(cx)
+                .is_some_and(|root| crate::composer::file_index::pending(&root));
+        if indexing {
+            // The index builds or ranks on its own thread; look again shortly for its results.
+            cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_millis(50))
+                    .await;
+                let _ = this.update(cx, |_, cx| cx.notify());
+            })
+            .detach();
+        }
         let popup = suggestions.map(|s| self.render_autocomplete_popup(&s, cx));
         let att_tray = Self::render_attachment_tray(&composer, cx);
         let attach_btn = Self::render_attach_button(cx);

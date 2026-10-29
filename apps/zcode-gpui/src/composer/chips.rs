@@ -15,6 +15,10 @@ impl ChipTable {
         !self.0.is_empty()
     }
 
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &Range<usize>> {
+        self.0.iter()
+    }
+
     pub fn clear(&mut self) {
         self.0.clear();
     }

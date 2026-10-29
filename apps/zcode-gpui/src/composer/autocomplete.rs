@@ -37,56 +37,38 @@ impl AutocompleteSuggestion {
     }
 }
 
-/// Recursively search workspace files matching query, skipping heavy/generated directories.
-pub fn match_workspace_files(
-    root: &Path,
-    query: &str,
-    max_results: usize,
-) -> Vec<(String, String)> {
-    let mut results = Vec::new();
-    let mut stack = vec![(root.to_path_buf(), 0usize)];
-    let mut scanned = 0;
+/// Files shown before session mentions in the `@` popup.
+const FILE_ROWS: usize = 6;
 
-    while let Some((dir, depth)) = stack.pop() {
-        if depth > 4 || scanned > 800 {
-            break;
-        }
-        let Ok(read) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in read.flatten() {
-            scanned += 1;
-            let file_name = entry.file_name().to_string_lossy().into_owned();
-            if file_name.starts_with('.')
-                || file_name == "node_modules"
-                || file_name == "target"
-                || file_name == "dist"
-                || file_name == "out"
-                || file_name == "bin"
-                || file_name == "obj"
-            {
-                continue;
-            }
-            let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
-            let path = entry.path();
-            if let Ok(rel) = path.strip_prefix(root) {
-                let rel_str = rel.to_string_lossy().replace('\\', "/");
-                let matches_query = query.is_empty()
-                    || file_name.to_lowercase().contains(query)
-                    || rel_str.to_lowercase().contains(query);
-                if matches_query && !is_dir {
-                    results.push((rel_str, file_name));
-                    if results.len() >= max_results {
-                        return results;
-                    }
-                }
-            }
-            if is_dir {
-                stack.push((path, depth + 1));
-            }
-        }
+/// Row category shown while the file index builds or first ranks a query; not insertable.
+pub(crate) const INDEXING: &str = "indexing";
+
+/// `@` file and folder suggestions from the workspace index (`file_index.rs`).
+fn file_suggestions(root: &Path, query: &str, list: &mut Vec<AutocompleteSuggestion>) {
+    let found = crate::composer::file_index::search(root, query, FILE_ROWS);
+    if found.indexing || (found.searching && found.hits.is_empty()) {
+        list.push(AutocompleteSuggestion::Mention {
+            category: INDEXING,
+            label: crate::shared::i18n::t("chat.mention.category.loading").to_string(),
+            description: String::new(),
+            insert_text: String::new(),
+        });
     }
-    results
+    for hit in found.hits {
+        // Desktop buildFileMentionMarkdown escaping (label `\ [ ]`, destination `\ >`).
+        let label = hit
+            .name
+            .replace('\\', "\\\\")
+            .replace('[', "\\[")
+            .replace(']', "\\]");
+        let dest = hit.rel.replace('\\', "\\\\").replace('>', "\\>");
+        list.push(AutocompleteSuggestion::Mention {
+            category: if hit.is_dir { "directory" } else { "file" },
+            insert_text: format!("[{label}](./{dest})"),
+            label: hit.name,
+            description: hit.rel,
+        });
+    }
 }
 
 /// Detect whether the current text should trigger slash or mention autocomplete.
@@ -116,18 +98,9 @@ pub fn detect_autocomplete(
                 let q_lower = query.to_lowercase();
                 let mut list = Vec::new();
 
-                // 1. Files in workspace (max 5)
+                // 1. Files and folders in the workspace index
                 if let Some(root) = workspace_root {
-                    let files = match_workspace_files(root, &q_lower, 5);
-                    for (rel_path, file_name) in files {
-                        let insert = format!("[{file_name}](./{rel_path})");
-                        list.push(AutocompleteSuggestion::Mention {
-                            category: "file",
-                            label: file_name,
-                            description: rel_path,
-                            insert_text: insert,
-                        });
-                    }
+                    file_suggestions(root, &q_lower, &mut list);
                 }
 
                 // 2. Active sessions
@@ -183,6 +156,8 @@ impl crate::app::root::RootView {
                     AutocompleteSuggestion::Slash(_) => ("/", "⚡", ACCENT),
                     AutocompleteSuggestion::Mention { category, .. } => match *category {
                         "file" => ("", "📄", TOOL),
+                        "directory" => ("", "📁", TOOL),
+                        INDEXING => ("", "…", MUTED),
                         "session" => ("", "#", MUTED),
                         "skill" => ("", "⚡", ACCENT),
                         "plugin" => ("", "🔌", TEXT),
@@ -268,6 +243,7 @@ impl crate::app::root::RootView {
                     AutocompleteSuggestion::Slash(_) => {}
                     // Mentions become atomic chips (side-table ranges), so
                     // backspace / IME never leave half a link behind.
+                    AutocompleteSuggestion::Mention { category, .. } if *category == INDEXING => {}
                     AutocompleteSuggestion::Mention { insert_text, .. } => {
                         let start = crate::composer::references::reference_query(&text)
                             .map(|(_, _, idx)| idx)

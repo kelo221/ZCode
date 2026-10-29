@@ -26,6 +26,8 @@ pub(crate) struct SelectableText {
     id: ElementId,
     text: SharedString,
     runs: Option<Vec<TextRun>>,
+    /// Highlights over the inherited text style (ignored when `runs` is set).
+    styles: Vec<(Range<usize>, HighlightStyle)>,
     links: Vec<(Range<usize>, String)>,
     group: Option<(Entity<SelectionGroup>, usize)>,
 }
@@ -36,6 +38,7 @@ impl SelectableText {
             id: id.into(),
             text: text.into(),
             runs: None,
+            styles: Vec::new(),
             links: Vec::new(),
             group: None,
         }
@@ -44,6 +47,12 @@ impl SelectableText {
     /// Explicit styling; the runs must cover the whole text.
     pub(crate) fn runs(mut self, runs: Vec<TextRun>) -> Self {
         self.runs = Some(runs);
+        self
+    }
+
+    /// Sorted, disjoint ranges styled on top of the inherited text style.
+    pub(crate) fn styles(mut self, styles: Vec<(Range<usize>, HighlightStyle)>) -> Self {
+        self.styles = styles;
         self
     }
 
@@ -139,6 +148,30 @@ pub(crate) fn highlight_runs(runs: Vec<TextRun>, sel: Range<usize>, bg: Hsla) ->
     out
 }
 
+/// Runs covering `text`: the base style, with `styles` applied over their ranges.
+pub(crate) fn styled_runs(
+    base: &gpui::TextStyle,
+    text: &str,
+    styles: &[(Range<usize>, HighlightStyle)],
+) -> Vec<TextRun> {
+    let mut runs = Vec::with_capacity(styles.len() * 2 + 1);
+    let mut at = 0;
+    for (range, style) in styles {
+        let range = range.start.clamp(at, text.len())..range.end.clamp(at, text.len());
+        if range.start > at {
+            runs.push(base.to_run(range.start - at));
+        }
+        if !range.is_empty() {
+            runs.push(base.clone().highlight(*style).to_run(range.len()));
+        }
+        at = range.end;
+    }
+    if at < text.len() {
+        runs.push(base.to_run(text.len() - at));
+    }
+    runs
+}
+
 impl RenderOnce for SelectableText {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let text = self.text;
@@ -151,7 +184,11 @@ impl RenderOnce for SelectableText {
             (g.block_range(ord, &text), g.slots.clone())
         };
 
-        let styled = match self.runs {
+        let runs = self.runs.or_else(|| {
+            (!self.styles.is_empty())
+                .then(|| styled_runs(&window.text_style(), &text, &self.styles))
+        });
+        let styled = match runs {
             Some(runs) => StyledText::new(text.clone()).with_runs(highlight_runs(
                 runs,
                 range.clone(),

@@ -212,7 +212,9 @@ impl AppState {
                 let Some(ws) = self.ws_mut(ws_key) else {
                     return Err("sessions-index for unknown workspace".into());
                 };
-                was_empty = ws.sessions.is_empty();
+                // 缓存行只是占位：首个实时快照仍按“首次到达”处理，才会预加载最新 3 个会话。
+                was_empty = ws.sessions.is_empty() || ws.sessions_cached;
+                ws.sessions_cached = false;
                 // `sessions` is validated to be an array; individual invalid
                 // entries are skipped (forward compatibility).
                 let previous: std::collections::HashMap<String, SessionEntry> = ws
@@ -277,8 +279,12 @@ impl AppState {
             _ => None,
         };
         self.note_project_activity(ws_key);
+        self.note_sidebar_rows(ws_key);
+        // 启动时会在后台预热 Tasks 和已展开项目的 agent；若不限定为当前工作区，
+        // 先到达的后台快照会把它的首个会话自动打开，抢走启动项目的选中状态。
         if self.active.is_none()
             && !self.draft
+            && self.active_workspace.as_deref() == Some(ws_key)
             && let Some(sid) = first_sid
         {
             self.active = Some(sid.clone());

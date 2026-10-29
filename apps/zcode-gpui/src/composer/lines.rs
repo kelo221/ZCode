@@ -31,8 +31,9 @@ impl Composer {
             .filter(|_| self.view.painted.get())
     }
 
-    fn snap_ix(&self, ix: usize) -> usize {
-        let mut ix = ix.min(self.content.len());
+    /// Raw offset of a displayed layout index, out of any chip.
+    fn snap_ix(&self, shown: usize) -> usize {
+        let mut ix = self.view.display.to_raw(shown).min(self.content.len());
         while !self.content.is_char_boundary(ix) {
             ix -= 1;
         }
@@ -42,7 +43,7 @@ impl Composer {
     /// Start (`end == false`) or end of the visual line holding the caret.
     pub(crate) fn visual_line_edge(&self, end: bool) -> Option<usize> {
         let layout = self.painted_layout()?;
-        let caret = layout.position_for_index(self.caret)?;
+        let caret = layout.position_for_index(self.view.display.to_display(self.caret))?;
         let y = caret.y + layout.line_height() / 2.;
         let bounds = layout.bounds();
         let x = if end {
@@ -52,7 +53,7 @@ impl Composer {
         };
         let ix = hit(layout, Point::new(x, y));
         let ix = if end {
-            end_before_wrap(&self.content, ix)
+            end_before_wrap(&self.view.display.text, ix)
         } else {
             ix
         };
@@ -63,7 +64,7 @@ impl Composer {
     /// first (up) or last (down) line.
     pub(crate) fn visual_line_step(&self, up: bool) -> Option<usize> {
         let layout = self.painted_layout()?;
-        let caret = layout.position_for_index(self.caret)?;
+        let caret = layout.position_for_index(self.view.display.to_display(self.caret))?;
         let line = layout.line_height();
         let y = caret.y + line / 2. + if up { -line } else { line };
         let bounds = layout.bounds();

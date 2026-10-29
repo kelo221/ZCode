@@ -18,6 +18,7 @@ pub(crate) mod question_stepper;
 pub(crate) mod queue;
 pub(crate) mod queue_edit;
 pub(crate) mod rows;
+pub(crate) mod session_entry;
 pub(crate) mod subagent_directory;
 pub(crate) mod subagent_nav;
 pub(crate) mod subagents;

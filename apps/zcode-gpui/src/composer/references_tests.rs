@@ -39,3 +39,12 @@ fn markers_use_word_boundary_and_preserve_unicode_offsets() {
     assert!(reference_query("$custom done").is_none());
     assert!(reference_query("[@custom](plugin://market/custom)").is_none());
 }
+
+#[test]
+fn skill_mention_drops_windows_verbatim_prefix() {
+    assert_eq!(
+        mention_markdown("$x", r"\\?\C:\a\SKILL.md"),
+        r"[$x](C:\\a\\SKILL.md)"
+    );
+    assert_eq!(mention_markdown("$x", "a/SKILL.md"), "[$x](./a/SKILL.md)");
+}

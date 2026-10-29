@@ -183,6 +183,8 @@ fn mention_markdown(label: &str, destination: &str) -> String {
         .replace('\\', "\\\\")
         .replace('[', "\\[")
         .replace(']', "\\]");
+    // CLI 若按带 `\\?\` 的 workspacePath 返回技能路径，前缀会让下面的 scheme 判定失败并被补成 `./`。
+    let destination = &crate::backend::workspace::strip_verbatim_prefix(destination);
     let has_scheme = destination.split_once(':').is_some_and(|(scheme, _)| {
         !scheme.is_empty()
             && scheme

@@ -148,7 +148,7 @@ impl crate::app::root::RootView {
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.close_settings(window, cx);
                 cx.stop_propagation();
-                this.folders.toggle(&key_toggle, expanded_at_render);
+                this.toggle_folder(&key_toggle, expanded_at_render, cx);
                 if !expanded_at_render && !active {
                     this.state
                         .update(cx, |s, cx| s.set_active_workspace(&key_toggle, cx));

@@ -39,6 +39,7 @@ impl RootView {
             self.folders.collapsed.remove(key);
             self.folders.opened.remove(key);
             self.session_limit_step.remove(key);
+            self.state.update(cx, |s, _| s.sidebar_cache.forget(key));
         }
         cx.notify();
     }

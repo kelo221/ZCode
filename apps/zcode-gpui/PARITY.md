@@ -437,6 +437,20 @@ limits below take precedence over the retained historical milestone requirements
   in the background, so opening one shows its transcript at once. Later snapshots (reconnect,
   respawn after idle unload) don't preload again; sessions already subscribed or with a
   subscribe in flight are skipped (`backend/preload.rs`).
+- **Cached rows and warm agents (2026-10-29).** A list only arrives from a workspace's own
+  agent, so without help the Tasks section stayed empty until "+" started its agent, and an
+  expanded project showed nothing until clicked. GPUI keeps the newest 25 rows of every
+  workspace, plus the set of open project folders, in `~/.zcode/v2/gpui_sidebar_cache.json`
+  (`shared/sidebar_cache.rs`, GPUI-owned). At startup the cached rows seed each workspace
+  that has no live list yet; the first live snapshot replaces them (the agent's list is the
+  fact; a cache entry never deletes a live row). Startup then spawns, after the primary
+  project, the Tasks agent and the agents of folders that were open last run, one every
+  ~400 ms (`app/sidebar_warm.rs`); opening a folder still activates it, which starts its
+  agent. A background workspace's first snapshot never auto-opens one of its sessions; only
+  the active workspace's does (`backend/route.rs`). Each started agent's first snapshot runs the preload above, so the 3 newest tasks
+  of every open folder and of Tasks are warm before they are clicked. Idle unload still
+  stops agents nobody uses; the cached rows stay visible. The cache is written by the
+  maintenance sweep when it changed (atomic temp-file rename).
 
 ## Chat usability slice (2026-10-14)
 

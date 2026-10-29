@@ -69,3 +69,18 @@ fn subscription_registry_owns_topics_absent_from_the_sessions_index() {
     assert!(h.sessions.is_empty());
     assert!(h.subscriptions.contains_key("conversation/brand-new"));
 }
+
+#[test]
+fn workspace_path_drops_windows_verbatim_prefix() {
+    use super::{plain_path, strip_verbatim_prefix};
+    assert_eq!(strip_verbatim_prefix(r"\\?\C:\proj"), r"C:\proj");
+    assert_eq!(
+        strip_verbatim_prefix(r"\\?\UNC\host\share"),
+        r"\\host\share"
+    );
+    assert_eq!(strip_verbatim_prefix("/home/x"), "/home/x");
+    assert_eq!(
+        plain_path(std::path::PathBuf::from(r"\\?\C:\proj")),
+        std::path::PathBuf::from(r"C:\proj")
+    );
+}

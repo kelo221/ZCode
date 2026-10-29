@@ -394,6 +394,43 @@ captured workspace/session cache; the composer reads only its current scope. Exp
 Refresh starts a new read after settlement. No IO occurs synchronously in catalog render.
 `$` searches skills; `@` searches plugins plus existing file/session mentions. Canonical
 insertions are `[$name](path)` and `[@name](plugin://pluginId)`, represented as chips.
+Skill and workspace paths never carry the Windows `\\?\` prefix (stripped where the
+workspace path is created and again when a link is built), so an absolute skill path
+serializes as `[$name](C:\\dir\\SKILL.md)` exactly like Electron.
+
+**Chip display (2026-10-29).** The composer string and the sent text stay the raw
+markdown; only the rendering changes, mirroring Electron's `parseMentionMarkdown` /
+`ConversationUserInputContent` (`shared/mention_parse.rs`, `composer/chip_display.rs`). Links and bare tokens
+(`$skill`, `#sess_…`) render as a pill: an icon and the label (session `#`, skill `⚡`
+with the slug in Title Case, file `📄` with the file name, folder `📁`, plugin `🔌`). The
+composer maps caret, selection, hit testing and IME positions between raw and displayed
+text through the chip table; chips stay atomic. The sent bubble shows the same pills;
+Copy copies the raw markdown.
+
+**@ file index (2026-10-29).** Files come from a per-workspace index built on a background
+thread (`composer/file_index.rs`, `ignore` crate): `.gitignore`, `.ignore` and
+`.zcodeignore` are honored, with no depth or count limit, and `.git`, `node_modules`,
+`target`, `Library`, `Temp`, `Logs`, `UserSettings`, `obj` plus `*.meta` files are skipped.
+The previous per-keystroke walk on the UI thread stopped at depth 4 / ~800 entries, so deep
+files in large (Unity) projects never appeared. The index is built when `@` is first typed
+in a workspace ("Indexing…" row meanwhile), rebuilt by the next search ≥500 ms after a file-watcher event (`notify`), and
+rebuilt once when a query finds nothing.
+
+Ranking is fzf-style (`composer/fuzzy.rs`, 2026-10-29), a deliberate improvement over
+Desktop's prefix/substring/subsequence scorer (`packages/shared/src/workspaceFileSearch.ts`);
+the inserted markdown is identical. The query's characters must appear in order,
+case-insensitively. Each entry is scored by the best alignment, found with a dynamic
+program, both on its file name (+8) and on its whole relative path. Matches at word starts
+score highest: the start, after a space, after `/`, after `_` `-` `.`, and on camelCase or
+digit humps. Consecutive runs keep the bonus of the run's start, and gaps cost
+`-3` then `-1` per character. Ties go to the shorter path, then index order. There is no
+typo tolerance. Folders insert as `[name](./rel/)`.
+
+The popup lists up to 6 files and folders, then sessions (8 rows in total). Results are
+memoized per query. Indexes of up to 20k entries rank synchronously, which takes a few ms.
+Larger ones rank on a background thread: the previous query's hits stay visible, or
+"Searching..." when there are none, and the popup re-checks every 50 ms. The walk, rebuilds
+and large rankings never block the UI.
 Disabled or conflicting plugins are never insertable. Loading, errors and an empty
 catalog are visible in the popup, with a retry/refresh control. Tests cover strict
 response decoding, wrong authority, session/draft scope, stale navigation, conflict

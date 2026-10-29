@@ -1,4 +1,3 @@
-use super::workspace::canonical_workspace_string;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -94,6 +93,29 @@ fn local_project_path(entry: &Value) -> Option<&str> {
 
 fn settings_path() -> PathBuf {
     crate::shared::data_paths::paths().settings_file()
+}
+
+/// Absolute path without the `\\?\` verbatim prefix Windows canonicalize adds.
+/// The backend keys workspaces by the plain path string, so the prefix must go.
+pub fn canonical_workspace_string(path: &Path) -> String {
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    strip_verbatim_prefix(&canonical.to_string_lossy())
+}
+
+/// `\\?\C:\x` → `C:\x`, `\\?\UNC\host\share` → `\\host\share`; other paths unchanged.
+pub fn strip_verbatim_prefix(s: &str) -> String {
+    s.strip_prefix(r"\\?\UNC\")
+        .map(|rest| format!(r"\\{rest}"))
+        .or_else(|| s.strip_prefix(r"\\?\").map(str::to_string))
+        .unwrap_or_else(|| s.to_string())
+}
+
+/// [`strip_verbatim_prefix`] for a path value.
+pub fn plain_path(path: PathBuf) -> PathBuf {
+    match path.to_str() {
+        Some(s) if s.starts_with(r"\\?\") => PathBuf::from(strip_verbatim_prefix(s)),
+        _ => path,
+    }
 }
 
 #[cfg(test)]

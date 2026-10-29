@@ -79,6 +79,8 @@ pub struct WorkspaceHandle {
     pub conn_desc: String,
     pub status: String,
     pub sessions: Vec<SessionEntry>,
+    /// `sessions` came from the sidebar cache; the first live snapshot replaces them.
+    pub(crate) sessions_cached: bool,
     pub(crate) inbound: Option<Sender<String>>,
     pub(crate) process_id: Option<u32>,
     candidates: Vec<BackendLaunch>,
@@ -153,6 +155,9 @@ pub struct WorkspaceHandle {
 
 impl WorkspaceHandle {
     pub fn new(path: PathBuf, candidates: Vec<BackendLaunch>) -> Self {
+        // Windows canonicalize() 产生 `\\?\C:\...`；该路径曾原样作为 workspacePath 发给 CLI，
+        // 于是技能目录返回的 SKILL.md 路径也带前缀，提及链接变成 `./\\\\?\\C:...`。
+        let path = plain_path(path);
         let key = canonical_workspace_string(&path);
         let display = path
             .file_name()
@@ -166,6 +171,7 @@ impl WorkspaceHandle {
             conn_desc: String::new(),
             status: "idle — click to connect".into(),
             sessions: Vec::new(),
+            sessions_cached: false,
             inbound: None,
             process_id: None,
             candidates,
@@ -377,17 +383,9 @@ impl Drop for WorkspaceHandle {
     }
 }
 
-/// Absolute path without the `\\?\` verbatim prefix Windows canonicalize adds.
-/// The backend keys workspaces by the plain path string, so the prefix must go.
-pub fn canonical_workspace_string(path: &Path) -> String {
-    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let s = canonical.to_string_lossy().into_owned();
-    s.strip_prefix(r"\\?\UNC\")
-        .map(|rest| format!(r"\\{rest}"))
-        .or_else(|| s.strip_prefix(r"\\?\").map(str::to_string))
-        .unwrap_or(s)
-}
-
 #[cfg(test)]
 pub use super::workspace_paths::conversation_workspace_dir;
-pub use super::workspace_paths::{discover_workspaces, ensure_conversation_workspace_dir};
+pub use super::workspace_paths::{
+    canonical_workspace_string, discover_workspaces, ensure_conversation_workspace_dir, plain_path,
+    strip_verbatim_prefix,
+};

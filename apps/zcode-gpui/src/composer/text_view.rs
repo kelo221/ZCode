@@ -19,6 +19,8 @@ use std::rc::Rc;
 pub(crate) struct TextViewState {
     /// Layout of the last rendered content; `None` while the input is empty.
     pub(crate) layout: Option<TextLayout>,
+    /// Raw ↔ displayed offsets for that layout (chips shown as pills).
+    pub(crate) display: crate::composer::chip_display::ChipDisplay,
     /// Set once that layout has been painted; until then it cannot be queried.
     pub(crate) painted: Rc<Cell<bool>>,
     /// Caret rectangle from the last paint (IME candidate window anchor).
@@ -71,10 +73,8 @@ impl Composer {
             .layout
             .as_ref()
             .filter(|_| self.view.painted.get())?;
-        let mut ix = layout
-            .index_for_position(position)
-            .unwrap_or_else(|ix| ix)
-            .min(self.content.len());
+        let shown = layout.index_for_position(position).unwrap_or_else(|ix| ix);
+        let mut ix = self.view.display.to_raw(shown).min(self.content.len());
         while !self.content.is_char_boundary(ix) {
             ix -= 1;
         }
@@ -177,15 +177,20 @@ impl Render for Composer {
         let notify_target = entity.clone();
         let menu = self.edit_menu(cx);
 
-        let mut highlights = Vec::new();
-        let marked = self.marked_bytes().filter(|r| !r.is_empty());
+        let display = crate::composer::chip_display::ChipDisplay::new(&self.content, &self.chips);
+        let pill = crate::transcript::user_row::mention_pill_style();
+        let mut highlights: Vec<_> = display.pills().map(|r| (r, pill)).collect();
+        let marked = self
+            .marked_bytes()
+            .filter(|r| !r.is_empty())
+            .map(|r| display.range_to_display(r));
         if marked.is_none()
             && let Some(sel) = self.selection()
         {
             let mut bg = rgb(crate::shared::theme::ACCENT);
             bg.a = 0.35;
             highlights.push((
-                sel,
+                display.range_to_display(sel),
                 HighlightStyle {
                     background_color: Some(bg.into()),
                     ..Default::default()
@@ -204,8 +209,11 @@ impl Render for Composer {
                 },
             ));
         }
+        let highlights = crate::composer::chip_display::merge_highlights(highlights);
+        let shown_caret = display.to_display(caret);
         let text =
-            (!empty).then(|| StyledText::new(self.content.clone()).with_highlights(highlights));
+            (!empty).then(|| StyledText::new(display.text.clone()).with_highlights(highlights));
+        self.view.display = display;
         let layout = text.as_ref().map(|t| t.layout().clone());
         self.view.layout = layout.clone();
 
@@ -273,7 +281,7 @@ impl Render for Composer {
                                                 Some(l) => {
                                                     painted.set(true);
                                                     let at = l
-                                                        .position_for_index(caret)
+                                                        .position_for_index(shown_caret)
                                                         .unwrap_or(bounds.origin);
                                                     (at, l.line_height())
                                                 }
