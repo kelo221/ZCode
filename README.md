@@ -21,6 +21,15 @@ Highlights beyond a plain port:
 - **System prompt override.** Settings › System prompt replaces the main agent's system prompt for every workspace.
 - **Agent branches review.** The Review pane lists branches produced by isolated subagents (see below) and shows their diff against the commit they started from, read-only.
 - **Idle unload that respects background work.** Inactive workspaces unload their agent after 10 minutes, but not while background subagents, shells or workflows are still running.
+- **Provider management.** Settings › Model settings has the desktop "Model Provider" section for API-key providers. You can add, edit, enable and delete providers, add, reorder and test their models, and start from a template. Edits go through the CLI. See [PROVIDER_SETTINGS.md](apps/zcode-gpui/PROVIDER_SETTINGS.md).
+- **Running agents in the Review pane.** Each running subagent card shows its model, elapsed time, current todo and progress. The Git file list sits behind a one-line branch and change summary.
+- **Mention chips.** Task (`#`), skill (`$`), file, folder and plugin references show as chips in the composer and in sent messages, as in Electron. The text sent to the agent is unchanged.
+- **Fast `@` file search for large projects.** A per-workspace file index is built in the background and kept up to date by a file watcher. It honours `.gitignore`, `.ignore` and `.zcodeignore`, has no depth or file-count limit, and skips Unity and build folders and `*.meta` files. Results are ranked fzf-style: word starts, camelCase humps and consecutive letters score highest, so `pmgr` finds `PlayerManager.cs`. Electron's ranking is simpler.
+- **Sidebar ready at startup.** The newest tasks of every project and of Tasks are cached and shown immediately. The Tasks agent and the agents of folders you left open start in the background and preload their 3 newest tasks. Projects are ordered by their latest task activity, and a running task doesn't make projects swap places.
+- **Text selection and editing.** A whole Markdown reply can be selected across paragraphs, and right-click offers Copy as Markdown. The composer has undo/redo, Up-arrow recall and visual-line navigation. Shortcuts hide the sidebar (Ctrl+B), zoom (Ctrl+= / - / 0) and go to the previous or next task (Ctrl+Shift+[ / ]).
+- **Local images in replies.** `![alt](path)` images that point at absolute local paths or `file://` URLs show as thumbnails under the assistant's reply.
+- **Unfinished subagent work.** When a subagent stops before finishing, its `<remaining_items>` block shows as an "Unfinished items" list instead of raw tags.
+- **Separate GPUI settings.** GPUI-only preferences live in `~/.zcode/v2/gpui_settings.json`, so they can be changed while the Electron app is running and the desktop never drops them.
 
 ### Agent and CLI changes: `apps/zcode-cli`
 
@@ -30,6 +39,16 @@ GPUI turns these on through optional runtime preferences. The Electron app never
 - **Diagnostics after edits.** After Edit, Write or ApplyPatch, the agent receives errors and warnings for that file from its language server (rust-analyzer, csharp-ls or typescript-language-server, whichever is on `PATH`). A `Diagnostics` tool runs a full project check. Results state whether they are confirmed, best effort or stale; silence is never reported as a clean file. Spec: [lsp-diagnostics.md](apps/zcode-cli/docs/design/v2/tool/lsp-diagnostics.md).
 - **Worktree isolation for subagents.** `Agent` accepts `isolation: "worktree"`, or an agent file can set `isolation: worktree`. The subagent then works in its own git worktree under `.zcode/worktrees/` on branch `zcode/<agentId>`, starting from HEAD (your uncommitted changes are not included). When it finishes, its changes are committed to that branch, or the worktree is removed if nothing changed, and the parent agent is told how to merge it. In a jj repo (and with `jj` on `PATH`) it gets a jj workspace and bookmark `zcode/<agentId>` instead. Spec: [07-subagent.md](apps/zcode-cli/docs/design/v2/tool/07-subagent.md).
 - **Subagent IDs survive restarts.** `SendMessage` can resume a subagent from its saved metadata after the CLI restarts, a foreground subagent fails, or the conversation is compacted. A `ListAgents` tool lists a session's subagents.
+- **Agents use the index for searching.** When code search is on, the agent, Explore subagents and custom agents that list Grep/Glob are pointed at `FindFiles`/`SearchCode` instead of `grep`/`find` through Bash.
+- **A closing `Speak` ends the turn.** A reply that comes with only `Speak` calls no longer triggers another model request.
+
+These apply to every client:
+
+- **`Compact` tool.** The main agent and subagents can compact their own context when you (or the parent agent) ask them to. `SendMessage` also works in plan mode, and a resumed agent still can't write.
+- **"Send now" keeps subagents running.** Sending a message mid-turn used to cancel foreground subagents. They now move to the background, report back when done, and the next turn is told not to start them again. Stop still cancels them.
+- **Subagents keep working after auto-compaction.** Subagents used to quit soon after compacting, claiming their "budget is spent". Their compaction summary now keeps the original brief and a checklist of unfinished work. They end unfinished work with a `<remaining_items>` list, and the parent is told to continue them with `SendMessage`. Usage reports say plainly that the token figures are not a budget.
+- **`ReadSessionContext` runs on the Explore model**, when one is configured, instead of the turn's main model.
+- **Sessions no longer break permanently on two provider errors.** Empty assistant turns are no longer replayed to Anthropic (a 400 "text content blocks must be non-empty"). Pasted BMP/ICO/TIFF images are converted to PNG, and every image part sent to a model declares a media type the provider accepts. Sessions already hit by either error recover.
 - **Telemetry is off.** The CLI's OpenTelemetry export is hard-disabled and cannot be turned back on by environment variables. GPUI sends no telemetry of its own.
 
 ### Tooling
@@ -59,7 +78,7 @@ bun run start:gpui    # opens the repository itself as the workspace
 
 To open another project, run `cargo run --release --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace <absolute_project_path>`. `bun run package:gpui` stages a runnable copy in `dist/zcode-gpui/`. The optional browser extension, native host and voice program have their own build steps in [apps/zcode-gpui/README.md](apps/zcode-gpui/README.md).
 
-Models are reached through API-key providers. GPUI cannot configure providers yet; set one up through the upstream desktop app or the CLI.
+Models are reached through API-key providers. Add one in Settings › Model settings. Account sign-in (Zhipu account) providers are not supported.
 
 ## Documentation
 
