@@ -43,6 +43,18 @@ fn open(
     TestAppWindow<RootView>,
     Receiver<String>,
 ) {
+    open_rows(rows(first..=last), last)
+}
+
+fn open_rows(
+    window_rows: Vec<Value>,
+    last: u64,
+) -> (
+    TestApp,
+    Entity<AppState>,
+    TestAppWindow<RootView>,
+    Receiver<String>,
+) {
     let mut app = TestApp::with_text_system_and_assets(
         Arc::new(gpui::NoopTextSystem::new()),
         Arc::new(ely_gpui_component::Assets),
@@ -72,7 +84,7 @@ fn open(
             "revision": 1,
             "inputRouting": { "mode": "startNow" },
             "control": { "canStop": false },
-            "rows": { "firstRowId": 1, "totalCount": last, "window": rows(first..=last) },
+            "rows": { "firstRowId": 1, "totalCount": last, "window": window_rows },
         }));
         conversation.subscribed = true;
         s.conversations.insert("s".into(), conversation);
@@ -138,6 +150,91 @@ fn page_keys_scroll_the_transcript_from_the_composer() {
         scroll(&mut window),
         (tail, true),
         "PageDown at the tail stays put"
+    );
+}
+
+fn wheel(window: &mut TestAppWindow<RootView>, dx: f32, dy: f32) {
+    window.simulate_event(gpui::ScrollWheelEvent {
+        position: point(px(760.), px(300.)),
+        delta: gpui::ScrollDelta::Pixels(point(px(dx), px(dy))),
+        modifiers: Default::default(),
+        touch_phase: gpui::TouchPhase::Moved,
+    });
+    window.draw();
+}
+
+#[test]
+fn reading_inside_a_long_last_row_is_not_pulled_back_to_the_tail() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let long = |id: u64, lines: usize| {
+        let text = (0..lines)
+            .map(|i| format!("log line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        json!({ "rowId": id, "kind": "userInput", "text": text })
+    };
+    let mut window_rows = rows(1..=10);
+    window_rows.push(long(11, 400));
+    let (mut app, state, mut window, _rx) = open_rows(window_rows, 11);
+    let (tail, follow) = scroll(&mut window);
+    assert!(
+        follow && tail.0 == 10,
+        "pinned inside the long last row: {tail:?}"
+    );
+
+    wheel(&mut window, 0., 300.);
+    let (reading, follow) = scroll(&mut window);
+    assert_eq!(reading.0, 10, "still inside the last row: {reading:?}");
+    assert!(reading.1 < tail.1, "moved up: {tail:?} -> {reading:?}");
+    assert!(!follow, "scrolling up stops following");
+
+    // A horizontal-only event (touchpad side motion, a phone drag with no
+    // vertical part) used to re-arm following from the list's own handler.
+    wheel(&mut window, -40., 0.);
+    assert!(
+        !scroll(&mut window).1,
+        "sideways motion keeps the reader detached"
+    );
+
+    app.update_entity(&state, |s, cx| {
+        let conv = s.conversations.get_mut("s").unwrap();
+        conv.apply_deltas(&[json!({ "op": "row.upserted", "row": long(11, 480) })]);
+        cx.notify();
+    });
+    assert_eq!(
+        scroll(&mut window),
+        (reading, false),
+        "streaming more output into the last row leaves the reader in place"
+    );
+}
+
+#[test]
+fn a_reconnect_snapshot_keeps_the_row_being_read() {
+    let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let (mut app, state, mut window, _rx) = open(1, 150);
+    window.simulate_keystroke("pageup");
+    window.simulate_keystroke("pageup");
+    let (top, follow) = scroll(&mut window);
+    assert!(!follow);
+    let row_at = |window: &mut TestAppWindow<RootView>, ix: usize| {
+        window.update(|view, _, _| view.row_index[ix])
+    };
+    let reading = row_at(&mut window, top.0);
+
+    // Resubscribing delivers only the newest window: rows 100..=160.
+    app.update_entity(&state, |s, cx| {
+        let conv = s.conversations.get_mut("s").unwrap();
+        conv.apply_snapshot(&json!({
+            "rows": { "firstRowId": 1, "totalCount": 160, "window": rows(100..=160) },
+        }));
+        cx.notify();
+    });
+    let (after, follow) = scroll(&mut window);
+    assert!(!follow, "a snapshot does not re-arm following");
+    assert_eq!(
+        row_at(&mut window, after.0),
+        reading,
+        "the same row stays on top: {top:?} -> {after:?}"
     );
 }
 

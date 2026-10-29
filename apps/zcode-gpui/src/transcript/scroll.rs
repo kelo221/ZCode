@@ -222,9 +222,9 @@ impl RootView {
         }
     }
 
-    /// Wheel scroll over the transcript (runs after the list's own handler,
-    /// which reports the pre-scroll visible range and so lags one event).
-    /// `delta_y > 0` is gpui's "scroll up" (content moves down).
+    /// Wheel/touch scroll over the transcript, after the list applied it.
+    /// The only writer of the follow flag for wheel input; events without
+    /// vertical motion leave it alone. `delta_y > 0` is gpui's "scroll up".
     pub(crate) fn sync_follow_after_wheel(&mut self, delta_y: Pixels) {
         let follow = if delta_y > px(0.) {
             false

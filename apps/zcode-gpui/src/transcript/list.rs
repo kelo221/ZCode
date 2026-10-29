@@ -13,21 +13,42 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub(crate) const OVERDRAW: f32 = 800.;
 
-/// Create the shared list state plus the follow-bottom flag it maintains.
-/// The scroll handler records whether the viewport bottom touches the last
-/// row; appends only auto-scroll when it did. It must only read the event —
-/// gpui fires the handler while holding the list's internal `borrow_mut`, so
-/// any call back into `ListState` (e.g. `item_count`) re-borrows and panics.
-/// `ListScrollEvent.count` is the total item count despite its doc comment.
+/// Create the shared list state plus the follow-bottom flag. Appends only
+/// auto-scroll while the flag is set. User scrolling writes it in exactly
+/// one place per input (wheel: `sync_follow_after_wheel`, keys, autoscroll).
+// 不再注册 list 的 scroll handler：它用滚动前的位置判断"视口底边落在最后一行内"，
+// 最后一行是很长的日志/流式输出时，读者在行内阅读也会被判为到底；滚轮处理器对
+// 纯横向事件（dy=0，触控板横向分量、手机触摸）直接返回，于是这个错误的 true
+// 留下来，下一个流式增量把视图拉回最新消息。
 pub(crate) fn new_list_state() -> (ListState, Arc<AtomicBool>) {
     let follow = Arc::new(AtomicBool::new(true));
     let state = ListState::new(0, ListAlignment::Top, px(OVERDRAW));
-    let follow_flag = follow.clone();
-    state.set_scroll_handler(move |ev, _window, _cx| {
-        let at_bottom = ev.visible_range.end >= ev.count;
-        follow_flag.store(at_bottom, Ordering::Relaxed);
-    });
     (state, follow)
+}
+
+/// Where to put the reader after the row set was replaced (`Reset`
+/// without following): the same row by id, else the first row after it.
+/// Row ids are ascending (BTreeMap keys) in both slices.
+// 原先按列表下标恢复：重连 snapshot 只带最新一窗的行，旧下标被截到新列表末尾，
+// 读者就被带到最新消息。按 row id 找回同一行。
+pub(crate) fn reanchor(prev_ids: &[u64], next_ids: &[u64], prev_top: ListOffset) -> ListOffset {
+    let last = next_ids.len().saturating_sub(1);
+    let Some(&row_id) = prev_ids.get(prev_top.item_ix) else {
+        return ListOffset {
+            item_ix: last,
+            offset_in_item: px(0.),
+        };
+    };
+    match next_ids.binary_search(&row_id) {
+        Ok(ix) => ListOffset {
+            item_ix: ix,
+            offset_in_item: prev_top.offset_in_item,
+        },
+        Err(ix) => ListOffset {
+            item_ix: ix.min(last),
+            offset_in_item: px(0.),
+        },
+    }
 }
 
 /// How the cached row index changes between two renders.
@@ -113,6 +134,8 @@ impl RootView {
         // `reset` discards the logical scroll top, so capture it first.
         let prev_top = self.list_state.logical_scroll_top();
         let edit = plan_list_edit(&self.row_index, &ids, session_changed);
+        let reading_anchor = (edit == ListEdit::Reset && !session_changed && !follow)
+            .then(|| reanchor(&self.row_index, &ids, prev_top));
         match edit {
             ListEdit::Unchanged => {}
             ListEdit::Append(n) => self.list_state.splice(prev_count..prev_count, n),
@@ -144,18 +167,10 @@ impl RootView {
             if let Some(pin) = tail_pin(row_count) {
                 self.list_state.scroll_to(pin);
             }
-        } else if edit == ListEdit::Reset {
+        } else if let Some(anchor) = reading_anchor {
             // Replacement/truncation while reading history: stay on the same
-            // row (clamped) instead of snapping to the top after `reset`.
-            let clamped = prev_top.item_ix >= row_count;
-            self.list_state.scroll_to(ListOffset {
-                item_ix: prev_top.item_ix.min(row_count - 1),
-                offset_in_item: if clamped {
-                    px(0.)
-                } else {
-                    prev_top.offset_in_item
-                },
-            });
+            // row instead of snapping to the top after `reset`.
+            self.list_state.scroll_to(anchor);
         }
     }
 

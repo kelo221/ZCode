@@ -48,6 +48,28 @@ fn tail_pin_targets_last_row_and_never_underflows() {
     assert!(pin.offset_in_item > px(1.0e6));
 }
 
+#[test]
+fn reanchor_follows_the_row_id_not_the_index() {
+    let at = |item_ix: usize, off: f32| ListOffset {
+        item_ix,
+        offset_in_item: px(off),
+    };
+    let prev: Vec<u64> = (1..=150).collect();
+    // Snapshot keeps only the newest window: row 120 is now at index 20.
+    let next: Vec<u64> = (100..=160).collect();
+    let top = reanchor(&prev, &next, at(119, 9.));
+    assert_eq!((top.item_ix, top.offset_in_item), (20, px(9.)));
+    // The row is gone (older than the window): nearest following row.
+    let top = reanchor(&prev, &next, at(10, 9.));
+    assert_eq!((top.item_ix, top.offset_in_item), (0, px(0.)));
+    // Removed mid-list: the row after it.
+    let top = reanchor(&[1, 2, 3, 4], &[1, 2, 4], at(2, 5.));
+    assert_eq!((top.item_ix, top.offset_in_item), (2, px(0.)));
+    // Truncated past the end: last row.
+    let top = reanchor(&[1, 2, 3, 4], &[1, 2], at(3, 5.));
+    assert_eq!(top.item_ix, 1);
+}
+
 /// Prepend splice keeps the anchored row: gpui shifts `logical_scroll_top`
 /// by the spliced count, so the row the reader was on stays visible.
 #[test]
