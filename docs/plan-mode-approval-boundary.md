@@ -29,6 +29,7 @@ Plan mode 默认只允许只读、非 destructive 的工具执行。MCP 工具�
 `ExitPlanMode` 仍然是模型调用的工具，runtime 仍然通过 permission broker 创建审批边界。为了让用户在审批弹窗里直接输入修改意见，`ExitPlanMode` 的 broker 实现复用 `AskUserQuestion` 的 `interaction/requestUserInput` 通道，而不是展示普通 `interaction/requestPermission`。
 
 - `approve` 映射为 permission `allow`。
+- `approve` 同时携带非空 `content.approvalNotes`（批准附带的小幅调整）映射为 permission `modify`，`modifiedInput = { ...input, approvalNotes }`。这仍是批准：session 照常退出 `plan`，`ExitPlanMode` 工具结果在 `## Approved Plan` 之后追加 `## User adjustments` 段落；它不是 `plan_approval_feedback`，不会停留在 `plan` 模式要求重新提交计划。`approvalNotes` 只由 broker 根据用户回答写入，模型自行传入的同名字段在纯 `approve` 时会被 broker 清除。
 - 关闭弹窗映射为 permission `deny`，且不携带反馈，保持停止当前 turn 的旧行为。
 - 自定义输入映射为 permission `deny + reason`，并带上 `reasonSource: "plan_approval_feedback"`，用于表达“需要修改计划”；runtime 只能依赖这个显式 source 解释为“用户要求修改计划”，不能把 hook、project rule、broker 里其他 `deny + reason` 当成反馈。
 - runtime 收到 `reasonSource: "plan_approval_feedback"` 后，先为 `ExitPlanMode` 注入 tool result 以闭合 provider 的 tool-use 协议，再通过带 `source: "plan_approval_feedback"` 的 active-turn pending input 路径把自定义输入写入真实用户消息历史。这个顺序保证 provider-visible history 是 `assistant tool_use` → `tool_result` → `user feedback`，同时复用 `persistUserPrompt`，让下次 resume 能看到这条反馈。UI 把缺省来源的 active-turn steer 渲染成 guided/steer 消息，计划审批反馈必须渲染为普通用户气泡。

@@ -6,7 +6,9 @@
 
 use crate::app::root::RootView;
 use crate::composer::input::{Composer, ComposerEvent};
-use crate::conversation::interactions::{PendingInteraction, free_text_answer, questions_answer};
+use crate::conversation::interactions::{
+    PendingInteraction, free_text_answer, plan_approve_answer, questions_answer,
+};
 use crate::shared::i18n::{label, t};
 use crate::shared::theme::{BORDER, CARD};
 use crate::shared::theme_colors::color as rgb;
@@ -193,6 +195,18 @@ impl RootView {
             .collect();
         self.clear_interaction_drafts(&iid, cx);
         let answer = questions_answer(&pi.questions, &picks, &typed);
+        self.state
+            .update(cx, |app, cx| app.resolve_interaction(&iid, answer, cx));
+    }
+
+    /// Approve a plan, carrying any typed text along as approval notes.
+    // 修复：此前 Approve 先清空草稿再发送预先构造的固定答案，输入框里的调整意见被丢弃；
+    // 现在在清空前读取输入，随批准一起发出。
+    pub(crate) fn approve_plan(&mut self, pi: &PendingInteraction, cx: &mut Context<Self>) {
+        let iid = pi.interaction_id.clone();
+        let notes = self.typed_text(&iid, 0, cx);
+        self.clear_interaction_drafts(&iid, cx);
+        let answer = plan_approve_answer(pi, &notes);
         self.state
             .update(cx, |app, cx| app.resolve_interaction(&iid, answer, cx));
     }

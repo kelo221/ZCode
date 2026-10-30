@@ -1,9 +1,11 @@
 //! ExitPlanMode approval card (Desktop `V4InteractionDialogs.tsx` plan
-//! branch): the plan rendered as markdown, a one-click Approve, a change
-//! request typed in the card, and Decline.
+//! branch): the plan rendered as markdown, Approve (text typed in the card
+//! rides along as approval notes), a change request typed in the card, and
+//! Decline.
 
 use crate::app::root::RootView;
-use crate::conversation::interactions::{PendingInteraction, decline_answer, plan_approve_answer};
+use crate::conversation::interaction_view::action_btn;
+use crate::conversation::interactions::{PendingInteraction, decline_answer};
 use crate::shared::markdown::render_markdown;
 use crate::shared::theme::{ACCENT, BORDER, CODE_BG, DANGER, MUTED};
 use crate::shared::theme_colors::color as rgb;
@@ -43,14 +45,17 @@ impl RootView {
                 .child(render_markdown(plan, id_seed, false))
                 .into_any_element()
         };
-        let approve = self.answer_btn(
-            iid,
-            "approve",
+        let approve_pi = pi.clone();
+        let approve = action_btn(
+            format!("ia-{iid}-approve"),
             "Approve and start",
-            (ACCENT, 0x000000),
-            plan_approve_answer(pi),
-            cx,
-        );
+            ACCENT,
+            0x000000,
+        )
+        .on_click(cx.listener(move |this, _, _, cx| {
+            cx.stop_propagation();
+            this.approve_plan(&approve_pi, cx);
+        }));
         let feedback = self.typed_answer_btn(pi, "Request changes", cx);
         let decline = self.answer_btn(
             iid,

@@ -14,10 +14,7 @@ import {
 } from "@zcode/contracts";
 import { PermissionService, defaultPermissionConfig } from "../src/permission/service.js";
 import { createToolExecutor } from "../src/tool/executor.js";
-import {
-  enterPlanModeToolEntry,
-  exitPlanModeToolEntry,
-} from "../src/tool/handlers/plan-mode.js";
+import { enterPlanModeToolEntry, exitPlanModeToolEntry } from "../src/tool/handlers/plan-mode.js";
 import { createToolRegistry } from "../src/tool/registry.js";
 import { MemoryFileSystem } from "./memory-test-utils.js";
 
@@ -79,6 +76,64 @@ describe("plan mode tools", () => {
       SessionEventType.ToolCallStarted,
       SessionEventType.ToolCallResult,
     ]);
+  });
+
+  it("appends the user's approval notes to the approved plan", async () => {
+    const sessionId = createSessionId("exit-plan-notes");
+    const turnId = createTurnId("exit-plan-notes");
+    const traceContext = createRootTraceContext({ sessionId, turnId });
+    let mode: CollaborationMode = "plan";
+    let prePlanMode: Exclude<CollaborationMode, "plan"> | undefined = "build";
+    const sessionModePort = createSessionModePort({
+      getMode: () => mode,
+      getPrePlanMode: () => prePlanMode,
+      setMode: (nextMode) => {
+        mode = nextMode;
+      },
+      setPrePlanMode: (nextMode) => {
+        prePlanMode = nextMode;
+      },
+    });
+    const permissionBroker: PermissionBrokerPort = {
+      async requestPermission(request) {
+        return {
+          decision: "modify",
+          modifiedInput: {
+            ...(request.input as Record<string, unknown>),
+            approvalNotes: "  Also update the README.  ",
+          },
+        };
+      },
+    };
+
+    const result = await createPlanModeExecutor({
+      events: [],
+      fileSystemPort: new MemoryFileSystem({}),
+      mode: () => mode,
+      permissionBroker,
+      sessionId,
+      sessionModePort,
+      traceContext,
+      turnId,
+    }).execute(
+      {
+        id: createToolCallId("exit-plan-notes"),
+        input: { plan: "1. Do it" },
+        name: "ExitPlanMode",
+      },
+      { traceContext },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.output).toMatchObject({
+      approved: true,
+      approvalNotes: "Also update the README.",
+    });
+    expect(result.modelContent).toContain("## Approved Plan:\n1. Do it");
+    expect(result.modelContent).toContain(
+      "## User adjustments (apply these on top of the plan):\nAlso update the README.",
+    );
+    expect(mode).toBe("build");
   });
 
   it("requests approval before exiting plan mode and returns the approved plan", async () => {
@@ -144,6 +199,7 @@ describe("plan mode tools", () => {
     });
     expect(result.modelContent).toContain("User has approved your plan");
     expect(result.modelContent).toContain("## Approved Plan");
+    expect(result.modelContent).not.toContain("User adjustments");
     expect(
       fileSystemPort.files["/workspace/project/.zcode/plans/plan-sess_exit-plan-mode.md"],
     ).toBe("\n  1. Update the service boundary\n2. Add tests\n\n");

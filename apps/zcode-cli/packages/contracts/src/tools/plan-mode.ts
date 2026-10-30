@@ -79,6 +79,10 @@ export const ExitPlanModeOutputSchema = z
       .enum(["build", "edit", "yolo", "guarded", "auto"])
       .describe("Current session mode after exiting plan mode."),
     allowedPrompts: z.array(ExitPlanModeAllowedPromptSchema).optional(),
+    approvalNotes: z
+      .string()
+      .optional()
+      .describe("Adjustments the user typed alongside the approval, to apply on top of the plan."),
   })
   .strict();
 export type ExitPlanModeOutput = z.infer<typeof ExitPlanModeOutputSchema>;

@@ -222,8 +222,10 @@ pub fn questions_answer(
     json!({ "action": "accept", "content": content })
 }
 
-/// One-click ExitPlanMode approval.
-pub fn plan_approve_answer(pi: &PendingInteraction) -> Value {
+/// ExitPlanMode approval. Non-empty `notes` ride along as
+/// `content.approvalNotes`: the broker still approves, and the model gets
+/// them as adjustments on top of the plan.
+pub fn plan_approve_answer(pi: &PendingInteraction, notes: &str) -> Value {
     let questions = if pi.questions.is_empty() {
         vec![Question {
             question: pi.text.clone(),
@@ -235,7 +237,12 @@ pub fn plan_approve_answer(pi: &PendingInteraction) -> Value {
         pi.questions.clone()
     };
     let picks = HashMap::from([(0, vec![PLAN_APPROVE_VALUE.to_string()])]);
-    questions_answer(&questions[..1], &picks, &HashMap::new())
+    let mut answer = questions_answer(&questions[..1], &picks, &HashMap::new());
+    let notes = notes.trim();
+    if !notes.is_empty() {
+        answer["content"]["approvalNotes"] = json!(notes);
+    }
+    answer
 }
 
 pub fn decline_answer() -> Value {

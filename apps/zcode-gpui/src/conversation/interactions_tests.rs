@@ -245,7 +245,7 @@ fn parses_plan_approval_with_plan_text() {
 #[test]
 fn plan_approval_answer_reaches_broker_through_positional_keys() {
     let pi = PendingInteraction::from_value(&plan_value()).unwrap();
-    let answer = plan_approve_answer(&pi);
+    let answer = plan_approve_answer(&pi, "  ");
     assert_eq!(answer["action"], "accept");
     assert_eq!(answer["content"]["answer_0"], "approve");
     assert_eq!(answer["content"]["answer"], "approve");
@@ -253,6 +253,17 @@ fn plan_approval_answer_reaches_broker_through_positional_keys() {
         answer["content"]["answers"]["Agent wants to exit plan mode"],
         "approve"
     );
+    assert!(answer["content"].get("approvalNotes").is_none());
+}
+
+/// Text typed in the card goes along with the approval instead of being
+/// dropped; the answer value stays "approve" so the broker still approves.
+#[test]
+fn plan_approval_carries_typed_notes() {
+    let pi = PendingInteraction::from_value(&plan_value()).unwrap();
+    let answer = plan_approve_answer(&pi, "  also add tests \n");
+    assert_eq!(answer["content"]["answer_0"], "approve");
+    assert_eq!(answer["content"]["approvalNotes"], "also add tests");
 }
 
 #[test]

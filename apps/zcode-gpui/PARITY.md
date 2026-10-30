@@ -506,6 +506,9 @@ image cache, composer selection).
   single question, carrying option *values*. The broker reads `answer_0`/`answer` because the
   projected question text is the tool's `reason`, not its fixed string. Acceptance:
   Approve exits plan mode instead of "Permission denied for ExitPlanMode".
+  Approve with text in the box (GPUI extension, 2026-10-30) also sends
+  `content.approvalNotes`; the plan is still approved and the tool result gains a
+  "User adjustments" section. An empty box approves exactly as before.
 - **AskUserQuestion.** One question at a time (header badge, `n / N`, Back,
   Continue→Submit on the last). Options are full-width wrapping rows. Nothing overflows the
   card at any width.

@@ -148,7 +148,8 @@ async function requestPermission(
     },
     {
       ...createInteractionRegistrationOptions(request, "other"),
-      ...(request.approvalMode !== "user-once" && !request.origin &&
+      ...(request.approvalMode !== "user-once" &&
+      !request.origin &&
       !request.optionsPolicy &&
       options?.claimResponse &&
       context.deps?.sessionStore?.commitPermissionFullAccess
@@ -448,7 +449,7 @@ async function requestExitPlanModeApproval(
     options?.onRegistered,
   );
 
-  return planApprovalResponseToBrokerResult(response);
+  return planApprovalResponseToBrokerResult(request, response);
 }
 
 function v4AnswerToPlanApprovalResponse(answer: V4InteractionAnswer): ZCodeUserInputResponse {
@@ -546,6 +547,7 @@ function userInputResponseToBrokerResult(
 }
 
 function planApprovalResponseToBrokerResult(
+  request: PermissionBrokerRequest,
   response: ZCodeUserInputResponse,
 ): PermissionBrokerResult {
   if (response.action !== "accept") {
@@ -558,6 +560,22 @@ function planApprovalResponseToBrokerResult(
 
   const answer = normalizePlanApprovalAnswer(response.content);
   if (answer === EXIT_PLAN_MODE_APPROVAL_APPROVE) {
+    // 修复：此前批准时用户在审批框里输入的调整意见被直接丢弃。批准附带
+    // approvalNotes 时走 modify，把意见写进 ExitPlanMode 输入，由工具结果
+    // 追加给模型；仍然是批准，不走 plan_approval_feedback 的拒绝-重提路径。
+    // 纯批准时清掉模型自行传入的同名字段，保证 approvalNotes 只来自用户。
+    const input = isRecord(request.input) ? request.input : {};
+    const approvalNotes = normalizePlanApprovalNotes(response.content);
+    if (approvalNotes || "approvalNotes" in input) {
+      const rest: Record<string, unknown> = { ...input };
+      delete rest.approvalNotes;
+      return {
+        decision: "modify",
+        modifiedInput: approvalNotes ? { ...rest, approvalNotes } : rest,
+        reason: response.reason,
+        resolvedAt: new Date(),
+      };
+    }
     return {
       decision: "allow",
       reason: response.reason,
@@ -592,6 +610,13 @@ function normalizePlanApprovalAnswer(
     answers[EXIT_PLAN_MODE_APPROVAL_QUESTION] ?? content.answer_0 ?? content.answer,
   )?.trim();
   return answer && answer.length > 0 ? answer : undefined;
+}
+
+function normalizePlanApprovalNotes(
+  content: Record<string, unknown> | undefined,
+): string | undefined {
+  const notes = typeof content?.approvalNotes === "string" ? content.approvalNotes.trim() : "";
+  return notes.length > 0 ? notes : undefined;
 }
 
 function normalizeAskUserQuestionResponseContent(

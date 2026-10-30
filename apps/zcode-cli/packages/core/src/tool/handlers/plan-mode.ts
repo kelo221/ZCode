@@ -92,8 +92,12 @@ export const exitPlanModeHandler: ToolHandler = async (input, context) => {
     },
   });
 
+  // The permission broker writes approvalNotes from the user's approval answer.
+  const approvalNotes = typeof parsed.approvalNotes === "string" ? parsed.approvalNotes.trim() : "";
+
   return {
     allowedPrompts: parsed.allowedPrompts,
+    ...(approvalNotes ? { approvalNotes } : {}),
     approved: true,
     planEnabled: transition.planEnabled,
     previousPlanEnabled: transition.previousPlanEnabled,
@@ -276,14 +280,18 @@ Remember: DO NOT write or edit any files yet. This is a read-only exploration an
 function formatExitPlanModeModelContent(output: unknown): string {
   const result = output as ExitPlanModeOutput;
   const plan = result.plan?.trim();
+  const notes = result.approvalNotes?.trim();
+  const adjustments = notes
+    ? `\n\n## User adjustments (apply these on top of the plan):\n${notes}`
+    : "";
   if (!plan) {
-    return "User has approved exiting plan mode. You can now proceed.";
+    return `User has approved exiting plan mode. You can now proceed.${adjustments}`;
   }
 
   return `User has approved your plan. You can now start coding. Start with updating your todo list if applicable.
 
 ## Approved Plan:
-${plan}`;
+${plan}${adjustments}`;
 }
 
 function planModePermission(

@@ -5600,6 +5600,91 @@ describe("ZCodeProtocolAgentServer", () => {
     });
   });
 
+  it.each([
+    {
+      name: "approve with notes approves and carries the notes",
+      input: { plan: "1. Change the runtime" },
+      content: { answer: "approve", approvalNotes: "  Also update docs.  " },
+      expected: {
+        decision: "modify",
+        modifiedInput: { plan: "1. Change the runtime", approvalNotes: "Also update docs." },
+      },
+    },
+    {
+      name: "plain approve stays allow",
+      input: { plan: "1. Change the runtime" },
+      content: { answer: "approve", approvalNotes: "   " },
+      expected: { decision: "allow" },
+    },
+    {
+      name: "plain approve strips model-supplied approvalNotes",
+      input: { plan: "1. Change the runtime", approvalNotes: "self-approved" },
+      content: { answer: "approve" },
+      expected: { decision: "modify", modifiedInput: { plan: "1. Change the runtime" } },
+    },
+  ])("ExitPlanMode approval: $name", async ({ input, content, expected }) => {
+    const outgoing: ZCodeProtocolMessage[] = [];
+    let brokerResult:
+      | Awaited<ReturnType<NonNullable<ZCodeAppOptions["permissionBroker"]>["requestPermission"]>>
+      | undefined;
+    const server = new ZCodeProtocolAgentServer({
+      createZCodeApp: (options) =>
+        createFakeApp(options, {
+          sendInput: async () => {
+            brokerResult = await options?.permissionBroker?.requestPermission({
+              input,
+              mode: "plan",
+              reason: "ExitPlanMode requires user approval before implementation",
+              requestId: "exit_plan_notes",
+              requestedAt: new Date(1),
+              riskLevel: "high",
+              ruleId: "rule_exit_plan",
+              sessionId: (options?.sessionId ?? "sess_test") as never,
+              toolCallId: "tool_exit_plan" as never,
+              toolName: "ExitPlanMode",
+              traceId: "trace_test" as never,
+            });
+            return { kind: "rejected", reason: "no_active_turn" };
+          },
+        }),
+      cwd: workspace.workspacePath,
+    });
+    setTestNotificationSink(server, (message) => outgoing.push(message));
+
+    const created = zcodeSessionStateSnapshotSchema.parse(
+      await requestResult(server, {
+        id: 1,
+        method: zcodeProtocolMethods.sessionCreate,
+        params: { workspace },
+      }),
+    );
+    await requestResult(server, {
+      id: 2,
+      method: zcodeProtocolMethods.sessionSend,
+      params: { sessionId: created.session.sessionId, content: "plan" },
+    });
+    await vi.waitFor(() => {
+      expect(outgoing.some((message) => message.method === "interaction/requestUserInput")).toBe(
+        true,
+      );
+    });
+    const userInputRequest = outgoing.find(
+      (message) => message.method === "interaction/requestUserInput" && "id" in message,
+    );
+
+    await server.handleMessage({
+      id: userInputRequest?.id ?? "",
+      result: { action: "accept", content },
+    });
+    await vi.waitFor(() => {
+      expect(brokerResult).toBeDefined();
+    });
+    expect(brokerResult).toMatchObject(expected);
+    if (expected.decision === "modify") {
+      expect(brokerResult?.modifiedInput).toEqual(expected.modifiedInput);
+    }
+  });
+
   it("reannounces pending ExitPlanMode approval so a later client request can be answered", async () => {
     vi.useFakeTimers();
     try {
