@@ -15,6 +15,7 @@ impl AppState {
                 .await;
                 let alive = this
                     .update(cx, |state, cx| {
+                        state.release_idle_conversations(std::time::Instant::now());
                         state.reap_idle_agents();
                         state.maintain_profiles(cx);
                         state.flush_project_activity(cx);

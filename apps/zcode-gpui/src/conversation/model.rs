@@ -40,6 +40,9 @@ pub struct ConversationState {
     pub revision_known: bool,
     pub config: SessionConfig,
     pub subscribed: bool,
+    /// First maintenance sweep that found this subscription releasable;
+    /// cleared when it stops being releasable (`app/conversation_release.rs`).
+    pub(crate) releasable_since: Option<std::time::Instant>,
     /// Oldest row of the whole conversation (wire `rows.firstRowId`). The
     /// snapshot `window` carries only the tail, so rows older than the first
     /// loaded one page in through `v4/conversation/rowsRange`.

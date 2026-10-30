@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
-import { writeOfficialPluginRuntimeManifest } from "../src/app/official-plugin-runtime.js";
+import type { McpServerConfig } from "@zcode/contracts";
+import {
+  bindPluginHostServersToCurrentRuntime,
+  writeOfficialPluginRuntimeManifest,
+} from "../src/app/official-plugin-runtime.js";
 
 describe("official plugin runtime manifest", () => {
   const cleanups: string[] = [];
@@ -72,6 +76,35 @@ describe("official plugin runtime manifest", () => {
     expect(manifest.mcpServers.search).toEqual(remote);
     writeOfficialPluginRuntimeManifest(input);
     expect(await readFile(manifestPath, "utf8")).toBe(contents);
+  });
+
+  it("rebinds plugin-host servers written by another runtime to this process", () => {
+    process.argv[1] = join(tmpdir(), "main.ts");
+    const servers: Record<string, McpServerConfig> = {
+      documents: {
+        type: "stdio",
+        command: "C:\\Programs\\ZCode\\ZCode.exe",
+        args: ["C:\\Programs\\ZCode\\zcode.cjs", "__zcode-plugin-host", "/plugin/dist/server.mjs"],
+        env: { ELECTRON_RUN_AS_NODE: "1" },
+      },
+      user: { type: "stdio", command: "uvx", args: ["blender-mcp"] },
+      remote: { type: "http", url: "https://example.com/mcp" },
+    };
+    const untouched = { user: servers.user, remote: servers.remote };
+
+    bindPluginHostServersToCurrentRuntime(servers);
+
+    expect(servers.documents).toMatchObject({
+      command: process.execPath,
+      args: [
+        ...process.execArgv,
+        join(tmpdir(), "main.ts"),
+        "__zcode-plugin-host",
+        "/plugin/dist/server.mjs",
+      ],
+      env: { ELECTRON_RUN_AS_NODE: "1" },
+    });
+    expect({ user: servers.user, remote: servers.remote }).toEqual(untouched);
   });
 
   it("keeps invalid mcpServers structural errors fatal", async () => {

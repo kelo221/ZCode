@@ -183,7 +183,7 @@ impl AppState {
                     ws.status = "no backend".into();
                     eprintln!("[zcode-gpui] no usable backend for {display}");
                     self.push_error(format!(
-                        "no usable backend for {display} — check the installed ZCode app"
+                        "no usable backend for {display} — install bun (or ship zcode-backend beside GPUI)"
                     ));
                 }
             }

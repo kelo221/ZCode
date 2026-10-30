@@ -68,6 +68,27 @@ fn only_the_gpui_variable_overrides() {
     assert_eq!(first.program, "custom-agent");
 }
 
+/// GPUI must never launch the installed ZCode desktop app: it used to be the
+/// last agent candidate (and the Services Host fallback), so a machine without
+/// bun silently ran GPUI's agents on `ZCode.exe`.
+#[test]
+fn installed_desktop_app_is_never_a_candidate() {
+    let mut forbidden = vec!["ZCode.exe".to_string()];
+    if let Some((app, _)) = find_installed_bundle() {
+        forbidden.push(app.to_string_lossy().into_owned());
+    }
+    for candidate in resolve_candidates(Path::new(".")) {
+        for bad in &forbidden {
+            assert!(
+                !candidate.program.ends_with(bad.as_str()),
+                "{} launches {}",
+                candidate.describe,
+                candidate.program
+            );
+        }
+    }
+}
+
 #[test]
 fn agent_args_prefer_json_array_so_quoted_paths_survive() {
     assert_eq!(

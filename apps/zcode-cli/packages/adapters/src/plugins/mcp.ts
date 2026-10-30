@@ -186,6 +186,12 @@ function resolveMcpServerConfig(
   const baseConfig: McpServerConfigBase = {
     alwaysLoad: typeof server.alwaysLoad === "boolean" ? server.alwaysLoad : undefined,
     enabled: typeof server.enabled === "boolean" ? server.enabled : undefined,
+    // 修复原因：官方插件 manifest 声明 isolation: "workspace"，但此处曾漏传，连接池按默认
+    // session 隔离为每个会话各起一套 stdio 进程（GPUI 下累积到上百个）。只接受合法枚举值。
+    isolation:
+      server.isolation === "workspace" || server.isolation === "session"
+        ? server.isolation
+        : undefined,
     timeoutMs: typeof server.timeoutMs === "number" ? server.timeoutMs : undefined,
     source: {
       kind: context.loaded.marketplace === ZCODE_OFFICIAL_PLUGIN_MARKETPLACE ? "builtin" : "plugin",

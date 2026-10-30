@@ -5,6 +5,7 @@ import type { Logger, McpServerConfig, PluginLoadOutcome } from "@zcode/contract
 import type { StartupTimer } from "../startup-logging.js";
 import { resolveOfficialPluginRoots } from "./bundled-plugins.js";
 import { DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS } from "./official-plugin-definitions.js";
+import { bindPluginHostServersToCurrentRuntime } from "./official-plugin-runtime.js";
 import { getPluginStorageRoot } from "./paths.js";
 import type { ZCodeAppOptions } from "./types.js";
 import { filterVisualizeSkillRoots } from "./visualize-skill-gate.js";
@@ -37,6 +38,7 @@ export function resolveStartupPlugins(input: {
     storageRoot: pluginStorageRoot,
     workingDirectory: input.workingDirectory,
   });
+  bindPluginHostServersToCurrentRuntime(pluginOutcome.mcpServers);
   pluginOutcome.skillRoots = filterVisualizeSkillRoots(
     pluginOutcome.skillRoots,
     input.options.includeVisualize,

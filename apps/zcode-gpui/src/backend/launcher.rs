@@ -15,10 +15,10 @@
 //!      the preferred runtime on this branch. Only offered when the workspace
 //!      is installed (`bun install`) and the CLI packages are built, because
 //!      the CLI packages export `dist/`; otherwise it would die at startup.
-//!   4. The installed ZCode desktop app's bundled runtime
-//!      (`zcode.cjs` under ELECTRON_RUN_AS_NODE=1), the same launch contract
-//!      packages/services/src/zcode-agent/zcodeAgentProcessManager.ts uses for
-//!      packaged builds. Fallback; it updates with the desktop app.
+//!
+//! The installed ZCode desktop app is never launched: GPUI and its agent run
+//! on their own runtime only. The desktop install is at most read from
+//! (ripgrep, Built-in Provider release), see compiled_backend.rs.
 use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
@@ -54,7 +54,6 @@ pub fn resolve_candidates(workspace: &Path) -> Vec<BackendLaunch> {
 
     out.extend(crate::backend::compiled_backend::sibling_launch());
     out.extend(bun_source_launch(workspace));
-    out.extend(installed_app_launch());
 
     out
 }
@@ -143,6 +142,8 @@ fn bun_source_launch(workspace: &Path) -> Option<BackendLaunch> {
     })
 }
 
+/// Locate the installed desktop app's files. Only ever read from — never
+/// executed (see the module docs).
 pub(crate) fn find_installed_bundle() -> Option<(PathBuf, PathBuf)> {
     #[cfg(target_os = "windows")]
     {
@@ -309,62 +310,6 @@ pub(crate) fn common_backend_envs() -> Vec<(String, String)> {
         isolated.apply_child_environment(&mut envs);
     }
     envs
-}
-
-fn installed_app_launch() -> Option<BackendLaunch> {
-    let (app, cjs) = find_installed_bundle()?;
-    let mut envs = common_backend_envs();
-    envs.push(("ELECTRON_RUN_AS_NODE".into(), "1".into()));
-
-    if let Some(res) = cjs.parent().and_then(|p| p.parent()) {
-        let cfg = res
-            .join("config")
-            .join("provider")
-            .join("zcode-builtin.json");
-        let glm = res.join("glm").join("provider").join("zcode-builtin.json");
-
-        let builtin = if cfg.exists() {
-            Some(cfg)
-        } else if glm.exists() {
-            Some(glm)
-        } else {
-            None
-        };
-        if let Some(b) =
-            builtin.filter(|_| std::env::var("ZCODE_BUILTIN_PROVIDER_CONFIG_FILE").is_err())
-        {
-            envs.push((
-                "ZCODE_BUILTIN_PROVIDER_CONFIG_FILE".into(),
-                b.to_string_lossy().into_owned(),
-            ));
-        }
-
-        let rg =
-            res.join("tools")
-                .join("ripgrep")
-                .join(if cfg!(windows) { "rg.exe" } else { "rg" });
-        if rg.exists() && std::env::var("ZCODE_RG_BINARY").is_err() {
-            envs.push(("ZCODE_RG_BINARY".into(), rg.to_string_lossy().into_owned()));
-        }
-    }
-
-    Some(BackendLaunch {
-        program: app.to_string_lossy().into_owned(),
-        args: vec![
-            cjs.to_string_lossy().into_owned(),
-            "app-server".into(),
-            "--stdio".into(),
-            "--surface".into(),
-            "desktop".into(),
-        ],
-        envs: if let Some(isolated) = crate::shared::isolation::active() {
-            isolated.apply_child_environment(&mut envs);
-            envs
-        } else {
-            envs
-        },
-        describe: "installed ZCode app runtime".into(),
-    })
 }
 
 pub use crate::backend::conn::{ConnEvent, spawn_connection};

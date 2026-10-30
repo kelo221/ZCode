@@ -477,6 +477,31 @@ limits below take precedence over the retained historical milestone requirements
   in the background, so opening one shows its transcript at once. Later snapshots (reconnect,
   respawn after idle unload) don't preload again; sessions already subscribed or with a
   subscribe in flight are skipped (`backend/preload.rs`).
+- **Conversation release (2026-10-30).** A conversation subscription keeps that session
+  resident in the agent, and each resident session holds its own set of stdio MCP server
+  processes. GPUI used to subscribe every thread it opened and never unsubscribe, which reached
+  about 150 MCP processes. Desktop releases a thread 30 s after it leaves the screen
+  (`SESSION_DATA_LAYER_KEEP_WARM_MS`). GPUI matches it with the 30 s maintenance sweep
+  (`app/conversation_release.rs`). A subscribed conversation is released once it has stayed
+  releasable for at least 30 s. It is releasable when it is not the selected thread or the open
+  subagent view, has no live turn, pending interaction, queued input or running background
+  work, and its workspace has no phone viewer. Releasing sends `v4/conversation/unsubscribe`
+  and drops the route cursor and fragment state. The local mirror stays with
+  `subscribed = false`, so reopening the thread resubscribes it and its snapshot replaces the
+  rows. Preloaded threads that are never opened are released the same way.
+- **Lazy MCP servers (2026-10-30, CLI).** stdio MCP servers no longer start with the
+  session. The agent's connection pool wraps them (`adapters/src/mcp/lazy-stdio.ts`). Tool
+  lists come from `~/.zcode/cli/mcp-tool-cache.json`, keyed by server name and a hash of the
+  config. A server only stays running after a real use: a tool call, a resource read or a
+  panel connection. With no cache entry, it starts once to list its tools and stops as soon as
+  it answers. Sessions starting together share that one probe. A Settings › MCP refresh
+  probes the same way. After a real start, a changed tool list bumps
+  `toolListRevision`, and tools are re-registered at the next turn. Official plugin servers
+  (run through the plugin host) are stopped after 5 idle minutes. They are never stopped
+  while a panel or resource subscription is attached. User servers are only started lazily,
+  never stopped, because they may hold state. `node_repl` stays eager. Official plugin
+  servers also default to `isolation: "workspace"`, because this fork's seed manifests don't
+  declare it.
 - **Cached rows and warm agents (2026-10-29).** A list only arrives from a workspace's own
   agent, so without help the Tasks section stayed empty until "+" started its agent, and an
   expanded project showed nothing until clicked. GPUI keeps the newest 25 rows of every
@@ -1207,9 +1232,15 @@ API-key providers, which work without it.
   `{ workspacePath, workspaceKey }` (`plugin_payloads::workspace_ref`). The strict
   `zcodeWorkspaceRefSchema` rejected the old path-only ref with `-32602`, so the
   plugin store and MCP list never loaded.
-- **Launcher**: order is `ZCODE_GPUI_AGENT_PROGRAM`, then bun + branch source (only
-  when installed and built), then the installed desktop runtime. Desktop-exported
+- **Launcher**: order is `ZCODE_GPUI_AGENT_PROGRAM`, then the compiled backend beside
+  GPUI, then bun + branch source (only when installed and built). Desktop-exported
   `GLM_BINARY_PATH` / `ZCODE_AGENT_SERVER_COMMAND` are not overrides.
+- **Never launch the installed desktop app (2026-10-30).** GPUI used to fall back to
+  `ZCode.exe` for the agent and the Services Host. Its agents also started plugin MCP servers
+  through `ZCode.exe` whenever Desktop had last rewritten the shared plugin cache. All three
+  paths are gone. The agent rebinds plugin-host MCP servers to its own runtime when they
+  load. The desktop install is only ever read from (ripgrep, Built-in Provider release).
+  `launcher_tests::installed_desktop_app_is_never_a_candidate` guards the launcher.
 
 ## 7. Decisions needed from the owner
 

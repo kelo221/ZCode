@@ -37,6 +37,7 @@ import {
   createSessionId,
   createSessionEvent,
   type ExecutionShellSelection,
+  type McpPort,
   type MessageId,
 } from "@zcode/contracts";
 import { isRemoteWorkspaceIdentity, resolveZCodeRuntimeEnv } from "@zcode/shared";
@@ -215,6 +216,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
   let nodeReplBrowserBroker: NodeReplBrowserBroker | undefined;
   let ownedNodeReplBrowserBroker: NodeReplBrowserBroker | undefined;
   let providerModelRuntime: ApiProviderModelRuntime | undefined;
+  let ownedMcpPort: McpPort | undefined;
   try {
     const storageRoot = resolvePath(configResult.config.storage.dir);
     const cliStorageRoot = getCliStorageRoot(storageRoot);
@@ -428,6 +430,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
             workingDirectory,
           })));
     const ownsMcpPort = options.mcpPort === undefined && mcpPort !== undefined;
+    if (ownsMcpPort) ownedMcpPort = mcpPort;
     const executionPort =
       options.executionPort ??
       createNodeExecutionAdapter({
@@ -1422,6 +1425,9 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
     providerModelRuntime?.dispose();
     void modelTelemetry.shutdown().catch(() => undefined);
     void ownedNodeReplBrowserBroker?.close();
+    // 修复原因：启动失败时 app 不会返回给调用方，没人能再 close 这条 lease，
+    // 它占着的 stdio MCP 子进程会存活到 agent 进程退出。
+    void ownedMcpPort?.close().catch(() => undefined);
     startupTimer.fail("ZCode app startup failed", error, {
       context: { sessionId, workingDirectory },
       event: "bootstrap.app.startup.failed",

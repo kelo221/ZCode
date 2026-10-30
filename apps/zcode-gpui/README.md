@@ -86,13 +86,14 @@ Slices extend `RootView` and `AppState`. Rust source/test files are capped at 40
 1. `ZCODE_GPUI_AGENT_PROGRAM` with optional `ZCODE_GPUI_AGENT_ARGS`. A JSON array of strings is the canonical args format; legacy whitespace splitting is retained. Defaults include `app-server --stdio --surface desktop`.
 2. The compiled backend beside the GPUI executable: `zcode-backend[.exe]` plus `provider/zcode-builtin.json` (and optionally `node_modules/ripgrep`), produced by `scripts/build_backend.ts`. Skipped unless the provider release is present.
 3. Bun plus this branch's CLI source, offered only when its workspace dependencies are installed and built. Bun is found through `BUN_INSTALL`, `PATH`, then `~/.bun/bin`.
-4. Installed ZCode Desktop runtime with `ELECTRON_RUN_AS_NODE=1`.
+
+GPUI never launches the installed ZCode desktop app (`ZCode.exe`), not for the agent, the Services Host, or plugin MCP servers. It only reads files from that install: its ripgrep and its Built-in Provider release. Plugin MCP servers in the plugin cache shared with Desktop are rebound to the agent's own runtime when they load (`bindPluginHostServersToCurrentRuntime`).
 
 The Services Host used by Settings › Subagents resolves separately:
 
 1. `ZCODE_GPUI_SERVICES_RUNTIME` / `ZCODE_GPUI_SERVICES_BUNDLE`: the built `packages/server/dist/remote/zcode-server.cjs` under an Electron-compatible runtime.
 2. Bun plus `scripts/services_host.ts`, which loads the unchanged `packages/server/src/entry-stdio.ts` from source after supplying the build-time version and the production Built-in Provider release (the installed Desktop's copy when present). Needs only `bun install`.
-3. The built bundle under the installed ZCode Desktop runtime.
+3. The built bundle under bun.
 
 Desktop-exported `GLM_BINARY_PATH` and `ZCODE_AGENT_SERVER_COMMAND` are deliberately not launcher overrides. Children use `env_clear()` and an explicit allowlist, including resolved roots, proxies, supported provider/ripgrep overrides, and custom CA variables.
 

@@ -13,6 +13,7 @@ mod clipboard_draft_controls_tests;
 mod composer_controls_tests;
 #[cfg(test)]
 mod connection_tests;
+mod conversation_release;
 #[cfg(test)]
 mod delivery_controls_tests;
 pub(crate) mod dock;

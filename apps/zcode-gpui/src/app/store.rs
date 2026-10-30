@@ -303,7 +303,7 @@ impl AppState {
             let display = ws.display.clone();
             self.push_log(format!("no usable backend for workspace {key}"));
             self.push_error(format!(
-                "no usable backend for {display} — check the installed ZCode app"
+                "no usable backend for {display} — install bun (or ship zcode-backend beside GPUI)"
             ));
             return;
         };

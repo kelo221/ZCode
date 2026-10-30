@@ -1,4 +1,6 @@
-import { createConfig } from "@zcode/adapters/config";
+import { join } from "node:path";
+import { createConfig, resolvePath } from "@zcode/adapters/config";
+import { getCliStorageRoot } from "./app/paths.js";
 import type { McpElicitationPort, McpNotificationPort } from "@zcode/contracts";
 import { createNodeModelSelectionFacade } from "@zcode/provider-node";
 import { ProviderSettingsFacade, createProviderSettingsMutationTarget } from "@zcode/provider";
@@ -245,6 +247,10 @@ export async function runZCodeProtocolAgent(
       configResult.config.features.mcp === false
         ? undefined
         : createMcpAdapterConnectionPool({
+            lazyToolCacheFile: join(
+              getCliStorageRoot(resolvePath(configResult.config.storage.dir)),
+              "mcp-tool-cache.json",
+            ),
             elicitation: {
               requestElicitation: (request, elicitationOptions) =>
                 elicitationServer

@@ -2,7 +2,10 @@
 //!   1. `ZCODE_GPUI_SERVICES_RUNTIME` / `ZCODE_GPUI_SERVICES_BUNDLE` overrides:
 //!      the built stdio bundle under an Electron-compatible runtime.
 //!   2. bun + this checkout's source via `scripts/services_host.ts`.
-//!   3. The built bundle under the installed ZCode Desktop runtime.
+//!   3. The built bundle under bun.
+//!
+//! The installed ZCode Desktop app is never launched; only its Built-in
+//! Provider release file may be read.
 use crate::backend::launcher::{
     BackendLaunch, common_backend_envs, find_bun, find_installed_bundle,
 };
@@ -82,28 +85,25 @@ fn bundle_launch(source: &Path) -> Result<BackendLaunch, String> {
             "Services Host is unavailable: install bun and the workspace (bun install), \
              or build the existing server bundle",
         )?;
-    let program = if let Some(runtime) = std::env::var_os("ZCODE_GPUI_SERVICES_RUNTIME") {
-        PathBuf::from(runtime)
-    } else if let Some((runtime, _)) = find_installed_bundle() {
-        runtime
+    let bundle = bundle.to_string_lossy().into_owned();
+    let mut envs = common_backend_envs();
+    let (program, args) = if let Some(runtime) = std::env::var_os("ZCODE_GPUI_SERVICES_RUNTIME") {
+        // 显式 runtime 也可能是 Electron；该开关让它执行已有 Node 入口，普通 Node 会忽略它。
+        envs.retain(|(key, _)| !key.eq_ignore_ascii_case("ELECTRON_RUN_AS_NODE"));
+        envs.push(("ELECTRON_RUN_AS_NODE".into(), "1".into()));
+        (PathBuf::from(runtime), vec!["--no-warnings".into(), bundle])
     } else {
-        return Err(
-            "Compatible Services runtime is unavailable; no runtime will be installed".into(),
-        );
+        // 修复原因：这里曾回退到已安装的 ZCode Desktop（ZCode.exe）。GPUI 不得拉起原版
+        // ZCode，没有显式 runtime 时只用 bun。
+        let bun = find_bun().ok_or("Services runtime is unavailable: install bun")?;
+        (bun, vec![bundle])
     };
     if !program.is_file() {
         return Err("Services runtime executable is unavailable".into());
     }
-    let mut envs = common_backend_envs();
-    // 显式 runtime 也可能是 Electron；该开关让它执行已有 Node 入口，普通 Node 会忽略它。
-    envs.retain(|(key, _)| !key.eq_ignore_ascii_case("ELECTRON_RUN_AS_NODE"));
-    envs.push(("ELECTRON_RUN_AS_NODE".into(), "1".into()));
     Ok(BackendLaunch {
         program: program.to_string_lossy().into_owned(),
-        args: vec![
-            "--no-warnings".into(),
-            bundle.to_string_lossy().into_owned(),
-        ],
+        args,
         envs,
         describe: "Services Host via built bundle".into(),
     })

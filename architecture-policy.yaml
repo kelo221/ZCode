@@ -968,6 +968,11 @@ exceptions:
       - apps/zcode-cli/packages/core/src/tool/handlers/list-agents.ts
       - apps/zcode-cli/packages/core/src/runtime/helpers/agent-listing.ts
     reason: Fork feature (apps/zcode-cli/docs/design/v2/tool/07-subagent.md "SendMessage 当前范围"). Rebuilding evicted subagents from metadata.json and the ListAgents tool live in their own files so the upstream runner/handler files only gain small call sites and source syncs stay mergeable. agent-listing.ts is an upstream-introduced helper that gains the post-compact subagent roster beside the existing agent-type listing.
+  - id: fork-lazy-stdio-mcp-cli
+    rule: unmanaged-new-file
+    paths:
+      - apps/zcode-cli/packages/adapters/src/mcp/lazy-stdio.ts
+    reason: Fork feature (apps/zcode-gpui/PARITY.md "Lazy MCP servers"). A wrapper McpPort that defers stdio MCP startup to first use (tool lists from a disk cache) and idle-stops official plugin servers lives in its own file; the upstream pool factory only gains one wrapping call site, so source syncs stay mergeable.
   - id: fork-agent-requested-compact-cli
     rule: unmanaged-new-file
     paths:

@@ -86,6 +86,11 @@ import {
   type OfficialMcpServerResponseInfo,
 } from "./official-auth.js";
 import {
+  createFileMcpToolCache,
+  createLazyStdioMcpPort,
+  isLazyStdioServer,
+} from "./lazy-stdio.js";
+import {
   createMcpConnectionPool,
   type McpConnectionContext,
   type McpConnectionPool,
@@ -139,6 +144,8 @@ export interface CreateMcpAdapterOptions {
     workspaceIdentity?: string;
   };
   workingDirectory?: string;
+  /** 连接池按需启动 stdio MCP 时持久化工具清单的文件；缺省则全部会话启动即拉起（lazy-stdio.ts）。 */
+  lazyToolCacheFile?: string;
   /** 有此端口才向 server 宣告 elicitation 能力；缺省时 server 的 elicitation/create 收到 method not found。 */
   elicitation?: McpElicitationPort;
   /** server → client 通知（资源更新 / 列表变化 / 工具列表变化 / 日志）的出口；缺省只记 debug。 */
@@ -209,15 +216,22 @@ export function createMcpAdapter(options: CreateMcpAdapterOptions = {}): McpPort
 export function createMcpAdapterConnectionPool(
   options: CreateMcpAdapterOptions = {},
 ): McpConnectionPool {
+  const toolCache = options.lazyToolCacheFile
+    ? createFileMcpToolCache(options.lazyToolCacheFile, options.logger)
+    : undefined;
   return createMcpConnectionPool({
     logger: options.logger,
     telemetry: options.telemetry,
-    createAdapter: ({ connectionContext, workingDirectory }) =>
-      createMcpAdapter({
+    createAdapter: ({ config, connectionContext, serverName, workingDirectory }) => {
+      const inner = createMcpAdapter({
         ...options,
         connectionContext,
         workingDirectory: workingDirectory ?? options.workingDirectory,
-      }),
+      });
+      return toolCache && isLazyStdioServer(serverName, config)
+        ? createLazyStdioMcpPort({ cache: toolCache, inner, logger: options.logger })
+        : inner;
+    },
   });
 }
 

@@ -114,6 +114,33 @@ export function writeOfficialPluginRuntimeManifest(input: OfficialRuntimeManifes
   );
 }
 
+/**
+ * 修复原因：plugin cache 由桌面端与 GPUI 拉起的 agent 共用，manifest 里的 command 是最后一个
+ * seed 的进程写入的运行时（桌面写 ZCode.exe，GPUI agent 写 bun）。长驻 agent 读到对方写入的
+ * manifest 后会用别人的运行时拉起插件 MCP，GPUI 因此派生出上百个 ZCode.exe。
+ * 修复：加载时把所有走 plugin host 的 stdio server 重新绑定到当前进程的运行时，不信任共享文件。
+ */
+export function bindPluginHostServersToCurrentRuntime(
+  servers: Record<string, McpServerConfig>,
+): void {
+  const hostPrefixArgs = officialPluginHostPrefixArgs();
+  if (!hostPrefixArgs) return;
+  for (const [name, config] of Object.entries(servers)) {
+    if (config.type !== "stdio") continue;
+    const args = config.args ?? [];
+    const hostIndex = args.indexOf(ZCODE_PLUGIN_HOST_COMMAND);
+    if (hostIndex < 0) continue;
+    servers[name] = {
+      ...config,
+      // 官方插件 server 无会话状态。本 fork 自带的旧版 seed manifest 未声明 isolation，
+      // 默认按 workspace 共享，避免每个会话各起一套进程。
+      isolation: config.isolation ?? "workspace",
+      command: process.execPath,
+      args: [...hostPrefixArgs, ...args.slice(hostIndex + 1)],
+    };
+  }
+}
+
 export function officialPluginHostPrefixArgs(): string[] | undefined {
   if (isSeaRuntime()) return [ZCODE_PLUGIN_HOST_COMMAND];
 
