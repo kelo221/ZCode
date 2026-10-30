@@ -63,7 +63,7 @@ fn is_host_channel_method(method: &str) -> bool {
 }
 
 /// Committed host preferences that answer `session/requestRuntimePreferences`.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct HostPrefs {
     pub memory_enabled: bool,
     /// Desktop with Settings › Voice on: the main session gets the Speak tool.
@@ -72,6 +72,20 @@ pub struct HostPrefs {
     pub code_search_enabled: bool,
     /// Settings › Diagnostics on: edits report language-server errors and agents get Diagnostics.
     pub lsp_diagnostics_enabled: bool,
+    /// Settings › MCP Servers "Load MCP tools on demand": `auto` | `local` | `off`.
+    pub tool_search_mode: &'static str,
+}
+
+impl Default for HostPrefs {
+    fn default() -> Self {
+        Self {
+            memory_enabled: false,
+            voice_enabled: false,
+            code_search_enabled: false,
+            lsp_diagnostics_enabled: false,
+            tool_search_mode: "off",
+        }
+    }
 }
 
 /// Dispatches an agent-to-client request based on the method name.
@@ -105,7 +119,8 @@ pub fn dispatch_reverse_rpc(
                 "memoryEnabled": prefs.memory_enabled,
                 "voiceEnabled": prefs.voice_enabled,
                 "codeSearchEnabled": prefs.code_search_enabled,
-                "lspDiagnosticsEnabled": prefs.lsp_diagnostics_enabled
+                "lspDiagnosticsEnabled": prefs.lsp_diagnostics_enabled,
+                "toolSearchMode": prefs.tool_search_mode
             }),
         ),
 

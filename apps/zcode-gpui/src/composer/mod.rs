@@ -13,6 +13,7 @@ pub(crate) mod config_cmds;
 mod context_menu;
 mod context_ring;
 pub(crate) mod delivery;
+pub(crate) mod draft_model;
 pub(crate) mod editing;
 pub(crate) mod file_index;
 mod fuzzy;

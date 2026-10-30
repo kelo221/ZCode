@@ -232,6 +232,15 @@ pub(crate) fn tool_summary(label: &str, v: &Value) -> Option<String> {
         }),
         "WebFetch" => str_field("url"),
         "WebSearch" => str_field("query"),
+        // `select:a,b` loads named tools; anything else is a keyword search.
+        "ToolSearch" => str_field("query").map(|q| match q.strip_prefix("select:") {
+            Some(names) => names
+                .split(',')
+                .map(str::trim)
+                .collect::<Vec<_>>()
+                .join(", "),
+            None => format!("\"{q}\""),
+        }),
         "Task" | "Agent" => str_field("description").or_else(|| str_field("prompt")),
         "TaskOutput" | "TaskStop" => str_field("task_id"),
         "AskUserQuestion" => v

@@ -72,9 +72,7 @@ impl AppState {
     /// createSession.config override assembled from draft UI selections.
     pub(crate) fn draft_config(&self) -> Value {
         let mut config = json!({});
-        if let Some(value) = &self.ui_model_value
-            && let Some(opt) = self.find_model_option(value)
-        {
+        if let Some(opt) = self.draft_model_option() {
             let thought = if opt.thought_levels.is_empty() {
                 String::new()
             } else {
@@ -184,7 +182,13 @@ impl AppState {
         let cfg = ws_key
             .as_deref()
             .and_then(|k| self.workspace_configs.get(k));
-        // Draft model: UI choice wins, else the workspace default entry.
+        // Draft model: UI choice wins, else the last used model, else the
+        // workspace default entry.
+        let last_used = self
+            .ui_model_value
+            .is_none()
+            .then(|| self.last_used_option())
+            .flatten();
         let (model_label, provider, model, thought_levels) =
             if let Some(value) = &self.ui_model_value {
                 match self.find_model_option(value) {
@@ -196,6 +200,13 @@ impl AppState {
                     ),
                     None => (value.clone(), String::new(), String::new(), vec![]),
                 }
+            } else if let Some(opt) = &last_used {
+                (
+                    opt.name.clone(),
+                    opt.provider.clone(),
+                    opt.model.clone(),
+                    opt.thought_levels.clone(),
+                )
             } else if let Some(ws_cfg) = cfg {
                 let default_value = ws_cfg
                     .raw_options
@@ -223,9 +234,14 @@ impl AppState {
             .unwrap_or("");
         let mode = crate::composer::plan_mode::permission_mode(source).to_string();
         let plan_enabled = self.ui_plan || source == "plan";
+        let remembered_thought = last_used
+            .is_some()
+            .then(|| self.draft_models.last.as_ref().map(|l| l.thought.clone()))
+            .flatten();
         let thought = self
             .ui_thought
             .clone()
+            .or(remembered_thought)
             .filter(|t| thought_levels.contains(t))
             .unwrap_or_default();
         EffectiveConfig {

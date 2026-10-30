@@ -103,6 +103,10 @@ pub(crate) fn pending(root: &Path) -> bool {
     reg.get(root).is_some_and(Index::pending)
 }
 
+#[path = "file_index_named.rs"]
+mod named;
+pub(crate) use named::files_named;
+
 /// Build synchronously (tests).
 #[cfg(test)]
 pub(crate) fn build_now(root: &Path) -> Vec<FileHit> {

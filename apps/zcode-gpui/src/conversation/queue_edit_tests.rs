@@ -61,6 +61,7 @@ fn unknown_and_nonadmitted_queue_deletes_never_restore(cx: &mut TestAppContext) 
                     text: "do not restore".into(),
                     attachments: vec![],
                     config: json!({}),
+                    model_choice: None,
                 },
             };
             s.settle_queue_edit(restore, Some(&json!({"status": status})), cx);
@@ -86,6 +87,7 @@ fn queue_ack_cannot_replace_new_text_or_hidden_parent(cx: &mut TestAppContext) {
                 text: "old".into(),
                 attachments: vec![],
                 config: json!({"mode":"edit"}),
+                model_choice: None,
             },
         };
         s.composer.update(cx, |c, _| c.set_text("new"));
@@ -116,6 +118,7 @@ fn rejection_preserves_queue_and_navigation_keeps_recovery_at_origin(cx: &mut Te
                 text: "old".into(),
                 attachments: vec![],
                 config: json!({"mode":"edit"}),
+                model_choice: None,
             },
         };
         s.active_workspace = Some(key);

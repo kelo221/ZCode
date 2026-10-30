@@ -17,6 +17,8 @@ mod connection_tests;
 mod delivery_controls_tests;
 pub(crate) mod dock;
 pub(crate) mod draft_greeting;
+#[cfg(test)]
+mod draft_model_tests;
 pub(crate) mod error_banner;
 #[cfg(test)]
 mod files_image_controls_tests;
@@ -115,6 +117,9 @@ mod settings_system_prompt;
 mod settings_system_prompt_tests;
 #[cfg(test)]
 mod settings_tests;
+mod settings_tool_search;
+#[cfg(test)]
+mod settings_tool_search_tests;
 mod settings_voice;
 mod shortcut_actions;
 mod sidebar_warm;

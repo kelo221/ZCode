@@ -30,7 +30,22 @@ pub fn open_in_editor(
     cx: &App,
     on_error: impl FnOnce(std::io::Error, &mut App) + 'static,
 ) {
-    run_off_ui_thread(cx, move || open_in_editor_blocking(&path), on_error);
+    run_off_ui_thread(cx, move || open_in_editor_blocking(&path, None), on_error);
+}
+
+/// Open `path` at `line` in VS Code (`code -g`), falling back to the OS
+/// default handler (which ignores the line).
+pub fn open_in_editor_at(
+    path: PathBuf,
+    line: u32,
+    cx: &App,
+    on_error: impl FnOnce(std::io::Error, &mut App) + 'static,
+) {
+    run_off_ui_thread(
+        cx,
+        move || open_in_editor_blocking(&path, Some(line)),
+        on_error,
+    );
 }
 
 // 不能在 UI 线程调用 ShellExecuteW：它会跑一个嵌套的 Win32 消息循环（打开文件夹时
@@ -54,10 +69,16 @@ fn run_off_ui_thread(
 
 /// Tries `code <path>` first, then the default OS opener. Blocks; never call
 /// on the UI thread (see `run_off_ui_thread`).
-fn open_in_editor_blocking(path: &Path) -> Result<(), std::io::Error> {
+fn open_in_editor_blocking(path: &Path, line: Option<u32>) -> Result<(), std::io::Error> {
     // 1. Try VS Code if available on PATH
     let mut code_cmd = Command::new("code");
-    code_cmd.arg(path);
+    if let Some(line) = line {
+        let mut target = path.as_os_str().to_owned();
+        target.push(format!(":{line}"));
+        code_cmd.arg("-g").arg(target);
+    } else {
+        code_cmd.arg(path);
+    }
     #[cfg(windows)]
     code_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 

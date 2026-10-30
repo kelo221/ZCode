@@ -11,6 +11,8 @@ pub(crate) struct Submission {
     pub text: String,
     pub attachments: Vec<AttachmentRef>,
     pub config: Value,
+    /// Model the message was sent with; remembered once the send is accepted.
+    pub model_choice: Option<crate::shared::settings::LastComposerModel>,
 }
 
 pub(crate) fn ack_succeeded(ack: Option<&Value>) -> bool {
@@ -88,6 +90,9 @@ impl AppState {
                 self.recover_submission(submission, cx);
             }
             Some("accepted" | "noop" | "duplicate") if create => {
+                if let Some(choice) = submission.model_choice.clone() {
+                    self.remember_composer_model(choice, cx);
+                }
                 let Some(sid) = ack
                     .and_then(|a| a.pointer("/result/sessionId"))
                     .and_then(Value::as_str)
@@ -116,7 +121,11 @@ impl AppState {
                 self.push_log("session created".into());
                 self.subscribe_conversation(workspace, sid);
             }
-            Some("accepted" | "noop" | "duplicate") => {}
+            Some("accepted" | "noop" | "duplicate") => {
+                if let Some(choice) = submission.model_choice {
+                    self.remember_composer_model(choice, cx);
+                }
+            }
             _ => {
                 self.push_error(
                     "Message admission is unknown; check the conversation before retrying".into(),

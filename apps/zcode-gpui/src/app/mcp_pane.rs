@@ -16,7 +16,12 @@ use ely_gpui_component::{
 use gpui::{AnyElement, Context, IntoElement, ParentElement, Styled, div, prelude::*, px};
 
 impl RootView {
-    pub(crate) fn mcp_pane(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    pub(crate) fn mcp_pane(
+        &mut self,
+        settings: &crate::shared::settings::AppSettings,
+        blocked: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         use crate::app::inspection_view::InspectionKind;
         self.ensure_inspection(InspectionKind::Mcp, cx);
         let feedback = self.inspection_feedback(InspectionKind::Mcp, cx);
@@ -69,6 +74,9 @@ impl RootView {
             .gap_8()
             .min_w_0()
             .child(feedback)
+            .child(crate::app::settings_tool_search::tool_search_card(
+                settings, blocked,
+            ))
             .child(installed_group);
         for (plugin, rows) in plugins {
             page = page.child(

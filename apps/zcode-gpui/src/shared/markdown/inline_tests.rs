@@ -92,7 +92,58 @@ fn inline_code_gets_mono_font_and_background() {
         code_run.font.family.as_ref(),
         crate::shared::theme::MONO_FONT
     );
+    assert!(inline.links.is_empty(), "a command is not a file link");
     assert_runs_cover(&inline);
+}
+
+#[test]
+fn path_like_inline_code_links_to_the_file() {
+    let events = parse_events("saved at `tmp/x/PLAN.md` and `file.rs:42`, run `cargo test`");
+    let mut pos = 1;
+    let inline = render_inlines(
+        &events,
+        &mut pos,
+        Some(&TagEnd::Paragraph),
+        &Style::default(),
+    );
+    assert_eq!(
+        inline.text,
+        "saved at tmp/x/PLAN.md and file.rs:42, run cargo test"
+    );
+    let links: Vec<_> = inline
+        .links
+        .iter()
+        .map(|(r, url)| (&inline.text[r.clone()], url.as_str()))
+        .collect();
+    assert_eq!(
+        links,
+        [
+            ("tmp/x/PLAN.md", "zcode-file:tmp/x/PLAN.md"),
+            ("file.rs:42", "zcode-file:file.rs:42"),
+        ]
+    );
+    // Code background plus link underline.
+    let run = inline
+        .runs
+        .iter()
+        .find(|r| r.background_color.is_some() && r.underline.is_some())
+        .unwrap();
+    assert_eq!(run.color, c(crate::shared::theme::LINK));
+    assert_runs_cover(&inline);
+}
+
+#[test]
+fn scheme_less_markdown_links_become_file_links() {
+    let events = parse_events("[plan](tmp/PLAN.md) and [site](https://example.com)");
+    let mut pos = 1;
+    let inline = render_inlines(
+        &events,
+        &mut pos,
+        Some(&TagEnd::Paragraph),
+        &Style::default(),
+    );
+    let urls: Vec<_> = inline.links.iter().map(|(_, u)| u.as_str()).collect();
+    assert_eq!(urls, ["zcode-file:tmp/PLAN.md", "https://example.com"]);
 }
 
 #[test]

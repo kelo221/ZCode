@@ -65,6 +65,7 @@ fn rejected_send_ack_restores_original_without_overwriting_new_text(cx: &mut Tes
             navigation_generation: state.navigation_generation,
             text: "original".into(),
             config: serde_json::Value::Null,
+            model_choice: None,
             attachments: vec![],
         };
         state.workspaces[0]

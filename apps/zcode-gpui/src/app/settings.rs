@@ -276,7 +276,7 @@ impl RootView {
             SettingsSection::Models => self.render_model_settings(window, cx),
             SettingsSection::Subagents => self.render_subagents_settings(window, cx),
             SettingsSection::Plugins => self.plugins_pane(window, cx),
-            SettingsSection::Mcp => self.mcp_pane(cx),
+            SettingsSection::Mcp => self.mcp_pane(&settings, blocked, cx),
             SettingsSection::Browser => self.browser_pane(cx),
             SettingsSection::Voice => self.voice_pane(&settings, blocked, cx),
             SettingsSection::SystemPrompt => self.system_prompt_pane(window, cx),

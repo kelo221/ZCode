@@ -58,6 +58,7 @@ impl AppState {
             ui_mode: None,
             ui_plan: false,
             ui_thought: None,
+            draft_models: Default::default(),
             composer: cx.new(crate::composer::input::Composer::new),
             session_drafts: Default::default(),
             draft_submission_overrides: Default::default(),

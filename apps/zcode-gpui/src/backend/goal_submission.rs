@@ -26,6 +26,7 @@ impl AppState {
             text: format!("/goal {text}"),
             attachments: vec![],
             config: self.submission_override(),
+            model_choice: None,
         };
         let pending = if let Some(held) = held {
             payload["heldQueueDisposition"] = json!(held.disposition.wire());

@@ -36,6 +36,46 @@ limits below take precedence over the retained historical milestone requirements
 - Not ported: menu row descriptions, and the warning colour on the Full access trigger (the
   vendored ely menu host has neither).
 
+## Load MCP tools on demand (ToolSearch setting, 2026-10-30)
+
+- **Setting.** Settings › MCP Servers has a "Load MCP tools on demand" select with Auto, Local and
+  Off. It writes the shared `setting.json` key `toolSearchMode` (Desktop TS11,
+  `apps/zcode-cli/docs/design/v2/tool/19-tool-search.md`), so saving is refused while the
+  desktop runs. A missing or unknown value means Off.
+- **Runtime.** GPUI answers `session/requestRuntimePreferences` with `toolSearchMode`. The CLI reads
+  it when a session is created or cold-resumed. Running sessions keep their mode, and subagents
+  inherit the parent's. With Auto or Local, `mcp__*` schemas are deferred: the model sees their
+  names and loads a schema with `ToolSearch` (`select:<name>`) when it needs one.
+- **Transcript.** A `ToolSearch` row's summary lists the tool names for a `select:` query, and
+  otherwise shows the quoted search query.
+
+## New-task draft model and thinking level (2026-10-30)
+
+- **Each new-task draft keeps its own picks.** The model, thinking level, permission mode and plan
+  toggle chosen in a `draft:<workspace>` composer are saved with the draft text when you navigate
+  away, and restored when you come back. Existing threads never inherit them.
+- **New drafts start from the last used model.** After a create or send is accepted (never
+  optimistically), GPUI writes the model the message used, `gpuiLastComposerModel {provider, model,
+  thought}`, to `gpui_settings.json`. A fresh draft uses it when this workspace's catalog offers that model, and
+  uses the thinking level only when the model offers it. Otherwise it falls back to the model's
+  default thinking level and the workspace default model (Desktop `composerRecent.ts`, kept global
+  rather than per scope).
+
+## Transcript file references (GPUI-only, 2026-10-30)
+
+- **What gets linked.** Inline code in assistant Markdown becomes a link when it is a single token
+  that looks like a file path: it contains `/` or `\`, or ends in a short extension (`PLAN.md`,
+  `src/a.rs:42`, `C:\x\y.ts`, `~/notes.md`), with an optional `:line[:col]` or `#L12` suffix.
+  Commands, flags, globs, URLs and version numbers are not linked. Markdown links without a URL
+  scheme (relative, absolute, `file://`) use the same path. Desktop links neither, so this is a
+  GPUI extension.
+- **Resolution, at click time.** Paths resolve against the active workspace. `..` cannot escape it
+  for relative paths. A bare name that is not at the workspace root is looked up by file name in
+  the workspace and opens only if exactly one file matches.
+- **What a click does.** A workspace file opens in the Files pane preview. A file with a line
+  number opens in the external editor at that line (`code -g`). A file outside the workspace opens
+  with the system default app. A missing file shows a notice and opens nothing.
+
 ## Answering agent questions in the card (2026-10-21)
 
 - **The card replaces the composer.** While a blocking interaction (any `permission` or

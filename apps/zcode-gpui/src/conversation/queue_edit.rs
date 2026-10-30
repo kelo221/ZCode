@@ -83,6 +83,7 @@ impl AppState {
                 text,
                 attachments: item.attachments.clone(),
                 config: item.config.clone(),
+                model_choice: None,
             },
         };
         let params = crate::backend::session_cmds::command_params(

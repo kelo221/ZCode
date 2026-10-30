@@ -163,8 +163,20 @@ pub(crate) fn render_inlines(
             Event::Code(cd) => {
                 let mut code_st = st.clone();
                 code_st.code = true;
+                // Inside a Markdown link the link's own target wins.
+                let file_ref = (!st.link)
+                    .then(|| super::file_ref::code_file_ref(cd))
+                    .flatten();
+                code_st.link |= file_ref.is_some();
+                let start = inline.text.len();
                 push_run(&mut inline, cd.len(), &code_st);
                 inline.text.push_str(cd);
+                if file_ref.is_some() {
+                    inline.links.push((
+                        start..inline.text.len(),
+                        format!("{}{}", super::file_ref::FILE_LINK_SCHEME, cd.trim()),
+                    ));
+                }
                 *pos += 1;
             }
             Event::SoftBreak | Event::HardBreak => {
@@ -182,7 +194,10 @@ pub(crate) fn render_inlines(
                     Tag::Emphasis => inner.italic = true,
                     Tag::Strikethrough => inner.strike = true,
                     Tag::Link { dest_url, .. } => {
-                        url = Some(dest_url.to_string());
+                        url = Some(match super::file_ref::link_file_target(dest_url) {
+                            Some(path) => format!("{}{path}", super::file_ref::FILE_LINK_SCHEME),
+                            None => dest_url.to_string(),
+                        });
                         inner.link = true;
                     }
                     _ => {}

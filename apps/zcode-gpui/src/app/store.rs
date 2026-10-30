@@ -41,13 +41,13 @@ pub struct AppState {
     pub active: Option<String>,
     pub draft: bool,
     pub workspace_configs: HashMap<String, crate::composer::catalog::WorkspaceConfig>,
-    /// Draft-mode selections (option value / mode id), applied via
-    /// createSession.config since CAS config commands need a live session.
+    /// Draft-mode selections, sent via createSession.config (CAS commands need a session).
     pub ui_model_value: Option<String>,
     pub ui_mode: Option<String>,
     /// Draft plan overlay (Desktop `planEnabled`), independent of `ui_mode`.
     pub ui_plan: bool,
     pub ui_thought: Option<String>,
+    pub(crate) draft_models: crate::composer::draft_model::DraftModels,
     pub composer: Entity<crate::composer::input::Composer>,
     /// Per-session draft text saved when navigating between conversations.
     pub session_drafts: HashMap<String, String>,
@@ -165,6 +165,7 @@ impl AppState {
             ui_mode: None,
             ui_plan: false,
             ui_thought: None,
+            draft_models: crate::composer::draft_model::DraftModels::load(cx),
             composer: cx.new(crate::composer::input::Composer::new),
             session_drafts: HashMap::new(),
             draft_submission_overrides: HashMap::new(),

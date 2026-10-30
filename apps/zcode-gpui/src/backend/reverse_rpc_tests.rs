@@ -55,7 +55,7 @@ fn test_provider_runtime_headers_fast_fails() {
 fn test_runtime_preferences_served() {
     let id = serde_json::json!(42);
     let params = serde_json::json!({});
-    for enabled in [false, true] {
+    for (enabled, tool_search_mode) in [(false, "off"), (true, "auto"), (true, "local")] {
         match dispatch_reverse_rpc(
             &id,
             "session/requestRuntimePreferences",
@@ -65,6 +65,7 @@ fn test_runtime_preferences_served() {
                 voice_enabled: enabled,
                 code_search_enabled: enabled,
                 lsp_diagnostics_enabled: enabled,
+                tool_search_mode,
             },
         ) {
             ReverseRpcAction::Respond(resp) => {
@@ -76,6 +77,7 @@ fn test_runtime_preferences_served() {
                 assert_eq!(val["result"]["voiceEnabled"], enabled);
                 assert_eq!(val["result"]["codeSearchEnabled"], enabled);
                 assert_eq!(val["result"]["lspDiagnosticsEnabled"], enabled);
+                assert_eq!(val["result"]["toolSearchMode"], tool_search_mode);
             }
             _ => panic!("Must respond"),
         }

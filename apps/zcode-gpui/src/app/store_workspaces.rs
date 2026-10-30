@@ -88,6 +88,7 @@ impl AppState {
             self.recovered_attachments.remove(sid);
         }
         self.session_drafts.remove(&format!("draft:{key}"));
+        self.draft_models.configs.remove(&format!("draft:{key}"));
         self.child_owner.retain(|_, (ws_key, _)| ws_key != key);
         self.workspace_configs.remove(key);
         self.workspaces.retain(|w| w.key != key);

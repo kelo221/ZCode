@@ -118,6 +118,7 @@ impl AppState {
             text: recovery_text.to_owned(),
             attachments: attachments.clone(),
             config: self.submission_override(),
+            model_choice: Some(self.current_model_choice()),
         };
         if self.draft || self.active.is_none() {
             let config = self.with_submission_override(self.draft_config());

@@ -147,6 +147,11 @@ impl RootView {
             .on_action(cx.listener(
                 |this, _: &crate::app::quickpick::SwitchThemeAction, _, cx| this.switch_theme(cx),
             ))
+            .on_action(cx.listener(
+                |this, action: &crate::shared::markdown::file_ref::OpenFileReference, _, cx| {
+                    this.open_file_reference(&action.raw, cx)
+                },
+            ))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 if this.handle_navigation_key(event, window, cx) {
                     cx.stop_propagation();

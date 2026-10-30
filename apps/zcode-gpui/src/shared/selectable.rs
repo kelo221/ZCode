@@ -210,9 +210,15 @@ impl RenderOnce for SelectableText {
         } else {
             let (ranges, urls): (Vec<_>, Vec<_>) = self.links.into_iter().unzip();
             InteractiveText::new(self.id.clone(), styled)
-                .on_click(ranges, move |ix, _, cx| {
-                    if let Some(url) = urls.get(ix) {
-                        cx.open_url(url);
+                .on_click(ranges, move |ix, window, cx| {
+                    use crate::shared::markdown::file_ref::{FILE_LINK_SCHEME, OpenFileReference};
+                    let Some(url) = urls.get(ix) else {
+                        return;
+                    };
+                    match url.strip_prefix(FILE_LINK_SCHEME) {
+                        Some(raw) => window
+                            .dispatch_action(Box::new(OpenFileReference { raw: raw.into() }), cx),
+                        None => cx.open_url(url),
                     }
                 })
                 .into_any_element()

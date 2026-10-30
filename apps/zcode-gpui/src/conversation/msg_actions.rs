@@ -49,6 +49,21 @@ impl AppState {
             return;
         }
         let key = self.draft_key();
+        // 修复原因：新任务草稿的模型/思考等级只存在全局 ui_* 字段里，导航会清空它们，
+        // 回到草稿时只恢复了文字。这里按草稿 key 一并保存选择。
+        if self.active.is_none() {
+            let config = crate::composer::draft_model::DraftUiConfig {
+                model_value: self.ui_model_value.clone(),
+                mode: self.ui_mode.clone(),
+                plan: self.ui_plan,
+                thought: self.ui_thought.clone(),
+            };
+            if config == Default::default() {
+                self.draft_models.configs.remove(&key);
+            } else {
+                self.draft_models.configs.insert(key.clone(), config);
+            }
+        }
         let (attachments, owned) = self
             .composer
             .update(cx, |c, _| (c.take_attachments(), c.drain_temp_ownership()));
@@ -65,6 +80,14 @@ impl AppState {
     pub(crate) fn restore_draft(&mut self, key: &str, cx: &mut Context<Self>) {
         let restored = self.session_drafts.get(key).cloned().unwrap_or_default();
         let attachments = self.recovered_attachments.remove(key).unwrap_or_default();
+        if self.active.is_none()
+            && let Some(config) = self.draft_models.configs.remove(key)
+        {
+            self.ui_model_value = config.model_value;
+            self.ui_mode = config.mode;
+            self.ui_plan = config.plan;
+            self.ui_thought = config.thought;
+        }
         self.composer.update(cx, |c, cx| {
             c.set_text(&restored);
             // A different session's draft: undo must not step back into the old one.

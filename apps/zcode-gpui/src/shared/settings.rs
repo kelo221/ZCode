@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+pub(crate) use crate::shared::last_composer_model::LastComposerModel;
+
 #[derive(Debug)]
 pub enum SettingsError {
     DesktopRunning,
@@ -95,6 +97,9 @@ pub struct AppSettings {
         rename = "memoryEnabled"
     )]
     pub memory_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "toolSearchMode")]
+    pub tool_search_mode: Option<String>,
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -136,6 +141,13 @@ pub struct AppSettings {
         rename = "gpuiLspDiagnostics"
     )]
     pub gpui_lsp_diagnostics: Option<bool>,
+    /// GPUI-only model and thinking level of the last accepted message; seeds new drafts.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "gpuiLastComposerModel"
+    )]
+    pub gpui_last_composer_model: Option<LastComposerModel>,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -212,6 +224,12 @@ struct GpuiOnlySettings {
         rename = "gpuiLspDiagnostics"
     )]
     lsp_diagnostics: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "gpuiLastComposerModel"
+    )]
+    last_composer_model: Option<LastComposerModel>,
 }
 
 impl GpuiOnlySettings {
@@ -222,6 +240,7 @@ impl GpuiOnlySettings {
             noise_free: settings.gpui_noise_free.take(),
             code_search: settings.gpui_code_search.take(),
             lsp_diagnostics: settings.gpui_lsp_diagnostics.take(),
+            last_composer_model: settings.gpui_last_composer_model.take(),
         }
     }
 
@@ -238,6 +257,9 @@ impl GpuiOnlySettings {
         }
         if self.lsp_diagnostics.is_some() {
             settings.gpui_lsp_diagnostics = self.lsp_diagnostics;
+        }
+        if self.last_composer_model.is_some() {
+            settings.gpui_last_composer_model = self.last_composer_model;
         }
     }
 

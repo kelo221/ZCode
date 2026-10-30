@@ -44,6 +44,22 @@ fn code_search_tools_summarise_their_query() {
 }
 
 #[test]
+fn tool_search_summarises_loaded_names_or_the_query() {
+    assert_eq!(
+        tool_summary(
+            "ToolSearch",
+            &json!({ "query": "select:mcp__fuse__click_at, mcp__fuse__drag" })
+        )
+        .as_deref(),
+        Some("mcp__fuse__click_at, mcp__fuse__drag")
+    );
+    assert_eq!(
+        tool_summary("ToolSearch", &json!({ "query": "blender render" })).as_deref(),
+        Some("\"blender render\"")
+    );
+}
+
+#[test]
 fn approved_plan_result_keeps_only_its_status_line() {
     let approved = "User has approved your plan. You can now start coding. Start with updating your todo list if applicable.\n\n## Approved Plan:\n# Plan\n\n- step";
     assert_eq!(

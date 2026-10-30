@@ -13,6 +13,7 @@ fn submission(state: &AppState, workspace: &str, draft_key: &str) -> Submission 
         navigation_generation: state.navigation_generation,
         text: "original".into(),
         config: serde_json::Value::Null,
+        model_choice: None,
         attachments: vec![AttachmentRef {
             reference: "attachment-ref".into(),
             file_name: "test.txt".into(),

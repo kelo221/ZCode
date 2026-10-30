@@ -80,6 +80,9 @@ pub(crate) enum PreferenceChange {
     NoiseFree(bool),
     CodeSearch(bool),
     LspDiagnostics(bool),
+    LastComposerModel(crate::shared::settings::LastComposerModel),
+    /// `auto` | `local` | `off` (shared `toolSearchMode`).
+    ToolSearchMode(String),
     Shortcut(String, Option<Vec<String>>),
     RecentProject(String),
     /// Forget a project (canonical key) from every persisted project list.
@@ -100,6 +103,10 @@ impl PreferenceChange {
             Self::NoiseFree(on) => settings.gpui_noise_free = Some(*on),
             Self::CodeSearch(on) => settings.gpui_code_search = Some(*on),
             Self::LspDiagnostics(on) => settings.gpui_lsp_diagnostics = Some(*on),
+            Self::LastComposerModel(choice) => {
+                settings.gpui_last_composer_model = Some(choice.clone())
+            }
+            Self::ToolSearchMode(mode) => settings.tool_search_mode = Some(mode.clone()),
             Self::Shortcut(id, bindings) => {
                 let overrides = settings.shortcut_bindings.get_or_insert_with(HashMap::new);
                 if let Some(bindings) = bindings {
@@ -126,6 +133,12 @@ impl PreferenceChange {
                 Err("Interface font size must be between 12 and 20".into())
             }
             Self::Voice(voice) => voice.validate(),
+            Self::ToolSearchMode(mode)
+                if !crate::shared::tool_search_setting::TOOL_SEARCH_MODES
+                    .contains(&mode.as_str()) =>
+            {
+                Err(format!("Unknown tool search mode: {mode}"))
+            }
             Self::Shortcut(_, _) => {
                 let mut candidate = settings.clone();
                 self.apply(&mut candidate);
