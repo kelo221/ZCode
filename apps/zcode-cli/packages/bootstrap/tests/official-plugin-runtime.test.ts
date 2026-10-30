@@ -69,7 +69,8 @@ describe("official plugin runtime manifest", () => {
     const contents = await readFile(manifestPath, "utf8");
     const manifest = JSON.parse(contents);
     expect(manifest.mcpServers.pdf.args.slice(-2)).toEqual([
-      join(root, "dist/server.mjs"),
+      // ${ZCODE_PLUGIN_ROOT} 按字面替换，保留 manifest 里的 "/"；Windows 上 join 会改成 "\"。
+      `${root}/dist/server.mjs`,
       "--flag",
     ]);
     expect(manifest.mcpServers.pdf.env.ELECTRON_RUN_AS_NODE).toBe("1");

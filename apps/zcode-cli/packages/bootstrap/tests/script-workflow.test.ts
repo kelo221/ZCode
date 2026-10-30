@@ -324,8 +324,11 @@ describe("script workflow runtime", () => {
       const childSession = await store.getSession(activities[0]!.childSessionId!);
       expect(childSession?.taskType).toBe("workflow_child");
       const providerText = requestTexts.join("\n");
-      expect(providerText).toContain("- Shell: zsh");
-      expect(providerText).not.toContain("- Shell: fish");
+      // PATH 上的假 zsh 只影响 POSIX 的 shell 选择；Windows 固定选 Git Bash / PowerShell。
+      if (process.platform !== "win32") {
+        expect(providerText).toContain("- Shell: zsh");
+        expect(providerText).not.toContain("- Shell: fish");
+      }
     } finally {
       store.close();
       await rm(tempRoot, { force: true, recursive: true });
