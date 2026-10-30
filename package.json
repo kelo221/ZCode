@@ -6,7 +6,7 @@
   "scripts": {
     "gpui": "cargo build --bins --manifest-path apps/zcode-gpui/Cargo.toml && cargo run --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace .",
     "dev:gpui": "cargo build --bins --manifest-path apps/zcode-gpui/Cargo.toml && cargo run --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace .",
-    "start:gpui": "cargo build --release --bins --manifest-path apps/zcode-gpui/Cargo.toml && cargo run --release --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace .",
+    "start:gpui": "cargo build --release --bins --manifest-path apps/zcode-gpui/Cargo.toml && bun apps/zcode-gpui/scripts/build_backend.ts --outdir apps/zcode-gpui/target/release && cargo run --release --manifest-path apps/zcode-gpui/Cargo.toml -- --workspace .",
     "package:gpui": "node scripts/package-gpui.mjs",
     "prepare": "husky && bun run build:cua",
     "build:cua": "bun run --filter @zcode/zcode-cua build",

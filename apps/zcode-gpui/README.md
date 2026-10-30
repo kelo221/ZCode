@@ -84,7 +84,7 @@ Slices extend `RootView` and `AppState`. Rust source/test files are capped at 40
 ## Backend resolution
 
 1. `ZCODE_GPUI_AGENT_PROGRAM` with optional `ZCODE_GPUI_AGENT_ARGS`. A JSON array of strings is the canonical args format; legacy whitespace splitting is retained. Defaults include `app-server --stdio --surface desktop`.
-2. The compiled backend beside the GPUI executable: `zcode-backend[.exe]` plus `provider/zcode-builtin.json` (and optionally `node_modules/ripgrep`), produced by `scripts/build_backend.ts`. Skipped unless the provider release is present.
+2. The compiled backend beside the GPUI executable: `zcode-backend[.exe]` plus `provider/zcode-builtin.json` (and optionally `node_modules/ripgrep`), produced by `scripts/build_backend.ts`. Skipped unless the provider release is present. `bun run start:gpui` rebuilds it into `target/release` on every launch (about 4 s). Measured on 2026-10-30, an idle agent used 178 MB compiled against 253 MB from source, and was ready in 0.4 s instead of 0.9 s. Rebuild the CLI packages' `dist/` before launching, because the bundle is built from them. `bun run dev:gpui` still runs the agent from source.
 3. Bun plus this branch's CLI source, offered only when its workspace dependencies are installed and built. Bun is found through `BUN_INSTALL`, `PATH`, then `~/.bun/bin`.
 
 GPUI never launches the installed ZCode desktop app (`ZCode.exe`), not for the agent, the Services Host, or plugin MCP servers. It only reads files from that install: its ripgrep and its Built-in Provider release. Plugin MCP servers in the plugin cache shared with Desktop are rebound to the agent's own runtime when they load (`bindPluginHostServersToCurrentRuntime`).

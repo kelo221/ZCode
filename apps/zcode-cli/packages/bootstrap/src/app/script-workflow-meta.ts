@@ -93,6 +93,8 @@ function extractWorkflowScriptParts(source: string): {
 
 async function evaluateMetaExpression(expression: string): Promise<unknown> {
   const child = spawn(process.execPath, ["--input-type=module", "--eval", META_EVAL_SOURCE], {
+    // 见 script-workflow-process.ts：编译产物需 BUN_BE_BUN=1 才接受 --eval。
+    env: { ...process.env, BUN_BE_BUN: "1" },
     stdio: ["pipe", "pipe", "pipe"],
   });
   const output: Buffer[] = [];

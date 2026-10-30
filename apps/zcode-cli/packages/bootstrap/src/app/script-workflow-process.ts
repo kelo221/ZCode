@@ -45,6 +45,9 @@ export async function runScriptWorkflowChild(input: {
     ["--input-type=module", "--eval", SCRIPT_WORKFLOW_CHILD_SOURCE, "--", payload],
     {
       cwd: input.workingDirectory,
+      // 修复原因：bun --compile 产物（GPUI 的 zcode-backend）会把 --eval 当成自己的 CLI 参数并退出；
+      // BUN_BE_BUN=1 让它按普通 bun 运行。源码态的 bun / node 会忽略该变量。
+      env: { ...process.env, BUN_BE_BUN: "1" },
       stdio: ["pipe", "pipe", "pipe"],
     },
   );
