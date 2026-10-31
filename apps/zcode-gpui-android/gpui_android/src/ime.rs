@@ -233,6 +233,13 @@ pub(crate) enum ImeEvent {
     /// `finishComposingText()`. End of composition without further
     /// edits.
     FinishComposingText,
+    /// `setComposingRegion(start, end)`. Marks existing text (absolute
+    /// UTF-16) as the composition, e.g. before a tapped suggestion is
+    /// committed over the word.
+    SetComposingRegion { start: i32, end: i32 },
+    /// `replaceText(start, end, text, ..)`. Replace an absolute UTF-16
+    /// range (suggestion / autocorrect replacement on newer IMEs).
+    ReplaceText { start: i32, end: i32, text: String },
     /// `deleteSurroundingText(before, after)`. Backspace / delete span
     /// around the cursor.
     DeleteSurroundingText { before_length: i32, after_length: i32 },
@@ -288,6 +295,12 @@ fn debug_event(event: &ImeEvent) -> String {
             format!("SetComposingText text={text:?} cursor={new_cursor_position}")
         }
         ImeEvent::FinishComposingText => "FinishComposingText".to_string(),
+        ImeEvent::SetComposingRegion { start, end } => {
+            format!("SetComposingRegion {start}..{end}")
+        }
+        ImeEvent::ReplaceText { start, end, text } => {
+            format!("ReplaceText {start}..{end} text={text:?}")
+        }
         ImeEvent::DeleteSurroundingText { before_length, after_length } => {
             format!("DeleteSurroundingText before={before_length} after={after_length}")
         }
@@ -466,6 +479,48 @@ fn commit_composition(window_ptr: &AndroidWindowStatePtr, replacement_text: Opti
     state.ime_composition_text = None;
 }
 
+/// Mark existing text `start..end` (absolute UTF-16) as the active
+/// composition, so the IME's next `setComposingText` / `commitText`
+/// replaces it. An empty range just drops the composition.
+fn set_composing_region(window_ptr: &AndroidWindowStatePtr, start: i32, end: i32) {
+    let mut state = window_ptr.state.borrow_mut();
+    let Some(handler) = state.input_handler.as_mut() else {
+        return;
+    };
+    // Drop any existing mark first: editors read a Some(range) relative
+    // to an active marked range, but as absolute when there is none.
+    handler.unmark_text();
+    let (lo, hi) = (start.min(end).max(0) as usize, start.max(end).max(0) as usize);
+    let mut adjusted = None;
+    let text = if lo < hi {
+        handler.text_for_range(lo..hi, &mut adjusted)
+    } else {
+        None
+    };
+    let Some(text) = text.filter(|t| !t.is_empty()) else {
+        state.ime_composition_start = None;
+        state.ime_composition_text = None;
+        return;
+    };
+    let lo = adjusted.map(|r| r.start).unwrap_or(lo);
+    let len = text.encode_utf16().count();
+    handler.replace_and_mark_text_in_range(Some(lo..lo + len), &text, Some(len..len));
+    state.ime_composition_start = Some(lo);
+    state.ime_composition_text = Some(text);
+}
+
+fn replace_text(window_ptr: &AndroidWindowStatePtr, start: i32, end: i32, text: &str) {
+    let mut state = window_ptr.state.borrow_mut();
+    let Some(handler) = state.input_handler.as_mut() else {
+        return;
+    };
+    handler.unmark_text();
+    let (lo, hi) = (start.min(end).max(0) as usize, start.max(end).max(0) as usize);
+    handler.replace_text_in_range(Some(lo..hi), text);
+    state.ime_composition_start = None;
+    state.ime_composition_text = None;
+}
+
 /// Push the current editor text + selection state across to Kotlin
 /// so the IME's `getTextBeforeCursor` / `getTextAfterCursor` /
 /// `getSelectedText` / `getExtractedText` queries can return real
@@ -618,6 +673,14 @@ fn apply_event(window_ptr: &AndroidWindowStatePtr, event: ImeEvent) {
                 .is_some();
             commit_composition(window_ptr, None);
             had_composition
+        }
+        ImeEvent::SetComposingRegion { start, end } => {
+            set_composing_region(window_ptr, start, end);
+            true
+        }
+        ImeEvent::ReplaceText { start, end, text } => {
+            replace_text(window_ptr, start, end, &text);
+            true
         }
         ImeEvent::DeleteSurroundingText {
             before_length,
@@ -804,6 +867,30 @@ pub extern "system" fn Java_dev_zcode_gpui_mobile_NativeBridge_nativeImeFinishCo
     window_id: i64,
 ) {
     dispatch_event(window_id as u64, ImeEvent::FinishComposingText);
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_zcode_gpui_mobile_NativeBridge_nativeImeSetComposingRegion<'local>(
+    _env: JNIEnv<'local>,
+    _bridge: JObject<'local>,
+    window_id: i64,
+    start: i32,
+    end: i32,
+) {
+    dispatch_event(window_id as u64, ImeEvent::SetComposingRegion { start, end });
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_zcode_gpui_mobile_NativeBridge_nativeImeReplaceText<'local>(
+    mut env: JNIEnv<'local>,
+    _bridge: JObject<'local>,
+    window_id: i64,
+    start: i32,
+    end: i32,
+    text: JString<'local>,
+) {
+    let text: String = env.get_string(&text).map(|s| s.into()).unwrap_or_default();
+    dispatch_event(window_id as u64, ImeEvent::ReplaceText { start, end, text });
 }
 
 #[unsafe(no_mangle)]

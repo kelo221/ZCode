@@ -5,6 +5,26 @@ use crate::composer::input::Composer;
 use gpui::{Context, EntityInputHandler, Pixels, Point, UTF16Selection, Window};
 use std::ops::Range;
 
+impl Composer {
+    /// Text in a UTF-16 range clamped to the content, plus the range served.
+    // Android 的 IME 桥会用 0..1 探测输入类型、用光标 ±256 拉取镜像文本；越界时返回 None
+    // 会让空输入框被当成终端（关闭联想），镜像文本变空导致 Gboard 误判句首而自动大写。
+    // 与 TextInput/CodeEditor 一致：越界部分截断，而不是返回 None。
+    pub(crate) fn clamped_text_utf16(&self, range_utf16: Range<usize>) -> (String, Range<usize>) {
+        let total = utf16_of(&self.content, self.content.len());
+        let end = range_utf16.end.min(total);
+        let start = range_utf16.start.min(end);
+        let start_byte = self.byte_from_utf16(start).unwrap_or(self.content.len());
+        let end_byte = self.byte_from_utf16(end).unwrap_or(self.content.len());
+        let text = self
+            .content
+            .get(start_byte..end_byte)
+            .unwrap_or_default()
+            .to_string();
+        (text, start..end)
+    }
+}
+
 impl EntityInputHandler for Composer {
     fn selected_text_range(
         &mut self,
@@ -43,13 +63,13 @@ impl EntityInputHandler for Composer {
     fn text_for_range(
         &mut self,
         range_utf16: Range<usize>,
-        _adjusted_range: &mut Option<Range<usize>>,
+        adjusted_range: &mut Option<Range<usize>>,
         _window: &mut Window,
         _cx: &mut Context<Self>,
     ) -> Option<String> {
-        let start = self.byte_from_utf16(range_utf16.start)?;
-        let end = self.byte_from_utf16(range_utf16.end)?;
-        self.content.get(start..end).map(str::to_string)
+        let (text, actual) = self.clamped_text_utf16(range_utf16);
+        *adjusted_range = Some(actual);
+        Some(text)
     }
 
     fn replace_text_in_range(
@@ -130,3 +150,7 @@ impl EntityInputHandler for Composer {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "ime_tests.rs"]
+mod tests;

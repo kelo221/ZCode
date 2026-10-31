@@ -6,6 +6,8 @@ object NativeBridge {
     @JvmStatic external fun nativeImeCommitText(windowId: Long, text: String, newCursorPosition: Int)
     @JvmStatic external fun nativeImeSetComposingText(windowId: Long, text: String, newCursorPosition: Int)
     @JvmStatic external fun nativeImeFinishComposingText(windowId: Long)
+    @JvmStatic external fun nativeImeSetComposingRegion(windowId: Long, start: Int, end: Int)
+    @JvmStatic external fun nativeImeReplaceText(windowId: Long, start: Int, end: Int, text: String)
     @JvmStatic external fun nativeImeDeleteSurroundingText(windowId: Long, beforeLength: Int, afterLength: Int)
     @JvmStatic external fun nativeImeSendKeyEvent(windowId: Long, action: Int, keyCode: Int, metaState: Int, repeatCount: Int)
     @JvmStatic external fun nativeImePerformEditorAction(windowId: Long, actionId: Int)
