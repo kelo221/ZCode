@@ -38,9 +38,14 @@ export function collectAgentListingAttachment(input: {
   if (added.length === 0 && removedTypes.length === 0) return undefined;
   added.sort((left, right) => left.name.localeCompare(right.name));
   removedTypes.sort();
+  const toolNames = new Set(input.tools.map((tool) => tool.name));
+  const format = {
+    embeddedSearchEnabled: input.embeddedSearchEnabled,
+    codeSearch: toolNames.has("FindFiles") && toolNames.has("SearchCode"),
+  };
   const delta: AgentListingDelta = {
     addedTypes: added.map((profile) => profile.name),
-    addedLines: added.map((profile) => formatAgentProfileForPrompt(profile, input)),
+    addedLines: added.map((profile) => formatAgentProfileForPrompt(profile, format)),
     removedTypes,
     isInitial: announced.size === 0,
     showConcurrencyNote: true,

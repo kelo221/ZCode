@@ -261,7 +261,15 @@ limits below take precedence over the retained historical milestone requirements
   profile whose `tools:` list names `Glob` or `Grep` also gets `FindFiles` or `SearchCode`
   respectively, because the Bash-search branch unregisters Glob/Grep and such a profile would
   otherwise be left with Bash `find`/`grep` only. An explicit `disallowedTools` entry still wins.
-  The shared Agent tool description and agent listing stay host-neutral (no FindFiles/SearchCode).
+  The shared Agent tool description stays host-neutral (no FindFiles/SearchCode).
+- Agent listing (2026-10-31): the per-session "Available agent types" reminder now names
+  FindFiles/SearchCode for Explore, and for custom profiles that list Glob/Grep, when the
+  session's own tools include both. In Bash-search mode those profiles' Glob/Grep, which are
+  unregistered, are dropped from the line. Before this the listing said Explore had only
+  "Read, Bash, …", so the main model wrongly concluded Explore had to search with `rg` and did
+  the work itself instead of delegating. Runtime tools were already correct; the CLI log showed
+  Explore calling SearchCode. Sessions keep the listing they announced first, so only new
+  sessions see the change.
 - Owner: the CLI process (`bootstrap/src/zcode-protocol/code-search-manager.ts`). One fff
   index per workspace key, shared by every session, subagent and workflow agent in the
   process. It opens on the first query and closes once the workspace has had no active agent

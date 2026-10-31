@@ -36,6 +36,29 @@ describe("agent listing attachments", () => {
     expect(read()).toBe(read());
     expect(read().activeAgents.some((agent) => agent.name === "B")).toBe(false);
   });
+  it("lists FindFiles/SearchCode for subagents only when the session has them", () => {
+    const definitions = {
+      activeAgents: [
+        createAgentDefinitionsReader([])().activeAgents.find((a) => a.name === "Explore")!,
+        { ...profile("Review"), tools: ["Read", "Grep", "Glob", "Bash"] },
+      ],
+    };
+    const lines = (tools: string[], embeddedSearchEnabled: boolean) =>
+      collectAgentListingAttachment({
+        definitions,
+        entries: [],
+        tools: ["Agent", ...tools].map((name) => ({ name })),
+        embeddedSearchEnabled,
+      })!.metadata.agentListingDelta!.addedLines.map((line) => line.split("(Tools: ")[1]);
+    expect(lines(["FindFiles", "SearchCode"], true)).toEqual([
+      "FindFiles, SearchCode, Read, Bash, WebFetch, WebSearch, TodoWrite)",
+      "Read, Bash, SearchCode, FindFiles)",
+    ]);
+    expect(lines([], true)).toEqual([
+      "Read, Bash, WebFetch, WebSearch, TodoWrite)",
+      "Read, Grep, Glob, Bash)",
+    ]);
+  });
   it("announces the exact supplied directory once, without adding built-ins", () => {
     const entry = collect(["B", "A"])!;
     expect(entry.metadata.agentListingDelta).toEqual({

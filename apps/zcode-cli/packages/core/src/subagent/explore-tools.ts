@@ -53,6 +53,8 @@ export const EXPLORE_AGENT_EMBEDDED_SEARCH_ALLOWED_TOOLS = [
 ] as const;
 
 const EXPLORE_AGENT_DESCRIPTION_TOOL_PRIORITY = [
+  "FindFiles",
+  "SearchCode",
   "Glob",
   "Grep",
   "Read",
@@ -82,6 +84,8 @@ export function buildExploreAllowedTools(
 export function formatExploreAllowedToolsForAgentDescription(
   options: {
     embeddedSearchEnabled?: boolean;
+    /** The session's own tools include FindFiles/SearchCode (children share them). */
+    codeSearch?: boolean;
   } = {},
 ): string {
   const allowedTools = buildExploreAllowedTools(options);
