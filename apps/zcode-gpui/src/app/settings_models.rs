@@ -124,6 +124,7 @@ impl RootView {
                 .into_any_element();
         };
         self.sync_provider_form(selected.as_ref(), view.revision, window, cx);
+        self.sync_auto_compact_inputs(selected.as_ref(), window, cx);
         let detail = if adding {
             self.render_provider_add(&view, busy, cx)
         } else if let Some(provider) = selected.as_ref() {

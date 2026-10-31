@@ -329,7 +329,7 @@ Native visual/executable restart and actual memory-tool execution remain evidenc
 
 ## GPUI-only preferences file
 
-`gpuiVoice`, `gpuiNoiseFree`, `gpuiCodeSearch` and `gpuiLspDiagnostics` are stored in
+`gpuiVoice`, `gpuiNoiseFree`, `gpuiCodeSearch`, `gpuiLspDiagnostics` and `gpuiAutoCompact` are stored in
 `~/.zcode/v2/gpui_settings.json`, next to `setting.json`, never in `setting.json` itself. The
 Electron desktop rewrites `setting.json` whole from its own typed copy and drops keys it doesn't
 model: on 2026-10-21 an Electron start erased `gpuiVoice`, so voice was off after the next GPUI
@@ -350,6 +350,67 @@ Acceptance tests (`shared/settings_tests.rs`): values survive Electron rewriting
 GPUI-only changes save while the desktop runs and leave `setting.json` byte-identical; a refused
 mixed change writes neither file; legacy values load and move on the next shared write; the GPUI
 file wins over stale legacy values; an unparseable GPUI file is kept.
+
+## Background auto-compaction (per model, GPUI only)
+
+GPUI can compact a conversation on its own after it has sat idle for a while, so the next message
+doesn't pay for a huge context. It is off by default and set per model.
+
+Setting: `gpuiAutoCompact` in `gpui_settings.json`, a map from `"provider/model"` (the composer's
+model value without the `$thought` suffix) to `{ "enabled": bool, "minutes": u32 }`. A missing entry
+means off with 50 minutes. Minutes are clamped to 5..=1440 when saved and when read. Writes go
+through the PreferenceOwner queue (`PreferenceChange::AutoCompact(key, entry)`); the entry for one
+model is replaced whole, other models' entries are kept.
+
+Controls (both edit the same entry):
+
+- Composer: a Timer icon button next to the noise-free toggle. It acts on the composer's currently
+  selected model: Subtle when on, Ghost when off; the tooltip names that model's minutes, e.g.
+  "Auto-compact after 50 min idle: on". Clicking flips `enabled` and keeps `minutes`.
+- Settings › Models: each model row of a provider has a Timer switch and a small minutes field
+  (digits only; commits on Enter or blur; empty or unchanged input commits nothing).
+
+Trigger rules. The owner is `AppState`; the 30 s maintenance tick runs the check after the
+release sweep. Each mirrored `ConversationState` carries:
+
+- `idle_since`: set when `control.phase` is seen not active (not `running`/`prewarming`), cleared
+  when it becomes active.
+- `auto_compacted`: set when an auto-compaction starts; cleared when a new run starts (phase becomes
+  active while no auto-compaction is in flight). So it fires once per idle stretch.
+- `auto_compact`: the in-flight auto-compaction, if any (`Resuming` → `Sent` → `Running`).
+
+A conversation is eligible when its model's entry is enabled, `idle_since` is at least `minutes`
+old, `auto_compacted` is false, `usage.contextWindow.usedTokens` ≥ 20 000, it has no live work
+(pending interactions, queued input, running activity) and it is not a subagent child. Only
+conversations GPUI has mirrored in this run are considered: a session never opened since GPUI
+started has no `idle_since`.
+
+Manual compaction does not change the phase: the CLI adds an `activeWorks` entry of kind
+`compact` and removes it when done (`product-projection.ts` `onCompactLifecycle`), so the
+compaction itself never counts as new activity.
+
+```text
+maintenance tick (AppState)
+  └─ eligible? → auto_compacted = true, auto_compact = Resuming
+       ├─ agent not running → ensure_spawned (once; agent gone again → give up, warn)
+       ├─ agent ready, not subscribed → v4/conversation/subscribe (cold resume in CLI gateway)
+       │     subscribe failed (no pending, still unsubscribed) → give up, warn
+       └─ subscribed → v4/command compact (Pending::AutoCompact) → Sent
+CLI ack ok → Running{seen=false} | ack error/rejected → auto_compact = None, warn
+control.activeWorks has compact → Running{seen=true}; then without it → None (done)
+Running{seen=false} still without compact work on a later tick → None (CLI never started it)
+release sweep / reaper: auto_compact.is_some() counts as live work, so neither drops it mid-flight
+```
+
+The compact is sent with `send_command` (`compact`, empty payload, no CAS) and never retried; a
+failure is written to the GPUI log and waits for new activity. Failures don't raise the error
+banner because the user didn't ask for this compaction.
+
+Acceptance tests: idle-state transitions (phase idle → `idle_since`, active → cleared and
+`auto_compacted` reset, active during an in-flight compaction keeps the flag); eligibility (disabled,
+below minutes, below the token floor, already compacted, running, live work); the in-flight steps
+(ack, compact work seen and gone); the setting round-trips through `gpui_settings.json` with
+clamping. Live behaviour against a real CLI is a manual check.
 
 ## Voice (desktop only)
 

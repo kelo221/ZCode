@@ -3,6 +3,7 @@
 
 pub(crate) mod acceptance;
 pub(crate) mod app_assets;
+pub(crate) mod auto_compact_settings;
 pub(crate) mod data_paths;
 pub(crate) mod desktop_lock;
 pub(crate) mod diff_view;
@@ -30,6 +31,7 @@ pub(crate) mod saved_workflows;
 pub(crate) mod selectable;
 pub(crate) mod selection_group;
 pub(crate) mod settings;
+pub(crate) mod settings_error;
 pub(crate) mod shortcut_runtime;
 pub(crate) mod shortcuts;
 pub(crate) mod sidebar_cache;

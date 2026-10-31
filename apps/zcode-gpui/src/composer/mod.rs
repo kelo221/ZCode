@@ -3,6 +3,7 @@
 
 pub(crate) mod attachment;
 mod attachment_input;
+mod auto_compact_toggle;
 pub(crate) mod autocomplete;
 pub(crate) mod autocomplete_keys;
 pub(crate) mod catalog;

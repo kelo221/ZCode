@@ -7,13 +7,14 @@ mod activity_tests;
 #[cfg(test)]
 mod attachment_upload_controls_tests;
 mod attachment_upload_view;
+pub(crate) mod auto_compact;
 #[cfg(test)]
 mod clipboard_draft_controls_tests;
 #[cfg(test)]
 mod composer_controls_tests;
 #[cfg(test)]
 mod connection_tests;
-mod conversation_release;
+pub(crate) mod conversation_release;
 #[cfg(test)]
 mod delivery_controls_tests;
 pub(crate) mod dock;
@@ -84,6 +85,7 @@ mod saved_workflow_controls_tests;
 pub(crate) mod saved_workflow_form;
 pub(crate) mod saved_workflows_pane;
 pub(crate) mod settings;
+pub(crate) mod settings_auto_compact;
 mod settings_browser;
 mod settings_code_search;
 #[cfg(test)]

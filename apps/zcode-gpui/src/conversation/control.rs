@@ -13,6 +13,21 @@ impl ConversationState {
             .and_then(Value::as_str)
             .unwrap_or("unknown")
             .to_string();
+        // Manual compaction keeps the phase and shows up only as an
+        // `activeWorks` entry of kind `compact` (CLI onCompactLifecycle).
+        let compact_work = control
+            .get("activeWorks")
+            .and_then(Value::as_array)
+            .is_some_and(|works| {
+                works
+                    .iter()
+                    .any(|w| w.get("kind").and_then(Value::as_str) == Some("compact"))
+            });
+        self.note_control(
+            self.phase_running(),
+            compact_work,
+            std::time::Instant::now(),
+        );
         self.last_error = match control.get("lastError") {
             Some(e) if !e.is_null() => Some((
                 e.get("code")

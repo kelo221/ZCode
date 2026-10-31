@@ -256,6 +256,7 @@ impl RootView {
                             .child(attach_btn)
                             .child(self.mode_menu(cx))
                             .child(self.noise_toggle(cx))
+                            .children(self.auto_compact_toggle(cx))
                             .children(self.composer_activity(cx))
                             .child(div().flex_1())
                             .child(self.composer_selectors(cx))

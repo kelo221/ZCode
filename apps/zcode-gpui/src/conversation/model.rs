@@ -80,6 +80,11 @@ pub struct ConversationState {
     pub throughput: crate::conversation::throughput::Throughput,
     /// Renderable `usage.contextWindow` for the composer ring.
     pub context_window: Option<crate::conversation::context_usage::ContextWindow>,
+    /// When the phase was last seen leaving active (`conversation/auto_compact.rs`).
+    pub(crate) idle_since: Option<std::time::Instant>,
+    /// Auto-compacted during this idle stretch; cleared when a new run starts.
+    pub(crate) auto_compacted: bool,
+    pub(crate) auto_compact: Option<crate::conversation::auto_compact::AutoCompactFlight>,
 }
 
 /// V4 `sessionPhaseSchema` phases during which a turn is live.
