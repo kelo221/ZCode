@@ -15,4 +15,6 @@ object NativeBridge {
     @JvmStatic external fun nativeSetSoftKeyboardVisible(visible: Boolean)
     // Defined in apps/zcode-gpui-android/src/lib.rs, not gpui_android.
     @JvmStatic external fun nativeSubmitPairLink(link: String)
+    @JvmStatic external fun nativeAttachFile(name: String, mime: String, bytes: ByteArray)
+    @JvmStatic external fun nativeAttachError(message: String)
 }

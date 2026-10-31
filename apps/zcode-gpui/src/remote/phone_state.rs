@@ -53,6 +53,9 @@ impl AppState {
                         if let Some(link) = crate::remote::take_pending_link() {
                             state.pair_with_link(&link, cx);
                         }
+                        for event in crate::remote::phone_files::take_events() {
+                            state.handle_picker_event(event, cx);
+                        }
                     })
                     .is_ok();
                 if !alive {
@@ -61,6 +64,22 @@ impl AppState {
             }
         })
         .detach();
+    }
+
+    fn handle_picker_event(
+        &mut self,
+        event: crate::remote::phone_files::PickerEvent,
+        cx: &mut Context<Self>,
+    ) {
+        match event {
+            crate::remote::phone_files::PickerEvent::File { name, mime, bytes } => {
+                self.start_file_upload(name, mime, bytes, cx)
+            }
+            crate::remote::phone_files::PickerEvent::Error(message) => {
+                self.push_error(message);
+                cx.notify();
+            }
+        }
     }
 
     fn fetch_remote_workspaces(&mut self, target: RemoteTarget, cx: &mut Context<Self>) {
@@ -101,7 +120,7 @@ impl AppState {
 
     pub(crate) fn pair_with_link(&mut self, text: &str, cx: &mut Context<Self>) {
         let Some(link) = PairLink::parse(text) else {
-            self.push_error("That is not a ZCode GPUI pairing link.".into());
+            self.push_error("That is not a GCode pairing link.".into());
             cx.notify();
             return;
         };

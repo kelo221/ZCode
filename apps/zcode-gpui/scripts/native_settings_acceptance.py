@@ -230,8 +230,7 @@ def launch(evidence, previous, args):
         stopped(previous)
     generation = previous["generation"] + 1 if previous else 1
     env = {key: value for key, value in os.environ.items() if not key.startswith("ZCODE_GPUI_ACCEPTANCE_")}
-    theme, locale = args.theme or (previous or {}).get("theme", "zai-dark"), args.locale or (previous or {}).get("locale", "preference")
-    env["ZCODE_GPUI_ACCEPTANCE_THEME"] = theme
+    locale = args.locale or (previous or {}).get("locale", "preference")
     locale_environment(env, locale)
     if previous:
         _, token = capability(previous["root"], previous["ticket"])
@@ -247,7 +246,7 @@ def launch(evidence, previous, args):
                                  cwd=REPO, env=env, stdout=stdout, stderr=stderr)
     process = identity(psutil.Process(child.pid))
     state = {"version": 2, "generation": generation, "evidence": str(evidence), "process": process,
-             "pid": child.pid, "owned": [process], "theme": theme, "locale": locale, "status": "starting"}
+             "pid": child.pid, "owned": [process], "locale": locale, "status": "starting"}
     if previous:
         state["root"], state["ticket"] = previous["root"], previous["ticket"]
         state["previousOwned"] = previous["owned"]
@@ -296,7 +295,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("start", "restart", "fixtures", "close", "click", "type", "capture", "resize", "key", "wheel"))
     parser.add_argument("values", nargs="*")
-    parser.add_argument("--theme", choices=("zai-dark", "zai-light"))
     parser.add_argument("--locale", choices=("preference", "en-US", "zh-CN"), help="default reads saved scratch preference; other values are non-persisting overrides")
     parser.add_argument("--section", default="subagents", help="a Settings section, or main for the workspace window")
     parser.add_argument("--chat", action="store_true", help="main window: seed a loopback mock chat and send one scripted prompt")

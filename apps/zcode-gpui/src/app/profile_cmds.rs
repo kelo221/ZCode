@@ -180,7 +180,7 @@ impl AppState {
                         && crate::shared::desktop_lock::is_desktop_running_except(&owned)
                     {
                         return (
-                            Err("Close ZCode Desktop before local management".into()),
+                            Err("Close GCode Desktop before local management".into()),
                             None,
                         );
                     }

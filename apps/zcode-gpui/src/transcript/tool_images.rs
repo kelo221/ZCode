@@ -15,8 +15,17 @@ use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ImageRef {
-    Inline { mime: String, data: String },
+    Inline {
+        mime: String,
+        data: String,
+    },
     File(PathBuf),
+    /// An image attached to a sent message, read back through the CLI.
+    Attachment {
+        session: String,
+        reference: String,
+        mime: String,
+    },
 }
 
 impl ImageRef {
@@ -28,6 +37,9 @@ impl ImageRef {
                 crc32fast::hash(data.as_bytes())
             ),
             Self::File(p) => format!("file:{}", p.display()),
+            Self::Attachment {
+                session, reference, ..
+            } => format!("att:{session}:{reference}"),
         }
     }
 }
@@ -94,7 +106,24 @@ fn load(r: ImageRef) -> Result<ImagePreview, String> {
             decode(bytes, format)
         }
         ImageRef::File(path) => read_preview(&path),
+        ImageRef::Attachment { .. } => return Err("Not an image".into()),
     };
+    preview_result(preview)
+}
+
+/// Decode bytes fetched from the desktop or the CLI (`remote::desktop_images`).
+fn decode_fetched(r: &ImageRef, bytes: Vec<u8>) -> Result<ImagePreview, String> {
+    let format = match r {
+        ImageRef::File(path) => crate::files::image_preview::format(path),
+        ImageRef::Attachment { mime, .. } => mime_format(mime),
+        ImageRef::Inline { .. } => None,
+    }
+    .or_else(|| image::guess_format(&bytes).ok())
+    .ok_or_else(|| "Unsupported image type".to_string())?;
+    preview_result(decode(bytes, format))
+}
+
+fn preview_result(preview: Preview) -> Result<ImagePreview, String> {
     match preview {
         Preview::Image(img) => Ok(img),
         Preview::Error(e) => Err(e.label().to_string()),
@@ -142,8 +171,21 @@ impl crate::app::root::RootView {
             return;
         }
         self.tool_images.images.insert(key.clone(), None);
+        let remote = remote_source(&r, &self.state, cx);
+        let state = self.state.downgrade();
         cx.spawn(async move |this, cx| {
-            let result = cx.background_spawn(async move { load(r) }).await;
+            use crate::remote::desktop_images::fetch;
+            let result = match remote {
+                None => cx.background_spawn(async move { load(r) }).await,
+                Some(Err(e)) => Err(e),
+                Some(Ok((ws, source, cache))) => match fetch(state, ws, source, cache, cx).await {
+                    Ok(bytes) => {
+                        cx.background_spawn(async move { decode_fetched(&r, bytes) })
+                            .await
+                    }
+                    Err(e) => Err(e),
+                },
+            };
             this.update(cx, |v, cx| {
                 v.tool_images.images.insert(key, Some(result));
                 cx.notify();
@@ -160,10 +202,27 @@ impl crate::app::root::RootView {
         refs: Vec<ImageRef>,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
+        self.images_row(row_id, refs, false, cx)
+    }
+
+    /// `end` right-aligns the thumbnails (under a user message bubble).
+    pub(crate) fn images_row(
+        &self,
+        row_id: u64,
+        refs: Vec<ImageRef>,
+        end: bool,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         if refs.is_empty() {
             return None;
         }
-        let mut row = div().w_full().min_w_0().flex().flex_wrap().gap_2();
+        let mut row = div()
+            .w_full()
+            .min_w_0()
+            .flex()
+            .flex_wrap()
+            .gap_2()
+            .when(end, |el| el.justify_end());
         for r in refs {
             let key = r.key();
             match self.tool_images.images.get(&key) {
@@ -205,6 +264,41 @@ impl crate::app::root::RootView {
         }
         Some(row.into_any_element())
     }
+}
+
+type RemoteSource = (
+    String,
+    crate::remote::desktop_images::RemoteImage,
+    Option<PathBuf>,
+);
+
+/// Where an image's bytes come from when this process cannot read them
+/// itself: `None` loads locally; the phone asks the desktop for files, and
+/// both ask their CLI for sent attachments.
+fn remote_source(
+    r: &ImageRef,
+    state: &gpui::Entity<crate::app::store::AppState>,
+    cx: &gpui::App,
+) -> Option<Result<RemoteSource, String>> {
+    use crate::remote::desktop_images::{RemoteImage, cache_dir};
+    let state = state.read(cx);
+    let phone = state.phone_client.enabled;
+    let source = match r {
+        ImageRef::File(path) if phone => RemoteImage::DesktopFile(path.clone()),
+        ImageRef::Attachment {
+            session, reference, ..
+        } => RemoteImage::Attachment {
+            session: session.clone(),
+            reference: reference.clone(),
+        },
+        _ => return None,
+    };
+    Some(
+        state
+            .active_ws_key()
+            .map(|ws| (ws, source, phone.then(cache_dir)))
+            .ok_or_else(|| "Not connected".to_string()),
+    )
 }
 
 fn note(text: &str) -> gpui::Div {

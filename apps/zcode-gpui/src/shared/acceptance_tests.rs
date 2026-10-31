@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn nonisolated_acceptance_environment_is_rejected_before_launch() {
-    for key in [TICKET_ENV, TOKEN_ENV, THEME_ENV, LOCALE_ENV] {
+    for key in [TICKET_ENV, TOKEN_ENV, LOCALE_ENV] {
         let env = |name: &str| (name == key).then(|| std::ffi::OsString::from("synthetic"));
         assert!(AcceptanceRequest::from_environment(false, true, env).is_err());
     }
@@ -10,7 +10,7 @@ fn nonisolated_acceptance_environment_is_rejected_before_launch() {
 
 #[test]
 fn release_build_rejects_all_harness_capabilities_and_overrides() {
-    for key in [TICKET_ENV, TOKEN_ENV, THEME_ENV, LOCALE_ENV] {
+    for key in [TICKET_ENV, TOKEN_ENV, LOCALE_ENV] {
         assert!(
             AcceptanceRequest::from_environment(true, false, |name| {
                 (name == key).then(|| std::ffi::OsString::from("synthetic"))
@@ -23,19 +23,15 @@ fn release_build_rejects_all_harness_capabilities_and_overrides() {
 
 #[test]
 fn override_values_are_exact_and_ticket_requires_matching_token_pair() {
-    for (theme, locale) in [("zai-dark", "en-US"), ("zai-light", "zh-CN")] {
+    for locale in ["en-US", "zh-CN"] {
         let request = AcceptanceRequest::from_environment(true, true, |name| match name {
-            THEME_ENV => Some(theme.into()),
             LOCALE_ENV => Some(locale.into()),
             _ => None,
         })
         .unwrap();
-        assert_eq!(request.visuals.theme.unwrap().as_str(), theme);
         assert_eq!(request.visuals.locale.unwrap().as_str(), locale);
     }
     for (key, value) in [
-        (THEME_ENV, "system"),
-        (THEME_ENV, "dark"),
         (LOCALE_ENV, "zh"),
         (LOCALE_ENV, ""),
         (TICKET_ENV, "scratch"),
@@ -61,7 +57,6 @@ fn projection_reapplies_after_preferences_without_mutating_snapshot() {
     app.update(|cx| {
         ely_gpui_component::init(cx);
         let settings = AppSettings {
-            theme_preference: Some("zai-dark".into()),
             locale_preference: Some("en-US".into()),
             ..Default::default()
         };
@@ -72,11 +67,9 @@ fn projection_reapplies_after_preferences_without_mutating_snapshot() {
             cx,
         );
         let visuals = VisualOverrides {
-            theme: Some(ThemeMode::ZaiLight),
             locale: Some(Locale::ZhCn),
         };
         visuals.apply(cx);
-        assert_eq!(crate::shared::theme::theme_mode(), ThemeMode::ZaiLight);
         assert_eq!(crate::shared::i18n::current_locale(), Locale::ZhCn);
         assert_eq!(
             cx.global::<ely_gpui_component::i18n::I18n>().locale().tag,
@@ -84,14 +77,12 @@ fn projection_reapplies_after_preferences_without_mutating_snapshot() {
         );
         Preferences::apply_runtime(cx);
         visuals.apply(cx);
-        assert_eq!(crate::shared::theme::theme_mode(), ThemeMode::ZaiLight);
         assert_eq!(crate::shared::i18n::current_locale(), Locale::ZhCn);
         assert_eq!(
             cx.global::<ely_gpui_component::i18n::I18n>().locale().tag,
             "zh-CN"
         );
         let snapshot = &cx.global::<PreferenceOwner>().0.read(cx).snapshot;
-        assert_eq!(snapshot.theme_preference, settings.theme_preference);
         assert_eq!(snapshot.locale_preference, settings.locale_preference);
         Preferences::apply_runtime(cx);
     });

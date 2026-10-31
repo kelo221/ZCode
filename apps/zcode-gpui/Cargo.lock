@@ -8136,6 +8136,7 @@ dependencies = [
  "base64 0.22.1",
  "crc32fast",
  "ely-gpui-component",
+ "embed-resource",
  "futures",
  "gpui",
  "gpui_platform",

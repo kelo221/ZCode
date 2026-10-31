@@ -165,8 +165,8 @@ impl RootView {
             .flex_col()
             .gap_4()
             .child(div().text_color(theme.subtle).child(label(
-                "GPUI only. Your text replaces the agent's whole system prompt, including environment, git status, memory and desktop instructions. The first line \"You are ZCode, an interactive coding agent\", skills, AGENTS.md and the date are always kept. Applies to every workspace, on the next turn of running chats.",
-                "仅限 GPUI。你的文本会替换智能体的整个系统提示词，包括环境、Git 状态、记忆和桌面说明。首行 \"You are ZCode, an interactive coding agent\"、技能、AGENTS.md 与日期始终保留。对所有工作区生效，运行中的对话在下一轮生效。",
+                "GPUI only. Your text replaces the agent's whole system prompt, including environment, git status, memory and desktop instructions. The first line \"You are GCode, an interactive coding agent\", skills, AGENTS.md and the date are always kept. Applies to every workspace, on the next turn of running chats.",
+                "仅限 GPUI。你的文本会替换智能体的整个系统提示词，包括环境、Git 状态、记忆和桌面说明。首行 \"You are GCode, an interactive coding agent\"、技能、AGENTS.md 与日期始终保留。对所有工作区生效，运行中的对话在下一轮生效。",
             )))
             .child(actions)
             .children(status.map(|s| div().text_color(theme.subtle).child(s)))

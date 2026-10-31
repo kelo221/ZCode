@@ -1,16 +1,37 @@
-//! Legacy color token IDs, theme mode and the typography ladder. The constants below
-//! are only identities resolved by `theme_colors::color` to Desktop's Zai palette
+//! Legacy color token IDs, the GCode theme and the typography ladder. The constants
+//! below are only identities resolved by `theme_colors::color` to the Dracula palette
 //! (`theme_palette.rs`); their numeric values are not the colors drawn.
 
 #![allow(dead_code)]
 
 use gpui::{AnyElement, Div, IntoElement, div, prelude::*, px};
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 
-/// Families registered by `ely_gpui_component::init` — use these, not system
-/// fonts, so every surface matches the ely components.
-pub const UI_FONT: &str = "Inter";
-pub const MONO_FONT: &str = "JetBrains Mono";
+/// Embedded Geist families registered by `register_fonts`; Ely's theme is pointed
+/// at the same names in `apply_theme`, so every surface matches.
+pub const UI_FONT: &str = "Geist";
+pub const MONO_FONT: &str = "Geist Mono";
+
+const FONTS: &[&[u8]] = &[
+    include_bytes!("../../assets/fonts/Geist-Regular.ttf"),
+    include_bytes!("../../assets/fonts/Geist-Medium.ttf"),
+    include_bytes!("../../assets/fonts/Geist-SemiBold.ttf"),
+    include_bytes!("../../assets/fonts/Geist-Bold.ttf"),
+    include_bytes!("../../assets/fonts/Geist-Italic.ttf"),
+    include_bytes!("../../assets/fonts/GeistMono-Regular.ttf"),
+    include_bytes!("../../assets/fonts/GeistMono-Medium.ttf"),
+];
+
+/// Call after `ely_gpui_component::init`, before the first window opens.
+pub fn register_fonts(cx: &mut gpui::App) {
+    let fonts = FONTS
+        .iter()
+        .map(|bytes| std::borrow::Cow::Borrowed(*bytes))
+        .collect();
+    if let Err(error) = cx.text_system().add_fonts(fonts) {
+        eprintln!("failed to register Geist fonts: {error:#}");
+    }
+}
 
 // Legacy token identities (resolved through theme_colors::color).
 pub const BG: u32 = 0x131110;
@@ -45,97 +66,27 @@ pub const TAG: u32 = 0x363636;
 pub const SUBTLEST: u32 = 0x5a5a5a;
 pub const BORDER_HOVER: u32 = 0x3a3a3a;
 pub const FRAME: u32 = 0x2b2b2c;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ThemeMode {
-    #[default]
-    ZaiDark,
-    ZaiLight,
-    System,
-}
-
-impl ThemeMode {
-    pub fn parse(s: &str) -> Self {
-        match s {
-            "light" | "zai-light" => Self::ZaiLight,
-            "dark" | "zai-dark" => Self::ZaiDark,
-            _ => Self::System,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::ZaiDark => "zai-dark",
-            Self::ZaiLight => "zai-light",
-            Self::System => "system",
-        }
-    }
-}
+/// Text drawn on brand/accent/danger fills.
+pub const INVERSE: u32 = 0x0a0a0b;
 
 pub use crate::shared::theme_palette::ThemePalette;
 
-static ACTIVE_THEME: AtomicU8 = AtomicU8::new(2); // preference: dark, light, system
-static EFFECTIVE_LIGHT: AtomicU8 = AtomicU8::new(0);
-
-pub fn set_theme_mode(mode: ThemeMode) {
-    let val = match mode {
-        ThemeMode::ZaiLight => 1,
-        ThemeMode::ZaiDark => 0,
-        ThemeMode::System => 2,
-    };
-    ACTIVE_THEME.store(val, Ordering::Relaxed);
-}
-
-pub fn theme_mode() -> ThemeMode {
-    match ACTIVE_THEME.load(Ordering::Relaxed) {
-        1 => ThemeMode::ZaiLight,
-        0 => ThemeMode::ZaiDark,
-        _ => ThemeMode::System,
-    }
-}
-
-pub fn effective_light() -> bool {
-    EFFECTIVE_LIGHT.load(Ordering::Relaxed) == 1
-}
-
+/// GCode ships a single theme (Dracula); the stored `theme`/`themePreference`
+/// values are kept in `setting.json` for the official app but no longer read.
 pub fn active_theme() -> ThemePalette {
-    if EFFECTIVE_LIGHT.load(Ordering::Relaxed) == 1 {
-        ThemePalette::zai_light()
-    } else {
-        ThemePalette::zai_dark()
-    }
+    ThemePalette::dracula()
 }
 
-pub fn apply_appearance(appearance: gpui::WindowAppearance, cx: &mut gpui::App) {
-    let system_light = matches!(
-        appearance,
-        gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight
-    );
-    let light = match theme_mode() {
-        ThemeMode::ZaiLight => true,
-        ThemeMode::ZaiDark => false,
-        ThemeMode::System => system_light,
-    };
-    EFFECTIVE_LIGHT.store(u8::from(light), Ordering::Relaxed);
+pub fn apply_theme(cx: &mut gpui::App) {
     use ely_gpui_component::theme::{Mode, Theme};
-    Theme::set_palette(
-        Mode::Light,
-        Some(ThemePalette::zai_light().ely_palette(true)),
-        cx,
-    );
-    Theme::set_palette(
-        Mode::Dark,
-        Some(ThemePalette::zai_dark().ely_palette(false)),
-        cx,
-    );
-    ely_gpui_component::theme::Theme::set_mode_now(
-        if light {
-            ely_gpui_component::theme::Mode::Light
-        } else {
-            ely_gpui_component::theme::Mode::Dark
-        },
-        cx,
-    );
+    let palette = active_theme().ely_palette();
+    Theme::set_palette(Mode::Light, Some(palette.clone()), cx);
+    Theme::set_palette(Mode::Dark, Some(palette), cx);
+    Theme::set_mode_now(Mode::Dark, cx);
+    Theme::update(cx, |theme| {
+        theme.font_family = UI_FONT.into();
+        theme.mono_family = MONO_FONT.into();
+    });
 }
 
 pub fn ui_size(original: f32) -> f32 {

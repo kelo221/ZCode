@@ -52,7 +52,7 @@ fn vector_conflicts_remain_preference_owner_validation_and_reset_semantics() {
     };
     let conflict = PreferenceChange::Shortcut(
         "openSettings".into(),
-        Some(vec!["Ctrl+q".into(), "Shift+CmdOrCtrl+l".into()]),
+        Some(vec!["Ctrl+q".into(), "CmdOrCtrl+j".into()]),
     );
     assert!(conflict.validate(&settings).is_err());
     assert_eq!(

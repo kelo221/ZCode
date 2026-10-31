@@ -5,10 +5,14 @@
 //!
 //! - `scope`: per phone socket allowlist, id remap and subscription routing.
 //! - `pairing`, `tls`, `listener`, `gateway`: the desktop side.
-//! - `client`, `phone_state`: the phone side.
+//! - `staging`: desktop end of phone attachment uploads.
+//! - `file_read`: desktop end of phone image fetches.
+//! - `client`, `phone_state`, `phone_files`, `desktop_images`: the phone side.
 //! - `line_socket`, `link`, `handshake`: shared by both.
 
 pub(crate) mod client;
+pub(crate) mod desktop_images;
+pub(crate) mod file_read;
 pub(crate) mod gateway;
 mod gateway_controls;
 pub(crate) mod handshake;
@@ -16,8 +20,10 @@ pub(crate) mod line_socket;
 pub(crate) mod link;
 pub(crate) mod listener;
 pub(crate) mod pairing;
+pub mod phone_files;
 pub(crate) mod phone_state;
 pub(crate) mod scope;
+pub(crate) mod staging;
 pub(crate) mod tls;
 
 use std::sync::Mutex;

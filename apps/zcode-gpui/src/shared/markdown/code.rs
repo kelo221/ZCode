@@ -29,26 +29,13 @@ fn syntax_set() -> &'static SyntaxSet {
     SET.get_or_init(SyntaxSet::load_defaults_newlines)
 }
 
-/// Syntax colors follow the effective light/dark mode so tokens stay legible on the
-/// code block's background.
-fn theme_name() -> &'static str {
-    if crate::shared::theme::effective_light() {
-        "InspiredGitHub"
-    } else {
-        "base16-ocean.dark"
-    }
-}
-
+/// Dracula (MIT, dracula/textmate), matching the app palette.
 fn theme() -> &'static syntect::highlighting::Theme {
-    static THEMES: OnceLock<ThemeSet> = OnceLock::new();
-    THEMES
-        .get_or_init(ThemeSet::load_defaults)
-        .themes
-        .get(theme_name())
-        .unwrap_or_else(|| {
-            static FALLBACK: OnceLock<syntect::highlighting::Theme> = OnceLock::new();
-            FALLBACK.get_or_init(syntect::highlighting::Theme::default)
-        })
+    static THEME: OnceLock<syntect::highlighting::Theme> = OnceLock::new();
+    THEME.get_or_init(|| {
+        let bytes = include_bytes!("../../../assets/syntax/Dracula.tmTheme");
+        ThemeSet::load_from_reader(&mut std::io::Cursor::new(&bytes[..])).unwrap_or_default()
+    })
 }
 
 /// Entries kept by the highlight memo; cleared wholesale when full (streaming
@@ -69,7 +56,7 @@ fn highlight_cached(code: &str, lang: &str) -> std::rc::Rc<Vec<CodeLine>> {
             RefCell::new(HashMap::new());
     }
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (code, lang, theme_name()).hash(&mut hasher);
+    (code, lang).hash(&mut hasher);
     // Length in the key makes a 64-bit hash collision even less plausible.
     let key = (hasher.finish(), code.len());
     if let Some(hit) = CACHE.with(|c| c.borrow().get(&key).cloned()) {

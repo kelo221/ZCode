@@ -1,5 +1,5 @@
 use crate::app::root::RootView;
-use crate::shared::preferences::{PreferenceChange, PreferenceOwner, Preferences};
+use crate::shared::preferences::PreferenceOwner;
 use crate::shared::shortcuts::ShortcutCommandId;
 use gpui::{Context, Div, KeyDownEvent, Window};
 
@@ -52,17 +52,6 @@ impl RootView {
         }
     }
 
-    pub(crate) fn switch_theme(&mut self, cx: &mut Context<Self>) {
-        let next = if crate::shared::theme::active_theme()
-            == crate::shared::theme::ThemePalette::zai_light()
-        {
-            crate::shared::theme::ThemeMode::ZaiDark
-        } else {
-            crate::shared::theme::ThemeMode::ZaiLight
-        };
-        Preferences::enqueue(PreferenceChange::Theme(next), cx);
-    }
-
     pub(crate) fn handle_navigation_key(
         &mut self,
         event: &KeyDownEvent,
@@ -91,7 +80,6 @@ impl RootView {
         match command {
             Some(ShortcutCommandId::OpenSettings) => self.open_settings(window, cx),
             Some(ShortcutCommandId::OpenCommandCenter) => self.open_command_center(window, cx),
-            Some(ShortcutCommandId::SwitchTheme) => self.switch_theme(cx),
             Some(ShortcutCommandId::ToggleTerminal) if !self.settings.open => {
                 self.term_open = !self.term_open;
                 if self.term_open {
@@ -144,9 +132,6 @@ impl RootView {
                     this.open_settings(window, cx)
                 }),
             )
-            .on_action(cx.listener(
-                |this, _: &crate::app::quickpick::SwitchThemeAction, _, cx| this.switch_theme(cx),
-            ))
             .on_action(cx.listener(
                 |this, action: &crate::shared::markdown::file_ref::OpenFileReference, _, cx| {
                     this.open_file_reference(&action.raw, cx)

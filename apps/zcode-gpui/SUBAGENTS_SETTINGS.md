@@ -127,7 +127,7 @@ root-identity marker, unlogged random capability ticket/token and a held root fi
 A harness reattach requires `--isolated-settings`, matching ticket/token, validated temp
 parent/root UUID, canonical marker identity and bounded traversal rejecting links/reparse
 escapes. It never accepts an arbitrary HOME or real profile root. Only debug isolated
-processes honor `ZCODE_GPUI_ACCEPTANCE_THEME`/`ZCODE_GPUI_ACCEPTANCE_LOCALE`; display
+processes honor `ZCODE_GPUI_ACCEPTANCE_LOCALE` (GCode has one theme); display
 overrides are non-persisting and reapplied after preference projection reload. Harness
 secrets are not included in child environment or logs. The held scratch-root lock is the
 sole isolated single-instance guard; isolated launch skips generic HOME-based IPC so it

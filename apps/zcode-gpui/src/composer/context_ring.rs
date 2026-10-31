@@ -4,11 +4,11 @@
 
 use crate::conversation::context_usage::{ContextWindow, percent};
 use crate::shared::i18n::{Locale, current_locale, label};
-use crate::shared::theme::{MONO_FONT, active_theme, effective_light, ui_size};
+use crate::shared::theme::{MONO_FONT, active_theme, ui_size};
 use ely_gpui_component::overlays::HoverCard;
 use gpui::{
     Bounds, Hsla, IntoElement, ParentElement, PathBuilder, Pixels, Point, Rgba, Styled, Window,
-    canvas, div, point, prelude::*, px, relative, rgb,
+    canvas, div, point, prelude::*, px, relative,
 };
 use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
@@ -223,13 +223,9 @@ fn card(cw: &ContextWindow) -> impl IntoElement + use<> {
         .children(cache)
 }
 
-/// Desktop's `--color-usage-chart-1` for the Zai themes.
+/// Desktop's `--color-usage-chart-1`, mapped to the palette's brand purple.
 fn chart_color() -> Rgba {
-    rgb(if effective_light() {
-        0x0b7fff
-    } else {
-        0x4099ff
-    })
+    active_theme().brand
 }
 
 /// `amount` of `a` mixed with the rest of `b`.
@@ -246,6 +242,7 @@ fn mix(a: Rgba, b: Rgba, amount: f32) -> Rgba {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui::rgb;
 
     #[test]
     fn arc_runs_clockwise_from_twelve_o_clock() {

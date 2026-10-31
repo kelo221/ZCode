@@ -18,6 +18,7 @@ impl AppState {
         if self.handle_workflow_content_response(ws_key, id, &result, &error, cx)
             || self.handle_workflow_artifact_response(ws_key, id, &result, &error, cx)
             || self.handle_attachment_response(ws_key, id, &result, &error, cx)
+            || self.handle_raw_query_response(ws_key, id, &result, &error, cx)
             || self.handle_system_prompt_response(ws_key, id, &result, &error, cx)
             || self.handle_provider_settings_response(ws_key, id, &result, &error, cx)
             || self.handle_auto_compact_response(ws_key, id, &result, &error)
@@ -177,6 +178,7 @@ impl AppState {
             | Pending::SystemPrompt { .. }
             | Pending::ProviderSettings(_)
             | Pending::AutoCompact(_)
+            | Pending::RawQuery(_)
             | Pending::CleanupCatalog => {}
             Pending::SubscribeConversation(sid) => {
                 let topic = format!("conversation/{sid}");

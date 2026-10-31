@@ -4,7 +4,6 @@
 
 use crate::backend::workspace::WorkspaceHandle;
 use crate::shared::i18n::t;
-use crate::shared::theme::{ThemeMode, theme_mode};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QuickPickAction {
@@ -12,7 +11,6 @@ pub enum QuickPickAction {
     OpenWorkspace,
     ToggleSidePane,
     ToggleTerminal,
-    SwitchTheme,
     OpenSettings,
     OpenInEditor,
     RevealInFileManager,
@@ -51,11 +49,6 @@ fn cmd_item(
 }
 
 pub fn get_quickpick_items(workspaces: &[WorkspaceHandle], query: &str) -> Vec<QuickPickItem> {
-    let switch_theme_title = match theme_mode() {
-        ThemeMode::ZaiLight => t("quickPick.command.switchThemeToDark"),
-        _ => t("quickPick.command.switchThemeToLight"),
-    };
-
     let mut items = vec![
         cmd_item(
             "new-task",
@@ -84,13 +77,6 @@ pub fn get_quickpick_items(workspaces: &[WorkspaceHandle], query: &str) -> Vec<Q
             "Panels",
             Some("Ctrl+J"),
             QuickPickAction::ToggleTerminal,
-        ),
-        cmd_item(
-            "switch-theme",
-            switch_theme_title,
-            "Configure",
-            Some("Ctrl+Shift+L"),
-            QuickPickAction::SwitchTheme,
         ),
         cmd_item(
             "settings",
@@ -165,7 +151,6 @@ pub(crate) fn apply_shortcut_labels(
                 QuickPickAction::OpenWorkspace => Some(Command::OpenWorkspace),
                 QuickPickAction::ToggleSidePane => Some(Command::ToggleSidePane),
                 QuickPickAction::ToggleTerminal => Some(Command::ToggleTerminal),
-                QuickPickAction::SwitchTheme => Some(Command::SwitchTheme),
                 QuickPickAction::OpenSettings => Some(Command::OpenSettings),
                 _ => None,
             },
@@ -226,7 +211,7 @@ mod tests {
         let new_task_found = items.iter().any(|i| i.id == "new-task");
         assert!(new_task_found);
 
-        let filtered = get_quickpick_items(&[], "theme");
-        assert!(filtered.iter().any(|i| i.id == "switch-theme"));
+        let filtered = get_quickpick_items(&[], "terminal");
+        assert!(filtered.iter().any(|i| i.id == "toggle-terminal"));
     }
 }

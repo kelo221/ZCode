@@ -87,4 +87,6 @@ pub(crate) enum Pending {
     },
     /// Model settings page (provider_settings/requests.rs).
     ProviderSettings(crate::provider_settings::Request),
+    /// Answer forwarded to an async caller (backend/raw_query.rs).
+    RawQuery(futures::channel::oneshot::Sender<crate::backend::raw_query::QueryReply>),
 }

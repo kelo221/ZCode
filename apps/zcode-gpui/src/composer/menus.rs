@@ -28,6 +28,8 @@ impl RootView {
             .map(|c| c.models.clone())
             .unwrap_or_default();
         let root = cx.entity();
+        // 手机宽度下整行放不下：去掉提供商前缀并隐藏 tok/s，否则末尾溢出出卡片、发送按钮被挤到下一行。
+        let compact = self.composer_compact;
         let (rate, context_window) = {
             let state = self.state.read(cx);
             let conversation = state
@@ -35,7 +37,9 @@ impl RootView {
                 .as_ref()
                 .and_then(|sid| state.conversations.get(sid));
             (
-                conversation.and_then(|c| c.throughput.rate(std::time::Instant::now())),
+                conversation
+                    .filter(|_| !compact)
+                    .and_then(|c| c.throughput.rate(std::time::Instant::now())),
                 conversation.and_then(|c| c.context_window.clone()),
             )
         };
@@ -54,13 +58,22 @@ impl RootView {
         let row = div()
             .flex()
             .flex_row()
+            .flex_wrap()
+            .justify_end()
+            .min_w_0()
             .items_center()
             .gap_1()
             .children(context_window.map(crate::composer::context_ring::context_ring))
             .children((!models.is_empty()).then(|| {
                 DropdownMenu::new(
                     "model-menu",
-                    effective.trigger_display(&models),
+                    match models
+                        .iter()
+                        .find(|o| o.provider == effective.provider && o.model == effective.model)
+                    {
+                        Some(opt) if compact => opt.name.clone(),
+                        _ => effective.trigger_display(&models),
+                    },
                     model_menu(&effective, &models, root.clone()),
                 )
                 .variant(ButtonVariant::Ghost)

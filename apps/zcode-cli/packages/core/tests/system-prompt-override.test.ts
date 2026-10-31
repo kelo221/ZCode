@@ -75,7 +75,7 @@ describe("system prompt override", () => {
     expect(runtime.setSystemPromptOverride("Talk like a pirate.")).toBe(true);
     await runtime.executeTurn("second");
     const custom = systemText(requests[1]);
-    expect(custom).toContain("You are ZCode, an interactive coding agent");
+    expect(custom).toContain("You are GCode, an interactive coding agent");
     expect(custom).toContain("Talk like a pirate.");
     expect(custom).not.toContain("# Environment");
 
@@ -108,6 +108,6 @@ describe("system prompt override", () => {
     const preview = runtime.previewDefaultSystemPrompt();
     expect(preview).toContain("# Environment");
     expect(preview).not.toContain("Custom.");
-    expect(preview.startsWith("You are ZCode, an interactive coding agent")).toBe(false);
+    expect(preview.startsWith("You are GCode, an interactive coding agent")).toBe(false);
   });
 });

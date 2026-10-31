@@ -16,7 +16,7 @@ fn write_is_refused_while_desktop_runs() {
     std::fs::write(&file, r#"{"locale":"en-US"}"#).unwrap();
     let err = update_settings_at(&file, || true, |s| s.locale = Some("zh-CN".into())).unwrap_err();
     assert!(matches!(err, SettingsError::DesktopRunning));
-    assert!(err.to_string().contains("change this in ZCode desktop"));
+    assert!(err.to_string().contains("change this in GCode desktop"));
     assert_eq!(
         std::fs::read_to_string(&file).unwrap(),
         r#"{"locale":"en-US"}"#

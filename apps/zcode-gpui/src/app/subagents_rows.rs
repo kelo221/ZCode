@@ -316,7 +316,7 @@ pub(super) fn canonical_plugin_name(name: &str) -> String {
         .map(|part| match part.to_lowercase().as_str() {
             "aws" => "AWS".to_owned(),
             "mcp" => "MCP".to_owned(),
-            "zcode" => "ZCode".to_owned(),
+            "zcode" => "GCode".to_owned(),
             _ => {
                 let mut chars = part.chars();
                 chars
@@ -349,6 +349,6 @@ mod tests {
     fn plugin_names_follow_desktop_canonical_fallback() {
         assert_eq!(canonical_plugin_name("documents"), "Documents");
         assert_eq!(canonical_plugin_name("aws-mcp_tools"), "AWS MCP Tools");
-        assert_eq!(canonical_plugin_name(" zcode-guide "), "ZCode Guide");
+        assert_eq!(canonical_plugin_name(" zcode-guide "), "GCode Guide");
     }
 }

@@ -49,7 +49,7 @@ function formatSpeakModelContent(output: unknown): ModelMessageContent {
     case "disabled":
       return "Not spoken: the user turned voice off. Don't call Speak again in this session.";
     case "unfocusedOnly":
-      return "Not spoken: the user is looking at ZCode right now, so voice stayed silent.";
+      return "Not spoken: the user is looking at GCode right now, so voice stayed silent.";
     default:
       return "Not spoken: voice output is unavailable. Continue without it.";
   }

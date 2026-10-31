@@ -112,7 +112,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > notes.md <<'EOF'
-          Unofficial Windows build of the ZCode GPUI client (x64). Unzip anywhere and run `zcode-gpui.exe`.
+          Unofficial Windows build of GCode, the community GPUI client for the ZCode agent (x64). Unzip anywhere and run `zcode-gpui.exe`.
 
           - Includes the compiled CLI backend, so no repository checkout, Node or Bun is needed.
           - Models use API-key providers; GPUI cannot configure providers yet.
@@ -126,6 +126,6 @@ jobs:
           Check the download with the `.sha256` file. See the repository README for what the fork adds.
           EOF
           gh release create "${{ github.ref_name }}" out/* \
-            --title "ZCode GPUI ${GITHUB_REF_NAME#gpui-}" \
+            --title "GCode ${GITHUB_REF_NAME#gpui-}" \
             --notes-file notes.md \
             --verify-tag

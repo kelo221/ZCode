@@ -108,8 +108,8 @@ impl RootView {
         let Some(view) = view else {
             let note = if unavailable {
                 label(
-                    "This agent cannot edit providers yet; update ZCode to manage them here. Showing the read-only catalog.",
-                    "当前智能体尚不支持编辑提供商；请更新 ZCode。以下为只读模型目录。",
+                    "This agent cannot edit providers yet; update GCode to manage them here. Showing the read-only catalog.",
+                    "当前智能体尚不支持编辑提供商；请更新 GCode。以下为只读模型目录。",
                 )
             } else {
                 label("Loading providers…", "正在加载提供商…")

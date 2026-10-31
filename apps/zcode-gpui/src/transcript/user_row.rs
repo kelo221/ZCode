@@ -3,10 +3,12 @@
 //! (`<task-notification>` text) as a compact left-aligned notice instead of
 //! raw XML.
 
+use crate::composer::attachment::AttachmentRef;
 use crate::shared::local_time::format_timestamp;
 use crate::shared::theme::{BORDER, MUTED, SUBTLEST, SURFACE, TEXT, ui_size};
 use crate::shared::theme_colors::color as rgb;
 use crate::transcript::tagged_text::{parse_task_notification, strip_system_reminders};
+use crate::transcript::tool_images::ImageRef;
 use gpui::{AnyElement, Context, Div, FontWeight, div, prelude::*, px};
 
 const USER_GROUP: &str = "user-message";
@@ -18,7 +20,7 @@ pub(crate) struct UserRowView<'a> {
     pub can_edit: bool,
     pub origin: &'a str,
     pub created_at: Option<u64>,
-    pub attachments: &'a [crate::composer::attachment::AttachmentRef],
+    pub attachments: &'a [AttachmentRef],
 }
 
 /// Bubble text with task / skill / file mentions shown as pills (Desktop
@@ -44,9 +46,27 @@ pub(crate) fn mention_pill_style() -> gpui::HighlightStyle {
     }
 }
 
-/// Attachment chips under the bubble. Only the reference reaches the
-/// transcript; the bytes stay with the backend, so no inline preview.
-fn attachment_chips(attachments: &[crate::composer::attachment::AttachmentRef]) -> Option<Div> {
+fn is_image(a: &AttachmentRef) -> bool {
+    a.mime.to_ascii_lowercase().starts_with("image/")
+}
+
+/// Image attachments of a sent message as thumbnails; the bytes are read back
+/// through the CLI's `v4/attachment/read` (`previewRef` first, like Electron).
+pub(crate) fn attachment_images(session: &str, attachments: &[AttachmentRef]) -> Vec<ImageRef> {
+    attachments
+        .iter()
+        .filter(|a| is_image(a))
+        .map(|a| ImageRef::Attachment {
+            session: session.to_string(),
+            reference: a.preview_ref.clone().unwrap_or_else(|| a.reference.clone()),
+            mime: a.mime.clone(),
+        })
+        .collect()
+}
+
+/// Chips for the other attachments, and for images when there is no session
+/// to read them from.
+fn attachment_chips(attachments: &[&AttachmentRef]) -> Option<Div> {
     (!attachments.is_empty()).then(|| {
         div()
             .flex()
@@ -55,11 +75,7 @@ fn attachment_chips(attachments: &[crate::composer::attachment::AttachmentRef]) 
             .gap_1()
             .max_w(px(576.))
             .children(attachments.iter().map(|a| {
-                let kind = if a.mime.starts_with("image/") {
-                    "Image"
-                } else {
-                    "File"
-                };
+                let kind = if is_image(a) { "Image" } else { "File" };
                 div()
                     .px_2()
                     .py_0p5()
@@ -147,6 +163,24 @@ impl crate::app::root::RootView {
         if shown.is_empty() && !v.text.is_empty() {
             return None;
         }
+        let session = self.state.read(cx).active.clone();
+        let images = session
+            .as_deref()
+            .map(|s| attachment_images(s, v.attachments))
+            .unwrap_or_default();
+        let chips: Vec<&AttachmentRef> = v
+            .attachments
+            .iter()
+            .filter(|a| session.is_none() || !is_image(a))
+            .collect();
+        let thumbnails = self.images_row(v.row_id, images, true, cx).map(|row| {
+            div()
+                .max_w(px(576.))
+                .min_w_0()
+                .flex()
+                .justify_end()
+                .child(row)
+        });
         Some(
             div()
                 .group(USER_GROUP)
@@ -172,7 +206,8 @@ impl crate::app::root::RootView {
                         .text_color(rgb(TEXT))
                         .child(mention_text(v.row_id, &shown)),
                 )
-                .children(attachment_chips(v.attachments))
+                .children(thumbnails)
+                .children(attachment_chips(&chips))
                 .child(
                     div()
                         .flex()
@@ -193,5 +228,49 @@ impl crate::app::root::RootView {
                 )
                 .into_any_element(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn attachment(reference: &str, mime: &str, preview: Option<&str>) -> AttachmentRef {
+        AttachmentRef {
+            reference: reference.into(),
+            file_name: "f".into(),
+            mime: mime.into(),
+            bytes: 1,
+            preview_ref: preview.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn only_image_attachments_become_thumbnails_read_by_preview_ref_first() {
+        let list = [
+            attachment("zcode-artifact://a/1", "image/png", None),
+            attachment("C:/tmp/notes.txt", "text/plain", None),
+            attachment(
+                "zcode-artifact://a/2",
+                "IMAGE/JPEG",
+                Some("zcode-artifact://a/2p"),
+            ),
+        ];
+        let refs = attachment_images("s1", &list);
+        assert_eq!(
+            refs,
+            vec![
+                ImageRef::Attachment {
+                    session: "s1".into(),
+                    reference: "zcode-artifact://a/1".into(),
+                    mime: "image/png".into(),
+                },
+                ImageRef::Attachment {
+                    session: "s1".into(),
+                    reference: "zcode-artifact://a/2p".into(),
+                    mime: "IMAGE/JPEG".into(),
+                },
+            ]
+        );
     }
 }

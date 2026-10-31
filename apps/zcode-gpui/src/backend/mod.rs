@@ -1,6 +1,9 @@
 //! Agent backend: process launch per workspace, the V4 NDJSON wire codec,
 //! inbound event routing / response correlation and outbound commands.
 
+pub(crate) mod attachment_file;
+#[cfg(test)]
+mod attachment_stage_tests;
 pub(crate) mod attachment_upload;
 #[cfg(test)]
 mod attachment_upload_capacity_tests;
@@ -47,6 +50,7 @@ pub(crate) mod plugin_source_cmds;
 mod plugin_source_tests;
 pub(crate) mod preload;
 pub(crate) mod query_cmds;
+pub(crate) mod raw_query;
 pub(crate) mod reference_cmds;
 pub(crate) mod responses;
 pub(crate) mod reverse_rpc;

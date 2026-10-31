@@ -6,13 +6,10 @@ use alacritty_terminal::term::RenderableContent;
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor, Rgb};
 
-/// base16-ocean.dark ANSI palette (matches the syntect code theme).
-const PALETTE: [u32; 16] = [
-    0x2b303b, 0xbf616a, 0xa3be8c, 0xebcb8b, 0x8fa1b3, 0xb48ead, 0x96b5b4, 0xc0c5ce, 0x65737e,
-    0xbf616a, 0xa3be8c, 0xebcb8b, 0x8fa1b3, 0xb48ead, 0x96b5b4, 0xeff1f5,
-];
-pub const TERM_FG: u32 = 0xc0c5ce;
-pub const SELECTION_BG: u32 = 0x4f5b66;
+/// Dracula ANSI palette (matches the app palette and the syntect code theme).
+const PALETTE: [u32; 16] = crate::shared::theme_palette::DRACULA_ANSI;
+pub const TERM_FG: u32 = 0xf8f8f2;
+pub const SELECTION_BG: u32 = 0x44475a;
 
 /// Resolve a terminal cell color to an RGB token using the base palette
 /// (per-session VT color overrides are folded in by the caller when set).
@@ -28,15 +25,15 @@ fn named_color(n: NamedColor, default: u32) -> u32 {
     use NamedColor::*;
     match n {
         Foreground | Background | BrightForeground | DimForeground => default,
-        Cursor => 0xffffff,
-        DimBlack => 0x4f5b66,
-        DimWhite => 0x65737e,
-        DimRed => 0xa3575e,
-        DimGreen => 0x8ba47a,
-        DimYellow => 0xc7b183,
-        DimBlue => 0x7788a0,
-        DimMagenta => 0x9a7d94,
-        DimCyan => 0x82a2a0,
+        Cursor => 0xf8f8f2,
+        DimBlack => 0x191a21,
+        DimWhite => 0x6272a4,
+        DimRed => 0xbf4040,
+        DimGreen => 0x3cbb5c,
+        DimYellow => 0xb5bb69,
+        DimBlue => 0x8e6ebb,
+        DimMagenta => 0xbf5b95,
+        DimCyan => 0x68afbe,
         BrightBlack => PALETTE[8],
         BrightRed => PALETTE[9],
         BrightGreen => PALETTE[10],

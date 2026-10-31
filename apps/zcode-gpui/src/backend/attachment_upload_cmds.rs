@@ -7,6 +7,16 @@ use crate::composer::attachment;
 use gpui::Context;
 use serde_json::{Value, json};
 
+/// Same begin/chunk/commit/abort shapes either way; the phone's staging
+/// endpoint lives on the desktop (`remote::staging`).
+fn upload_prefix(desktop_stage: bool) -> &'static str {
+    if desktop_stage {
+        crate::remote::staging::STAGE_PREFIX
+    } else {
+        "v4/attachment/"
+    }
+}
+
 impl AppState {
     pub(crate) fn handle_attachment_response(
         &mut self,
@@ -87,9 +97,10 @@ impl AppState {
         };
         upload.state = UploadState::Sending(step);
         let receipt = &upload.receipt;
+        let prefix = upload_prefix(receipt.desktop_stage);
         let (method, params) = match step {
             UploadStep::Begin => (
-                "v4/attachment/begin",
+                "begin",
                 attachment::build_begin_params(
                     &receipt.connection,
                     &receipt.session,
@@ -102,7 +113,7 @@ impl AppState {
                 ),
             ),
             UploadStep::Chunk(index) => (
-                "v4/attachment/chunk",
+                "chunk",
                 attachment::build_chunk_params(
                     &receipt.connection,
                     &receipt.session,
@@ -112,11 +123,12 @@ impl AppState {
                 ),
             ),
             UploadStep::Commit => (
-                "v4/attachment/commit",
+                "commit",
                 attachment::build_terminal_params(&receipt.connection, &receipt.session, id),
             ),
         };
         let request_id = ws.next_id();
+        let method = format!("{prefix}{method}");
         let line = json!({"id":request_id,"method":method,"params":params}).to_string();
         ws.pending.insert(
             request_id,
@@ -169,7 +181,9 @@ impl AppState {
                     UploadKind::PastedText { lines, .. } => {
                         composer.add_pasted_text(attachment, lines, cx)
                     }
-                    UploadKind::Image(_) => composer.add_attachment(attachment, cx),
+                    UploadKind::Image(_) | UploadKind::File { .. } => {
+                        composer.add_attachment(attachment, cx)
+                    }
                 });
             }
             Ok(None) => {
@@ -201,9 +215,10 @@ impl AppState {
             &upload.id,
         );
         ws.pending.insert(id, Pending::AttachmentAbort);
+        let method = format!("{}abort", upload_prefix(upload.receipt.desktop_stage));
         ws.send_pending_line(
             id,
-            json!({"id":id,"method":"v4/attachment/abort","params":params}).to_string(),
+            json!({"id":id,"method":method,"params":params}).to_string(),
         );
     }
 

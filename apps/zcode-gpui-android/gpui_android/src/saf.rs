@@ -99,7 +99,10 @@ fn call_void_method(android_app: &AndroidApp, method: &str) -> Result<()> {
     let vm = unsafe { JavaVM::from_raw(android_app.vm_as_ptr().cast())? };
     let mut env = vm.attach_current_thread()?;
     let activity = unsafe { JObject::from_raw(android_app.activity_as_ptr() as _) };
-    env.call_method(&activity, method, "()V", &[])?;
+    // 缺少该 Java 方法时异常会一直挂起，下一次 JNI 调用会让 CheckJNI 直接终止进程（"+" 按钮崩溃）。
+    let result = env.call_method(&activity, method, "()V", &[]);
+    clear_exception(&mut env);
+    result?;
     log::info!("saf: MainActivity.{method}() returned");
     Ok(())
 }
@@ -112,13 +115,22 @@ fn launch_create_document(
     let mut env = vm.attach_current_thread()?;
     let activity = unsafe { JObject::from_raw(android_app.activity_as_ptr() as _) };
     let name = env.new_string(suggested_name.unwrap_or("untitled"))?;
-    env.call_method(
+    let result = env.call_method(
         &activity,
         "launchCreateDocument",
         "(Ljava/lang/String;)V",
         &[(&name).into()],
-    )?;
+    );
+    clear_exception(&mut env);
+    result?;
     Ok(())
+}
+
+fn clear_exception(env: &mut jni::JNIEnv) {
+    if env.exception_check().unwrap_or(false) {
+        let _ = env.exception_describe();
+        let _ = env.exception_clear();
+    }
 }
 
 /// Called from MainActivity's ActivityResultLauncher callback.

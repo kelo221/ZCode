@@ -6,7 +6,7 @@
 use crate::app::root::RootView;
 use crate::conversation::interaction_view::action_btn;
 use crate::conversation::interactions::{PendingInteraction, Question, step_question, toggle_pick};
-use crate::shared::theme::{ACCENT, BORDER, CARD, CARD_HOVER, MUTED, TAG, TEXT};
+use crate::shared::theme::{ACCENT, BORDER, CARD, CARD_HOVER, INVERSE, MUTED, TAG, TEXT};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{Context, Div, FontWeight, SharedString, div, prelude::*};
 
@@ -154,7 +154,7 @@ impl RootView {
         let primary = if last { "Submit" } else { "Continue" };
         let pi_submit = pi.clone();
         nav = nav.child(
-            action_btn(format!("ia-{iid}-next"), primary, ACCENT, 0x000000).on_click(cx.listener(
+            action_btn(format!("ia-{iid}-next"), primary, ACCENT, INVERSE).on_click(cx.listener(
                 move |this, _, _, cx| {
                     cx.stop_propagation();
                     if !last {

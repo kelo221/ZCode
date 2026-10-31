@@ -62,14 +62,6 @@ impl Startup {
 pub fn load_startup(workspace: PathBuf) -> Startup {
     let settings = shared::settings::load_settings();
     shared::data_paths::initialize(settings.data_base_dir.as_deref());
-    if let Some(theme_str) = settings
-        .theme_preference
-        .as_deref()
-        .or(settings.theme.as_deref())
-    {
-        let mode = shared::theme::ThemeMode::parse(theme_str);
-        shared::theme::set_theme_mode(mode);
-    }
     if let Some(font_size) = settings.ui_font_size {
         shared::theme::set_ui_font_size(font_size);
     }
@@ -198,7 +190,7 @@ pub fn desktop_main() {
         .run(move |cx: &mut App| open_window(cx, startup));
 }
 
-/// Open the ZCode window. Shared by the desktop and Android entries; call it
+/// Open the GCode window. Shared by the desktop and Android entries; call it
 /// from the platform application's `run` callback.
 pub fn open_window(cx: &mut App, startup: Startup) {
     let Startup {
@@ -209,6 +201,7 @@ pub fn open_window(cx: &mut App, startup: Startup) {
         remote_client,
     } = startup;
     ely_gpui_component::init(cx);
+    shared::theme::register_fonts(cx);
     shared::preferences::Preferences::install(settings, cx);
     shared::acceptance::apply_runtime(cx);
     // One agent per known workspace (desktop parity: processes are keyed by
@@ -228,19 +221,12 @@ pub fn open_window(cx: &mut App, startup: Startup) {
         WindowOptions {
             window_bounds: Some(initial_bounds),
             titlebar: Some(TitlebarOptions {
-                title: Some("ZCode GPUI (unofficial)".into()),
+                title: Some("GCode".into()),
                 ..Default::default()
             }),
             ..Default::default()
         },
         move |window, cx| {
-            window
-                .observe_window_appearance(|window, cx| {
-                    if shared::theme::theme_mode() == shared::theme::ThemeMode::System {
-                        shared::theme::apply_appearance(window.appearance(), cx);
-                    }
-                })
-                .detach();
             let state = cx.new(|cx| {
                 if remote_client {
                     AppState::new_remote(cx)

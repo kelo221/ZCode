@@ -69,7 +69,6 @@ pub(crate) fn shortcut_matches(command: Command, query: &str) -> bool {
     let labels = match command {
         Command::OpenSettings => "Settings 设置",
         Command::OpenCommandCenter => "Command center 命令中心",
-        Command::SwitchTheme => "Switch theme 切换主题",
         Command::ToggleTerminal => "Toggle terminal 切换终端",
         Command::ToggleSidePane => "Toggle tool dock 切换工具面板",
         Command::NewTask => "New task 新任务",

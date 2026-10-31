@@ -7,7 +7,6 @@ use std::collections::{HashMap, HashSet};
 pub(crate) const SUPPORTED: &[Command] = &[
     Command::OpenSettings,
     Command::OpenCommandCenter,
-    Command::SwitchTheme,
     Command::ToggleTerminal,
     Command::ToggleSidePane,
     Command::NewTask,
@@ -18,7 +17,6 @@ pub(crate) fn label(command: Command) -> &'static str {
     let (english, chinese) = match command {
         Command::OpenSettings => ("Settings", "设置"),
         Command::OpenCommandCenter => ("Command center", "命令中心"),
-        Command::SwitchTheme => ("Switch theme", "切换主题"),
         Command::ToggleTerminal => ("Toggle terminal", "切换终端"),
         Command::ToggleSidePane => ("Toggle tool dock", "切换工具面板"),
         Command::NewTask => ("New task", "新任务"),

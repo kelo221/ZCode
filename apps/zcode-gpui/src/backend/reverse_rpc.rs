@@ -33,13 +33,13 @@ const METHOD_NOT_FOUND: i64 = -32601;
 /// empty lists or `bound: false` would be a false fact: the CLI treats
 /// `automation/checkTaskBinding` as an authorization boundary that must fail
 /// closed when unknown, and `-32601` would trigger its legacy-list fallback.
-const SCHEDULER_UNAVAILABLE: &str = "Automations and off-peak tasks are managed by the ZCode desktop app; \
+const SCHEDULER_UNAVAILABLE: &str = "Automations and off-peak tasks are managed by the GCode desktop app; \
      they are not available in the GPUI client";
 
 /// Bot-channel replies and topic attachments belong to the desktop host's
 /// Feishu/Lark relay, which GPUI excludes; `-32601` would misreport them as
 /// an outdated client rather than an unavailable host capability.
-const CHANNEL_UNAVAILABLE: &str = "Bot channels and topic resources are managed by the ZCode desktop app; \
+const CHANNEL_UNAVAILABLE: &str = "Bot channels and topic resources are managed by the GCode desktop app; \
      they are not available in the GPUI client";
 
 fn respond_result(id: &Value, result: Value) -> ReverseRpcAction {

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon layer (Android 13+): the GCode mark in one colour. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M68.98,41.46 A19.9,19.9 0 1 0 73.9,54 H62.78"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="8.19"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <path
+        android:pathData="M49.32,48.44 h5.27 a1.17,1.17 0 0 1 1.17,1.17 v8.78 a1.17,1.17 0 0 1 -1.17,1.17 h-5.27 a1.17,1.17 0 0 1 -1.17,-1.17 v-8.78 a1.17,1.17 0 0 1 1.17,-1.17 z"
+        android:fillColor="#FFFFFFFF" />
+</vector>

@@ -5,18 +5,17 @@ use gpui::{AssetSource, SharedString};
 use std::borrow::Cow;
 
 pub(crate) const BRAIN_ICON: &str = "zcode/brain.svg";
-/// Outline logo behind the draft greeting (Desktop `ZCodeEmptyStateLogo`).
-pub(crate) const EMPTY_LOGO: &str = "zcode/empty-logo.svg";
+/// Full-colour GCode mark above the draft greeting.
+pub(crate) const GCODE_MARK: &str = "zcode/gcode-mark.svg";
+/// Its 64×64 source; the greeting rasterises it at device-pixel size.
+pub(crate) const GCODE_MARK_SVG: &[u8] = include_bytes!("../../assets/brand/gcode-mark.svg");
 pub(crate) const SETTINGS_2_ICON: &str = "zcode/settings-2.svg";
 pub(crate) const BLOCKS_ICON: &str = "zcode/blocks.svg";
 pub(crate) const CABLE_ICON: &str = "zcode/cable.svg";
 
 const LOCAL: &[(&str, &[u8])] = &[
     (BRAIN_ICON, include_bytes!("../../assets/icons/brain.svg")),
-    (
-        EMPTY_LOGO,
-        include_bytes!("../../assets/icons/empty-logo.svg"),
-    ),
+    (GCODE_MARK, GCODE_MARK_SVG),
     (
         SETTINGS_2_ICON,
         include_bytes!("../../assets/icons/settings-2.svg"),
@@ -66,7 +65,7 @@ mod tests {
     fn every_local_icon_constant_is_served() {
         for path in [
             BRAIN_ICON,
-            EMPTY_LOGO,
+            GCODE_MARK,
             SETTINGS_2_ICON,
             BLOCKS_ICON,
             CABLE_ICON,

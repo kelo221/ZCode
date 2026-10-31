@@ -79,7 +79,7 @@ pub(crate) fn start(
     events: UnboundedSender<BridgeEvent>,
 ) -> Result<BridgeListener, String> {
     if live_owner(&endpoint_path) {
-        return Err("another ZCode window is already connected to the browser".into());
+        return Err("another GCode window is already connected to the browser".into());
     }
     let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;

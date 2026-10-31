@@ -19,6 +19,7 @@ fn image_upload_capacity_and_stale_retry_keep_the_current_owner_bounded(cx: &mut
             process: ws.generation,
             navigation: 0,
             replacement: 0,
+            desktop_stage: false,
         };
         s.active_workspace = Some(key.clone());
         s.active = Some("parent".into());

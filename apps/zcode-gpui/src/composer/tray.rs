@@ -134,6 +134,16 @@ impl RootView {
 
     /// Prompt user to select files from disk and attach them to the composer.
     pub(crate) fn prompt_attach_files(&mut self, cx: &mut Context<Self>) {
+        // 手机端的本地路径对桌面 agent 无意义：由平台选择器读取字节，再经桌面 staging 上传。
+        if self.state.read(cx).phone_client.enabled {
+            if let Err(message) = crate::remote::phone_files::open_file_picker() {
+                self.state.update(cx, |s, cx| {
+                    s.push_error(message);
+                    cx.notify();
+                });
+            }
+            return;
+        }
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,

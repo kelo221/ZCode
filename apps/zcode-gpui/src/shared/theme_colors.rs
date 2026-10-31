@@ -1,4 +1,4 @@
-//! Compatibility bridge: legacy token identities to Desktop's Zai semantic colors.
+//! Compatibility bridge: legacy token identities to the GCode (Dracula) semantic colors.
 
 use crate::shared::theme::*;
 
@@ -35,6 +35,7 @@ pub(crate) fn color(token: u32) -> gpui::Rgba {
         TAG => p.tag,
         SUBTLEST => p.subtlest,
         BORDER_HOVER => p.border_hover,
+        INVERSE => p.inverse,
         // Desktop 只在 Windows/Linux 使用不透明的窗口底色；其他平台回落到侧栏色。
         FRAME if cfg!(target_os = "macos") => p.sidebar,
         FRAME => p.window_frame,

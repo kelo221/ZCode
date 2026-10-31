@@ -13,7 +13,7 @@ async function main() {
   const pkgJson = JSON.parse(await readFile(pkgJsonPath, "utf-8"));
   const version = pkgJson.version || "3.14.3";
 
-  console.log(`Packaging ZCode GPUI frontend v${version}...`);
+  console.log(`Packaging GCode (GPUI frontend) v${version}...`);
 
   // Detect platform & arch
   const platform =
@@ -97,8 +97,8 @@ async function main() {
     }
   }
 
-  // Copy icon if available
-  const iconSrc = resolve(root, "packages", "desktop", "build", "icon.ico");
+  // Copy icon if available (also embedded in the exe by apps/zcode-gpui/build.rs)
+  const iconSrc = resolve(root, "apps", "zcode-gpui", "assets", "brand", "gcode.ico");
   try {
     await cp(iconSrc, join(defaultOutDir, "icon.ico"));
   } catch {

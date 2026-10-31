@@ -55,7 +55,7 @@ pub(crate) fn manifest_file(dir: &Path) -> PathBuf {
 pub(crate) fn manifest_json(host: &Path) -> String {
     let manifest = json!({
         "name": HOST_NAME,
-        "description": "ZCode GPUI browser bridge",
+        "description": "GCode browser bridge",
         "path": host.to_string_lossy(),
         "type": "stdio",
         "allowed_origins": [format!("chrome-extension://{EXTENSION_ID}/")],

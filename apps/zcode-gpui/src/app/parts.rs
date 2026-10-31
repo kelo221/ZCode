@@ -258,32 +258,50 @@ impl RootView {
                             .child(self.noise_toggle(cx))
                             .children(self.auto_compact_toggle(cx))
                             .children(self.composer_activity(cx))
-                            .child(div().flex_1())
-                            .child(self.composer_selectors(cx))
-                            .when(running, |el| {
-                                el.child({
-                                    let wrapper = div().child(stop);
-                                    #[cfg(test)]
-                                    let wrapper = crate::app::test_support::track_children(
-                                        wrapper,
-                                        vec!["stop-btn".into()],
-                                    );
-                                    wrapper
-                                })
-                            })
-                            .when(show_send, |el| {
-                                el.child({
-                                    let wrapper = div().child(send);
-                                    #[cfg(test)]
-                                    let wrapper = crate::app::test_support::track_children(
-                                        wrapper,
-                                        vec!["send-btn".into()],
-                                    );
-                                    wrapper
-                                })
-                            }),
+                            .child(self.composer_trailing(running, show_send, stop, send, cx)),
                     ),
             )
+    }
+
+    /// Model pickers plus Stop/Send. One group, pushed right by `ml_auto`, so
+    /// when the row wraps on a narrow composer the buttons wrap with the
+    /// pickers and stay right-aligned instead of starting a lone line.
+    fn composer_trailing(
+        &mut self,
+        running: bool,
+        show_send: bool,
+        stop: impl IntoElement,
+        send: impl IntoElement,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        div()
+            .ml_auto()
+            .flex()
+            .flex_row()
+            .flex_wrap()
+            .justify_end()
+            .items_center()
+            .gap_1()
+            .min_w_0()
+            .child(self.composer_selectors(cx))
+            .when(running, |el| {
+                el.child({
+                    let wrapper = div().child(stop);
+                    #[cfg(test)]
+                    let wrapper =
+                        crate::app::test_support::track_children(wrapper, vec!["stop-btn".into()]);
+                    wrapper
+                })
+            })
+            .when(show_send, |el| {
+                el.child({
+                    let wrapper = div().child(send);
+                    #[cfg(test)]
+                    let wrapper =
+                        crate::app::test_support::track_children(wrapper, vec!["send-btn".into()]);
+                    wrapper
+                })
+            })
     }
 
     pub(crate) fn autocomplete_suggestions(

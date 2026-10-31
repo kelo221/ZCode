@@ -7,7 +7,7 @@ use crate::app::root::RootView;
 use crate::conversation::interaction_view::action_btn;
 use crate::conversation::interactions::{PendingInteraction, decline_answer};
 use crate::shared::markdown::render_markdown;
-use crate::shared::theme::{ACCENT, BORDER, CODE_BG, DANGER, MUTED};
+use crate::shared::theme::{ACCENT, BORDER, CODE_BG, DANGER, INVERSE, MUTED};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{AnyElement, Context, ElementId, FontWeight, div, prelude::*, px};
 
@@ -50,7 +50,7 @@ impl RootView {
             format!("ia-{iid}-approve"),
             "Approve and start",
             ACCENT,
-            0x000000,
+            INVERSE,
         )
         .on_click(cx.listener(move |this, _, _, cx| {
             cx.stop_propagation();
@@ -61,7 +61,7 @@ impl RootView {
             iid,
             "decline",
             "Decline",
-            (DANGER, 0xffffff),
+            (DANGER, INVERSE),
             decline_answer(),
             cx,
         );

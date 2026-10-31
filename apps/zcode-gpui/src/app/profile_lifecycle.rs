@@ -31,7 +31,7 @@ impl AppState {
                     cx.background_spawn(async move {
                         if desktop_lock::is_desktop_running_except(&owned) {
                             return Err(
-                                "Close ZCode Desktop before enabling local management".to_owned()
+                                "Close GCode Desktop before enabling local management".to_owned()
                             );
                         }
                         crate::backend::services_launch::resolve_mode(None).map(|_| ())

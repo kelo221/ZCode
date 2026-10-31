@@ -14,7 +14,7 @@ use gpui::{
     Styled, Window, div, px, rgba,
 };
 
-gpui::actions!(quickpick, [ToggleQuickPick, SwitchThemeAction]);
+gpui::actions!(quickpick, [ToggleQuickPick]);
 
 pub fn render_quickpick_modal(
     this: &mut RootView,
@@ -215,7 +215,6 @@ pub fn execute_quickpick_action(
             }
             cx.notify();
         }
-        QuickPickItemAction::Command(QuickPickAction::SwitchTheme) => this.switch_theme(cx),
         QuickPickItemAction::Command(QuickPickAction::OpenSettings) => {
             this.open_settings(window, cx)
         }

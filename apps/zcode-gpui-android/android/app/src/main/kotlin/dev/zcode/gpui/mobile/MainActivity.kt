@@ -110,6 +110,29 @@ class MainActivity : GameActivity() {
     fun setSoftKeyboardEnabled(enabled: Boolean) {}
     fun appVersionName(): String = "0.1.0"
 
+    // ---- Composer attachments (called from Rust) ----------------------
+
+    /** The composer's "+": pick any files; their bytes go to Rust (PickedFiles). */
+    fun launchOpenDocument() = runOnUiThread {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("*/*")
+            .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+        runCatching { startActivityForResult(intent, PICK_FILES) }
+            .onFailure { NativeBridge.nativeAttachError("No file picker available: $it") }
+    }
+
+    @Deprecated("GameActivity has no ActivityResult API; the legacy callback is fine here")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != PICK_FILES || resultCode != RESULT_OK || data == null) return
+        val uris = buildList {
+            data.clipData?.let { clip -> for (i in 0 until clip.itemCount) add(clip.getItemAt(i).uri) }
+            if (isEmpty()) data.data?.let { add(it) }
+        }
+        PickedFiles.deliver(this, uris)
+    }
+
     fun openUrl(url: String) = runOnUiThread {
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
             .onFailure { Log.w(TAG, "openUrl failed: $it") }
@@ -117,5 +140,6 @@ class MainActivity : GameActivity() {
 
     private companion object {
         const val TAG = "zcode_gpui"
+        const val PICK_FILES = 4101
     }
 }

@@ -290,10 +290,6 @@ fn preference_owner_serializes_and_applies_committed_values() {
             PreferenceChange::Locale(crate::shared::i18n::LocalePreference::ZhCn),
             cx,
         );
-        Preferences::enqueue(
-            PreferenceChange::Theme(crate::shared::theme::ThemeMode::ZaiLight),
-            cx,
-        );
     });
     app.read(|cx| {
         let owner = cx.global::<PreferenceOwner>().0.read(cx);
@@ -305,7 +301,11 @@ fn preference_owner_serializes_and_applies_committed_values() {
             ["project"]
         );
         assert_eq!(crate::shared::theme::font_size_base(), 18.0);
-        assert!(!cx.global::<ely_gpui_component::theme::Theme>().is_dark());
+        assert!(cx.global::<ely_gpui_component::theme::Theme>().is_dark());
+        assert_eq!(
+            cx.global::<ely_gpui_component::theme::Theme>().font_family,
+            crate::shared::theme::UI_FONT
+        );
         assert_eq!(
             crate::shared::i18n::current_locale(),
             crate::shared::i18n::Locale::ZhCn
@@ -314,22 +314,6 @@ fn preference_owner_serializes_and_applies_committed_values() {
         assert_eq!(
             crate::shared::theme_colors::color(crate::shared::theme::TEXT),
             crate::shared::theme::active_theme().foreground
-        );
-    });
-    app.update(|cx| {
-        Preferences::enqueue(
-            PreferenceChange::Theme(crate::shared::theme::ThemeMode::System),
-            cx,
-        );
-    });
-    app.update(|cx| {
-        crate::shared::theme::apply_appearance(gpui::WindowAppearance::Dark, cx);
-        assert!(cx.global::<ely_gpui_component::theme::Theme>().is_dark());
-        crate::shared::theme::apply_appearance(gpui::WindowAppearance::Light, cx);
-        assert!(!cx.global::<ely_gpui_component::theme::Theme>().is_dark());
-        assert_eq!(
-            crate::shared::theme::theme_mode(),
-            crate::shared::theme::ThemeMode::System
         );
     });
     let saved = load_settings_from_path(&path);

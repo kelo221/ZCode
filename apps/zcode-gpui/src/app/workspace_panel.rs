@@ -131,7 +131,11 @@ impl RootView {
                 .flex_col()
                 .items_center()
                 .justify_center()
-                .child(crate::app::draft_greeting::draft_greeting(column))
+                .child(crate::app::draft_greeting::draft_greeting(
+                    column,
+                    window.scale_factor(),
+                    cx,
+                ))
                 .child(composer_region);
             (draft.into_any_element(), None)
         } else {

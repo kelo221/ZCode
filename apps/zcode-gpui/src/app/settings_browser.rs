@@ -122,8 +122,8 @@ impl RootView {
             label("Bridge", "桥接"),
             Some(
                 label(
-                    "The agent's browser tool drives tabs in your own browser through the ZCode extension.",
-                    "Agent 的浏览器工具通过 ZCode 扩展控制你自己浏览器中的标签页。",
+                    "The agent's browser tool drives tabs in your own browser through the GCode extension.",
+                    "Agent 的浏览器工具通过 GCode 扩展控制你自己浏览器中的标签页。",
                 )
                 .into(),
             ),
@@ -135,8 +135,8 @@ impl RootView {
                 label("Connected browsers", "已连接的浏览器"),
                 Some(
                     label(
-                        "None. Open Helium or Chrome with the ZCode extension loaded.",
-                        "无。请打开已加载 ZCode 扩展的 Helium 或 Chrome。",
+                        "None. Open Helium or Chrome with the GCode extension loaded.",
+                        "无。请打开已加载 GCode 扩展的 Helium 或 Chrome。",
                     )
                     .into(),
                 ),
@@ -174,7 +174,7 @@ impl RootView {
                             .as_ref()
                             .map(|p| p.display().to_string())
                             .unwrap_or_else(|| {
-                                label("Not found next to ZCode", "未在 ZCode 旁找到").into()
+                                label("Not found next to GCode", "未在 GCode 旁找到").into()
                             })
                             .into(),
                     ),

@@ -17,12 +17,12 @@ impl std::fmt::Display for SettingsError {
             Self::DesktopRunning => {
                 write!(
                     f,
-                    "Cannot modify settings while ZCode desktop is running. Please change this in ZCode desktop."
+                    "Cannot modify settings while GCode desktop is running. Please change this in GCode desktop."
                 )
             }
             Self::Unreadable => write!(
                 f,
-                "setting.json could not be parsed; not overwriting it. Fix it in ZCode desktop."
+                "setting.json could not be parsed; not overwriting it. Fix it in GCode desktop."
             ),
             Self::Invalid(e) => write!(f, "Invalid preference: {e}"),
             Self::Io(e) => write!(f, "IO error: {e}"),

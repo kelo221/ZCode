@@ -263,6 +263,75 @@ resume-from-seq, CJK fonts, the idle repaint, a "reconnecting" banner inside the
 workspace default doesn't match the catalog, shared with the desktop). Socket IO uses blocking reads with a 15 ms
 timeout so one thread can both read and write.
 
+## Phone attachments (2026-10-31)
+
+A path on the phone means nothing to the agent on the desktop, and the CLI's
+`v4/attachment/*` upload needs a session id, which a new-task draft does not have yet. So the
+phone always uploads attachments to the **desktop**:
+
+- **Phone side:**
+  - The composer's "+" calls `MainActivity.launchOpenDocument()`. It is registered through
+    `remote::phone_files::set_file_picker`.
+  - Keyboard-inserted images arrive through `ImeHost.commitContent`, which accepts `image/*`
+    (Gboard's clipboard and image panels).
+  - `PickedFiles.kt` reads the bytes (at most 20 MiB) and passes them through
+    `NativeBridge.nativeAttachFile`.
+  - The app polls `phone_files` alongside pairing links. `start_file_upload` sends images
+    through the clipboard-image path, so they get the same format conversion, and uploads
+    other files as `UploadKind::File`.
+- **Transport:** the same begin/chunk/commit/abort state machine and shapes as
+  `v4/attachment/*` (progress, retry, cancel, 16 uploads / 64 MiB), under `gcode/stage/`,
+  with `UploadReceipt.desktop_stage` set. `sessionId` is empty in a draft.
+- **Desktop side:**
+  - `remote::staging::StagedUploads` sits on each open phone socket. The gateway answers
+    `gcode/stage/*` itself, so the request never reaches the CLI.
+  - It checks the sizes and the chunk order, and verifies the sha256 at commit.
+  - It then writes a desktop paste temp file (keeping a safe extension) and returns its
+    absolute path as `ref`.
+  - The phone then sends that path as a plain attachment reference, exactly like a desktop
+    paste.
+- **Cleanup:** staged files are not deleted when the phone removes the chip, because the
+  path may already have been sent. The paste-directory sweep reclaims them after 24 h.
+- **Version requirement:** an older desktop refuses `gcode/stage/*` as "not available from
+  the phone", so the phone and the desktop must both run this build.
+- **Tests:** `remote/staging_tests.rs` and `backend/attachment_stage_tests.rs`, which covers
+  a phone draft uploading end to end through `StagedUploads`.
+
+## Phone images (2026-10-31)
+
+Transcript images whose bytes are inline in the frame already work on the phone. Two kinds
+did not: images named by a **desktop path** (Markdown image embeds and Read-tool images) and
+**sent attachments** (shown only as text chips).
+
+```
+phone  ImageRef::File(path) ──gcode/file/read (≤384 KiB chunks)──▶ desktop gateway answers itself
+       │ first chunk gives mtime+size ─▶ <temp>/gcode-images/f-<sha(path)>-<mtime>-<size> hit? stop
+any    ImageRef::Attachment ──v4/attachment/read (≤512 KiB chunks)──▶ CLI (authorises by session row)
+       phone only: <temp>/gcode-images/a-<sha(session,ref)> checked before any request
+both   bytes ─▶ image_preview::decode ─▶ the same thumbnail and full-window viewer as the desktop
+```
+
+- **Owner:** `transcript::tool_images` decides the source (`remote_source`); the in-memory
+  `ToolImageCache` keeps one result per image for the session.
+  `remote::desktop_images::fetch` drives the chunk loop over `AppState::raw_query`, whose
+  pending entry owns a oneshot sender, so a dropped connection ends the wait.
+- **Desktop endpoint `gcode/file/read`** (`remote::file_read`), answered off the UI thread:
+  - params `{path, offset, limit}`; result `{dataBase64, totalBytes, mtimeMs, nextOffset|null}`;
+  - only an absolute path with an image extension whose magic bytes match that format, at most
+    20 MiB, regular files only. Everything else is refused.
+- **Consistency:** the phone rejects an answer whose size or mtime differs from the first
+  chunk, or whose offsets do not line up, so a file changed mid-read never shows as a mixed
+  image. At most 60 chunks.
+- **Cache:** the phone's temp dir (Android's app cache). Written through a `.part` rename;
+  trimmed to 200 MB, oldest first, on the first write after start.
+- **Attachments:** image attachments render as right-aligned thumbnails under the bubble, read
+  by `previewRef ?? ref` on both desktop and phone; other files keep their chip.
+- **Version requirement:** an older desktop refuses `gcode/file/read`; the phone then shows
+  "Desktop GCode is too old to send this image".
+- **Tests:** `remote/file_read_tests.rs`, `remote/desktop_images_tests.rs` (phone fetch then
+  disk-cache hit after one request, attachment cache hit with no request, refusal message) and
+  the `user_row` thumbnail test.
+
 ## Phone layout
 
 Ported from `packages/ui/src/WebRemoteControlMobileShell.tsx`. It applies when the window is at

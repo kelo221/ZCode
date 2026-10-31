@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dracula background (#282a36). -->
+    <color name="ic_launcher_background">#282A36</color>
+</resources>

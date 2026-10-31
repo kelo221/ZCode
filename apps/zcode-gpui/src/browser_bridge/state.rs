@@ -235,7 +235,7 @@ impl BrowserBridge {
                 "backend_unavailable",
                 &match requested {
                     Some(id) => format!("browser backend '{id}' is no longer available"),
-                    None => "no browser is connected to ZCode".to_string(),
+                    None => "no browser is connected to GCode".to_string(),
                 },
                 None,
             );

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GCode mark: apps/zcode-gpui/assets/brand/gcode.svg scaled into the 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M68.98,41.46 A19.9,19.9 0 1 0 73.9,54 H62.78"
+        android:fillColor="#00000000"
+        android:strokeWidth="8.19"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="32.93"
+                android:startY="30.59"
+                android:endX="75.07"
+                android:endY="77.41"
+                android:startColor="#FFBD93F9"
+                android:endColor="#FFFF79C6" />
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M49.32,48.44 h5.27 a1.17,1.17 0 0 1 1.17,1.17 v8.78 a1.17,1.17 0 0 1 -1.17,1.17 h-5.27 a1.17,1.17 0 0 1 -1.17,-1.17 v-8.78 a1.17,1.17 0 0 1 1.17,-1.17 z"
+        android:fillColor="#FF50FA7B" />
+</vector>

@@ -3,7 +3,7 @@ name = "zcode-gpui"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-description = "Minimal native GPUI frontend for the ZCode agent backend"
+description = "GCode: native GPUI frontend for the ZCode agent backend"
 # src/bin/zcode-browser-host.rs is a second binary; `cargo run` means the app.
 default-run = "zcode-gpui"
 
@@ -63,6 +63,7 @@ gpui = { git = "https://github.com/zed-industries/zed", rev = "1a28cff4b409169ba
 
 [build-dependencies]
 serde_json = "1"
+embed-resource = "3"
 
 [profile.dev]
 opt-level = 1

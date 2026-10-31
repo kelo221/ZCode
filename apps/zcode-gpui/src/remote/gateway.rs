@@ -17,6 +17,7 @@ struct OpenScope {
     ws_key: String,
     scope: RemoteScope,
     ready_sent: bool,
+    staging: crate::remote::staging::StagedUploads,
 }
 
 struct PhoneConn {
@@ -142,6 +143,17 @@ impl AppState {
             self.open_phone_workspace(conn, &line, cx);
             return;
         };
+        if let Some(request) = crate::remote::file_read::parse(&line) {
+            let read = cx
+                .background_executor()
+                .spawn(async move { request.answer() });
+            cx.spawn(async move |this, cx| {
+                let reply = read.await;
+                let _ = this.update(cx, |state, _| state.send_to_phone(conn, reply));
+            })
+            .detach();
+            return;
+        }
         let settings = self.ws(&ws_key).and_then(|w| w.model_settings.clone());
         let Some(open) = self
             .phone
@@ -151,6 +163,10 @@ impl AppState {
         else {
             return;
         };
+        if let Some(reply) = open.staging.intercept(&line) {
+            self.send_to_phone(conn, reply);
+            return;
+        }
         match open.scope.filter_phone_line(&line, settings.as_ref()) {
             FromPhone::Forward(out) => {
                 if let Some(ws) = self.ws_mut(&ws_key) {
@@ -206,6 +222,7 @@ impl AppState {
                 ws_key: key.clone(),
                 scope: RemoteScope::new(&key),
                 ready_sent: false,
+                staging: Default::default(),
             });
         }
         self.send_to_phone(conn, DesktopReply::Opened.line());

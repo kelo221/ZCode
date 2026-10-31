@@ -6,7 +6,7 @@ use crate::app::root::RootView;
 use crate::conversation::interactions::{
     FULL_ACCESS_OPTION_ID, PendingInteraction, decline_answer, option_answer,
 };
-use crate::shared::theme::{ACCENT, AMBER, BORDER, CARD, DANGER, MUTED, TEXT};
+use crate::shared::theme::{ACCENT, AMBER, BORDER, CARD, DANGER, INVERSE, MUTED, TEXT};
 use crate::shared::theme_colors::color as rgb;
 use gpui::{AnyElement, Context, Div, FontWeight, SharedString, Stateful, div, prelude::*};
 use serde_json::Value;
@@ -99,9 +99,9 @@ impl RootView {
             "permission" => {
                 for o in &pi.options {
                     let colors = if o.kind == "deny" {
-                        (DANGER, 0xffffff)
+                        (DANGER, INVERSE)
                     } else {
-                        (ACCENT, 0x000000)
+                        (ACCENT, INVERSE)
                     };
                     let btn = self.answer_btn(
                         iid,
@@ -118,7 +118,7 @@ impl RootView {
                         iid,
                         FULL_ACCESS_OPTION_ID,
                         &fa.label,
-                        (AMBER, 0x000000),
+                        (AMBER, INVERSE),
                         option_answer(FULL_ACCESS_OPTION_ID),
                         cx,
                     );
@@ -136,7 +136,7 @@ impl RootView {
                             iid,
                             &o.option_id,
                             &o.label,
-                            (ACCENT, 0x000000),
+                            (ACCENT, INVERSE),
                             option_answer(&o.option_id),
                             cx,
                         );
@@ -153,7 +153,7 @@ impl RootView {
                     iid,
                     "decline",
                     "Decline",
-                    (DANGER, 0xffffff),
+                    (DANGER, INVERSE),
                     decline_answer(),
                     cx,
                 ));
@@ -163,7 +163,7 @@ impl RootView {
                     div()
                         .text_xs()
                         .text_color(rgb(MUTED))
-                        .child("Review workspace hooks in the ZCode desktop app."),
+                        .child("Review workspace hooks in the GCode desktop app."),
                 );
             }
         }

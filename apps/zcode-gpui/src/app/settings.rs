@@ -5,7 +5,7 @@ use crate::app::settings_navigation::settings_layout;
 use crate::app::settings_rows::{ControlWidth, settings_card, settings_row};
 use crate::shared::i18n::{LocalePreference, t};
 use crate::shared::preferences::{PreferenceChange, PreferenceOwner, Preferences};
-use crate::shared::theme::{ThemeMode, active_theme, font_size_base};
+use crate::shared::theme::{active_theme, font_size_base};
 use ely_gpui_component::buttons::Button;
 use ely_gpui_component::forms::{Choice, Select, Slider, Switch};
 use ely_gpui_component::primitives::IconName;
@@ -185,39 +185,13 @@ impl RootView {
                         div()
                             .text_color(theme.subtle)
                             .child(crate::shared::i18n::label(
-                                "Other settings remain available in ZCode desktop.",
-                                "其他设置仍可在 ZCode 桌面端中使用。",
+                                "Other settings remain available in GCode desktop.",
+                                "其他设置仍可在 GCode 桌面端中使用。",
                             )),
-                    )
-                    .child(
-                        div()
-                            .text_color(theme.subtle)
-                            .child(crate::app::draft_greeting::unofficial_notice()),
                     )
                     .into_any_element()
             }
             SettingsSection::Appearance => {
-                let selected = settings
-                    .theme_preference
-                    .as_deref()
-                    .or(settings.theme.as_deref())
-                    .unwrap_or("system")
-                    .to_owned();
-                let theme_select = div().w_full().child(
-                    Select::new(
-                        "settings-theme",
-                        [
-                            Choice::new("system", crate::shared::i18n::label("System", "跟随系统")),
-                            Choice::new("zai-dark", crate::shared::i18n::label("Dark", "深色")),
-                            Choice::new("zai-light", crate::shared::i18n::label("Light", "浅色")),
-                        ],
-                    )
-                    .selected(selected)
-                    .disabled(blocked)
-                    .on_change(|value, _, cx| {
-                        Preferences::enqueue(PreferenceChange::Theme(ThemeMode::parse(value)), cx)
-                    }),
-                );
                 let font_slider = div().w_full().child(
                     Slider::new("settings-font-size", f64::from(font_size_base()))
                         .range(12., 20.)
@@ -227,20 +201,12 @@ impl RootView {
                             Preferences::enqueue(PreferenceChange::FontSize(value as f32), cx)
                         }),
                 );
-                settings_card([
-                    settings_row(
-                        t("settings.themeMode"),
-                        None,
-                        theme_select,
-                        ControlWidth::Default,
-                    ),
-                    settings_row(
-                        crate::shared::i18n::label("Interface font size", "界面字体大小"),
-                        Some(format!("{} px", font_size_base()).into()),
-                        font_slider,
-                        ControlWidth::Wide,
-                    ),
-                ])
+                settings_card([settings_row(
+                    crate::shared::i18n::label("Interface font size", "界面字体大小"),
+                    Some(format!("{} px", font_size_base()).into()),
+                    font_slider,
+                    ControlWidth::Wide,
+                )])
                 .into_any_element()
             }
             SettingsSection::Memory => {

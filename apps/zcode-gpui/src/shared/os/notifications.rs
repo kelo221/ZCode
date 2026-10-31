@@ -27,7 +27,7 @@ $textNodes = $template.GetElementsByTagName('text');
 $textNodes.Item(0).AppendChild($template.CreateTextNode('{title_owned}')) > $null;
 $textNodes.Item(1).AppendChild($template.CreateTextNode('{body_owned}')) > $null;
 $toast = [Windows.UI.Notifications.ToastNotification]::new($template);
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('ZCode GPUI').Show($toast);"#
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('GCode').Show($toast);"#
         );
 
         let _ = Command::new("powershell")

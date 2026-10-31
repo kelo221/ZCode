@@ -102,10 +102,6 @@ fn committed_preferences_hydrate_a_new_application_owner() {
         app.update(|cx| {
             Preferences::enqueue(PreferenceChange::FontSize(17.0), cx);
             Preferences::enqueue(
-                PreferenceChange::Theme(crate::shared::theme::ThemeMode::ZaiLight),
-                cx,
-            );
-            Preferences::enqueue(
                 PreferenceChange::Shortcut("openSettings".into(), Some(vec!["Ctrl+y".into()])),
                 cx,
             );
@@ -118,7 +114,7 @@ fn committed_preferences_hydrate_a_new_application_owner() {
         let owner = cx.global::<PreferenceOwner>().0.read(cx);
         assert_eq!(owner.snapshot.ui_font_size, Some(17.0));
         assert_eq!(crate::shared::theme::font_size_base(), 17.0);
-        assert!(!cx.global::<ely_gpui_component::theme::Theme>().is_dark());
+        assert!(cx.global::<ely_gpui_component::theme::Theme>().is_dark());
         assert_eq!(
             owner.snapshot.shortcut_bindings.as_ref().unwrap()["openSettings"],
             ["Ctrl+y"]

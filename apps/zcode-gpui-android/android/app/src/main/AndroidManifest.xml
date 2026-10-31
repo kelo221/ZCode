@@ -5,7 +5,9 @@
 
     <application
         android:name="dev.zcode.gpui.mobile.ZcodeApplication"
-        android:label="ZCode GPUI (unofficial)"
+        android:label="GCode"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@style/Theme.AppCompat.NoActionBar"
         android:hasCode="true">
 

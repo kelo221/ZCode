@@ -81,7 +81,7 @@ impl AppState {
                             let result = if isolated.is_none()
                                 && crate::shared::desktop_lock::is_desktop_running_except(&owned)
                             {
-                                Err("Close ZCode Desktop before local management".into())
+                                Err("Close GCode Desktop before local management".into())
                             } else {
                                 json_result(result)
                             }
@@ -112,7 +112,7 @@ impl AppState {
                                 state.enqueue_profile_request(ProfileRequest::Commit(mutation), cx);
                             }
                             Err(error) => {
-                                if error == "Close ZCode Desktop before local management" {
+                                if error == "Close GCode Desktop before local management" {
                                     state.profiles.closing = true;
                                 }
                                 state.finish_profile_mutation(mutation, Err(error), cx);

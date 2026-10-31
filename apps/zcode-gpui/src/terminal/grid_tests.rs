@@ -4,8 +4,8 @@ use super::*;
 
 #[test]
 fn palette_matches_xterm_layout() {
-    assert_eq!(indexed(0), 0x2b303b);
-    assert_eq!(indexed(15), 0xeff1f5);
+    assert_eq!(indexed(0), 0x21222c);
+    assert_eq!(indexed(15), 0xffffff);
     // 6×6×6 cube corners.
     assert_eq!(indexed(16), 0x000000);
     assert_eq!(indexed(231), 0xffffff);
@@ -16,7 +16,7 @@ fn palette_matches_xterm_layout() {
 
 #[test]
 fn named_colors_resolve_to_palette_or_default() {
-    assert_eq!(resolve_color(Color::Named(NamedColor::Red), 0), 0xbf616a);
+    assert_eq!(resolve_color(Color::Named(NamedColor::Red), 0), 0xff5555);
     assert_eq!(
         resolve_color(Color::Named(NamedColor::Foreground), TERM_FG),
         TERM_FG
@@ -118,7 +118,7 @@ fn selection_highlights_fixed_columns_without_losing_ansi_or_wide_cells() {
     assert_eq!(rows[0][0].bg, Some(SELECTION_BG));
     assert_eq!(rows[0][1].bg, Some(SELECTION_BG));
     assert!(rows[0][0].bold);
-    assert_eq!(rows[0][2].fg, 0xbf616a);
+    assert_eq!(rows[0][2].fg, 0xff5555);
     assert_ne!(rows[0][2].bg, Some(SELECTION_BG));
 }
 

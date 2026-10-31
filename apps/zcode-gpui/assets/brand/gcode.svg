@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="gcode-stroke" x1="112" y1="96" x2="400" y2="416" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#bd93f9"/>
+      <stop offset="1" stop-color="#ff79c6"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#282a36"/>
+  <path d="M358.4 170.3 A136 136 0 1 0 392 256 H316" fill="none" stroke="url(#gcode-stroke)" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="216" y="218" width="52" height="76" rx="8" fill="#50fa7b"/>
+</svg>

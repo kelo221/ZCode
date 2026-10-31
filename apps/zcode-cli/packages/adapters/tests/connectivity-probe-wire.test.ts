@@ -68,7 +68,7 @@ describe("connectivity probe wire contract", () => {
           resolved: { ...resolved, properties: createTestModelProperties() },
           request: {
             messages: [
-              { role: "system", content: "You are ZCode connectivity probe." },
+              { role: "system", content: "You are GCode connectivity probe." },
               { role: "user", content: "hi" },
             ],
           },
@@ -101,16 +101,16 @@ describe("connectivity probe wire contract", () => {
             : "max_completion_tokens";
       expect(body[budgetField]).toBe(1);
       if (kind === "anthropic") {
-        expect(body.system).toEqual([{ type: "text", text: "You are ZCode connectivity probe." }]);
+        expect(body.system).toEqual([{ type: "text", text: "You are GCode connectivity probe." }]);
         expect(body.messages).toEqual([{ role: "user", content: [{ type: "text", text: "hi" }] }]);
       } else if (kind === "openai-compatible") {
         expect(body.messages).toEqual([
-          { role: "system", content: "You are ZCode connectivity probe." },
+          { role: "system", content: "You are GCode connectivity probe." },
           { role: "user", content: "hi" },
         ]);
       } else {
         expect(body.input).toEqual([
-          { role: "system", content: "You are ZCode connectivity probe." },
+          { role: "system", content: "You are GCode connectivity probe." },
           { role: "user", content: [{ type: "input_text", text: "hi" }] },
         ]);
       }

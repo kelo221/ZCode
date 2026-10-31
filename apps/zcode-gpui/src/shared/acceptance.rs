@@ -1,20 +1,17 @@
 //! Debug-only disposable acceptance capability; never a public home override.
 use super::i18n::Locale;
 use super::isolation::IsolatedSettings;
-use super::theme::ThemeMode;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 const TICKET_ENV: &str = "ZCODE_GPUI_ACCEPTANCE_TICKET";
 const TOKEN_ENV: &str = "ZCODE_GPUI_ACCEPTANCE_TOKEN";
-const THEME_ENV: &str = "ZCODE_GPUI_ACCEPTANCE_THEME";
 const LOCALE_ENV: &str = "ZCODE_GPUI_ACCEPTANCE_LOCALE";
 static VISUALS: OnceLock<VisualOverrides> = OnceLock::new();
 
 #[derive(Clone, Copy, Default)]
 struct VisualOverrides {
-    theme: Option<ThemeMode>,
     locale: Option<Locale>,
 }
 
@@ -22,10 +19,6 @@ impl VisualOverrides {
     fn apply(&self, cx: &mut gpui::App) {
         if let Some(locale) = self.locale {
             super::i18n::apply_locale(locale, cx);
-        }
-        if let Some(theme) = self.theme {
-            super::theme::set_theme_mode(theme);
-            super::theme::apply_appearance(cx.window_appearance(), cx);
         }
     }
 }
@@ -48,11 +41,11 @@ impl AcceptanceRequest {
         debug: bool,
         env: impl Fn(&str) -> Option<OsString>,
     ) -> Result<Self, String> {
-        let values = [TICKET_ENV, TOKEN_ENV, THEME_ENV, LOCALE_ENV].map(env);
+        let values = [TICKET_ENV, TOKEN_ENV, LOCALE_ENV].map(env);
         if values.iter().any(Option::is_some) && (!isolated || !debug) {
             return Err("Acceptance environment requires debug --isolated-settings".into());
         }
-        let [ticket, token, theme, locale] = values;
+        let [ticket, token, locale] = values;
         if ticket.is_some() != token.is_some() {
             return Err("Acceptance reattach requires both ticket and token".into());
         }
@@ -68,12 +61,6 @@ impl AcceptanceRequest {
         if token.as_ref().is_some_and(String::is_empty) {
             return Err("Acceptance token cannot be empty".into());
         }
-        let theme = match text(theme)?.as_deref() {
-            None => None,
-            Some("zai-dark") => Some(ThemeMode::ZaiDark),
-            Some("zai-light") => Some(ThemeMode::ZaiLight),
-            _ => return Err("Acceptance theme must be zai-dark or zai-light".into()),
-        };
         let locale = match text(locale)?.as_deref() {
             None => None,
             Some("en-US") => Some(Locale::EnUs),
@@ -83,7 +70,7 @@ impl AcceptanceRequest {
         Ok(Self {
             ticket: ticket.map(PathBuf::from),
             token,
-            visuals: VisualOverrides { theme, locale },
+            visuals: VisualOverrides { locale },
         })
     }
 

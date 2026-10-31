@@ -1,9 +1,14 @@
-//! Desktop's Zai color tokens (`packages/ui/src/styles.css`, `.theme-zai-dark` and
-//! `.theme-zai-light`, plus the `.dark`/`:root` values they inherit). Field names follow
-//! the CSS variables (`--color-<name>`); translucent values keep their alpha so they
-//! layer over whatever surface they sit on, as in the Desktop app.
+//! GCode color tokens. Field names follow Desktop's CSS variables (`--color-<name>`,
+//! `packages/ui/src/styles.css`); translucent values keep their alpha so they layer
+//! over whatever surface they sit on. Values are the Dracula palette (BRANDING.md).
 
-use gpui::{Hsla, Rgba, rgba};
+use gpui::{Hsla, Rgba, rgb, rgba};
+
+/// Dracula's 16-colour terminal palette (black … white, then the bright row).
+pub const DRACULA_ANSI: [u32; 16] = [
+    0x21222c, 0xff5555, 0x50fa7b, 0xf1fa8c, 0xbd93f9, 0xff79c6, 0x8be9fd, 0xf8f8f2, 0x6272a4,
+    0xff6e6e, 0x69ff94, 0xffffa5, 0xd6acff, 0xff92df, 0xa4ffff, 0xffffff,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ThemePalette {
@@ -29,7 +34,7 @@ pub struct ThemePalette {
     pub subtle: Rgba,
     pub subtlest: Rgba,
     pub inverse: Rgba,
-    /// Submit button and other brand fills: white in dark, black in light.
+    /// Submit button and other brand fills, drawn with `inverse` text.
     pub brand: Rgba,
     /// Selection-style tint (`--color-accent`), not a highlight color.
     pub accent: Rgba,
@@ -48,92 +53,51 @@ pub struct ThemePalette {
 }
 
 impl ThemePalette {
-    pub fn zai_dark() -> Self {
+    /// GCode's only palette: Dracula (https://draculatheme.com/contribute).
+    /// Background, Current Line, Foreground, Comment and the seven accents are the
+    /// spec values; the darker sidebar/frame shades are Dracula's own UI variants.
+    pub fn dracula() -> Self {
         Self {
-            background: rgba(0x161616ff),
-            sidebar: rgba(0x161616ff),
-            window_frame: rgba(0x2b2b2bff),
-            panel: rgba(0x202020ff),
-            card: rgba(0x2b2b2bff),
-            surface: rgba(0xffffff0d),
-            surface_hover: rgba(0xffffff1a),
-            hover: rgba(0xffffff0d),
-            selected: rgba(0xffffff1a),
-            border: rgba(0xffffff1a),
-            border_hover: rgba(0xffffff26),
-            input: rgba(0x2b2b2bff),
-            menu: rgba(0x2b2b2bff),
-            menu_hover: rgba(0x363636ff),
-            tag: rgba(0x363636ff),
-            // neutral-300 at 100 / 60 / 30 %.
-            foreground: rgba(0xd4d4d4ff),
-            subtle: rgba(0xd4d4d499),
-            subtlest: rgba(0xd4d4d44d),
-            inverse: rgba(0x000000ff),
-            brand: rgba(0xffffffff),
-            accent: rgba(0x001d3dff),
-            info: rgba(0x4099ffff),
-            destructive: rgba(0xff5c5cff),
-            success: rgba(0x46bf72ff),
-            warning: rgba(0xff8a30ff),
-            link: rgba(0x4099ffff),
-            reasoning: rgba(0xa78bfaff),
-            tool: rgba(0xf59e0bff),
-            user: rgba(0x60a5faff),
-            diff_add_bg: rgba(0x46bf7226),
-            diff_del_bg: rgba(0xff5c5c26),
-            diff_hunk_bg: rgba(0x4099ff1f),
-            selection: rgba(0x4099ff47),
-        }
-    }
-
-    pub fn zai_light() -> Self {
-        Self {
-            background: rgba(0xf8f8f8ff),
-            sidebar: rgba(0xf0f0f0ff),
-            window_frame: rgba(0xececeeff),
-            panel: rgba(0xffffffff),
-            card: rgba(0xffffffff),
-            surface: rgba(0x0d0d0d08),
-            surface_hover: rgba(0x0d0d0d0d),
-            hover: rgba(0x0d0d0d0d),
-            selected: rgba(0x0d0d0d0d),
-            border: rgba(0x0d0d0d1a),
-            border_hover: rgba(0x0d0d0d26),
-            input: rgba(0xffffffff),
-            menu: rgba(0xffffffff),
-            menu_hover: rgba(0xf0f0f0ff),
-            tag: rgba(0xe6e6e6ff),
-            // neutral-800 at 100 / 60 / 40 %.
-            foreground: rgba(0x262626ff),
-            subtle: rgba(0x26262699),
-            subtlest: rgba(0x26262666),
-            inverse: rgba(0xffffffff),
-            brand: rgba(0x000000ff),
-            accent: rgba(0xebf4ffff),
-            info: rgba(0x0b7fffff),
-            destructive: rgba(0xe03131ff),
-            success: rgba(0x1e8a3eff),
-            warning: rgba(0xe07b00ff),
-            link: rgba(0x0b7fffff),
-            reasoning: rgba(0x7c3aedff),
-            tool: rgba(0xd97706ff),
-            user: rgba(0x2563ebff),
-            diff_add_bg: rgba(0x1e8a3e1f),
-            diff_del_bg: rgba(0xe031311f),
-            diff_hunk_bg: rgba(0x0b7fff1a),
-            selection: rgba(0x0b7fff33),
+            background: rgba(0x282a36ff),
+            sidebar: rgba(0x21222cff),
+            window_frame: rgba(0x191a21ff),
+            panel: rgba(0x21222cff),
+            card: rgba(0x343746ff),
+            surface: rgba(0xf8f8f20d),
+            surface_hover: rgba(0xf8f8f21a),
+            hover: rgba(0xf8f8f20d),
+            selected: rgba(0x44475aff),
+            border: rgba(0x44475aff),
+            border_hover: rgba(0x6272a4ff),
+            input: rgba(0x21222cff),
+            menu: rgba(0x343746ff),
+            menu_hover: rgba(0x44475aff),
+            tag: rgba(0x44475aff),
+            foreground: rgba(0xf8f8f2ff),
+            subtle: rgba(0xf8f8f299),
+            subtlest: rgba(0x6272a4ff),
+            inverse: rgba(0x282a36ff),
+            brand: rgba(0xbd93f9ff),
+            accent: rgba(0x44475aff),
+            info: rgba(0x8be9fdff),
+            destructive: rgba(0xff5555ff),
+            success: rgba(0x50fa7bff),
+            warning: rgba(0xffb86cff),
+            link: rgba(0x8be9fdff),
+            reasoning: rgba(0xbd93f9ff),
+            tool: rgba(0xf1fa8cff),
+            user: rgba(0xff79c6ff),
+            diff_add_bg: rgba(0x50fa7b26),
+            diff_del_bg: rgba(0xff555526),
+            diff_hunk_bg: rgba(0xbd93f91f),
+            selection: rgba(0x44475aff),
         }
     }
 
     /// Ely's semantic palette built from the same tokens, so Ely controls match the
     /// hand-drawn surfaces. Fields without a Desktop counterpart keep Ely's values.
-    pub fn ely_palette(&self, light: bool) -> ely_gpui_component::theme::Palette {
-        let mut out = if light {
-            ely_gpui_component::theme::Palette::light(false)
-        } else {
-            ely_gpui_component::theme::Palette::dark(false)
-        };
+    pub fn ely_palette(&self) -> ely_gpui_component::theme::Palette {
+        let mut out = ely_gpui_component::theme::Palette::dark(false);
         let h = |c: Rgba| -> Hsla { c.into() };
         out.bg = h(self.background);
         out.surface = h(self.card);
@@ -163,6 +127,27 @@ impl ThemePalette {
         out.info_subtle = h(self.diff_hunk_bg);
         out.tooltip_bg = h(self.menu);
         out.tooltip_fg = h(self.foreground);
+        let hex = |c: u32| -> Hsla { rgb(c).into() };
+        out.ansi = DRACULA_ANSI.map(hex);
+        out.chart = [
+            0xbd93f9, 0x8be9fd, 0x50fa7b, 0xffb86c, 0xff79c6, 0xf1fa8c, 0xff5555, 0x6272a4,
+        ]
+        .map(hex);
+        out.syntax = ely_gpui_component::theme::Syntax {
+            keyword: hex(0xff79c6),
+            string: hex(0xf1fa8c),
+            number: hex(0xbd93f9),
+            comment: hex(0x6272a4),
+            function: hex(0x50fa7b),
+            type_name: hex(0x8be9fd),
+            constant: hex(0xbd93f9),
+            property: hex(0xffb86c),
+            tag: hex(0xff79c6),
+            attribute: hex(0x50fa7b),
+            operator: hex(0xff79c6),
+            punctuation: hex(0xf8f8f2),
+            variable: hex(0xf8f8f2),
+        };
         out
     }
 }
@@ -172,26 +157,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn zai_tokens_match_desktop_styles() {
-        let dark = ThemePalette::zai_dark();
-        assert_eq!(dark.background, rgba(0x161616ff));
-        assert_eq!(dark.panel, rgba(0x202020ff));
-        assert_eq!(dark.card, rgba(0x2b2b2bff));
-        assert_eq!(dark.border, rgba(0xffffff1a));
-        assert_eq!(dark.brand, rgba(0xffffffff));
-        let light = ThemePalette::zai_light();
-        assert_eq!(light.background, rgba(0xf8f8f8ff));
-        assert_eq!(light.sidebar, rgba(0xf0f0f0ff));
-        assert_eq!(light.border, rgba(0x0d0d0d1a));
-        assert_eq!(light.brand, rgba(0x000000ff));
+    fn dracula_tokens_match_the_spec() {
+        let p = ThemePalette::dracula();
+        assert_eq!(p.background, rgba(0x282a36ff));
+        assert_eq!(p.selection, rgba(0x44475aff));
+        assert_eq!(p.foreground, rgba(0xf8f8f2ff));
+        assert_eq!(p.subtlest, rgba(0x6272a4ff));
+        assert_eq!(p.brand, rgba(0xbd93f9ff));
+        assert_eq!(p.destructive, rgba(0xff5555ff));
     }
 
     #[test]
     fn ely_primary_uses_brand_fill_with_inverse_text() {
-        let dark = ThemePalette::zai_dark();
-        let ely = dark.ely_palette(false);
-        assert_eq!(ely.accent, Hsla::from(dark.brand));
-        assert_eq!(ely.on_accent, Hsla::from(dark.inverse));
-        assert_eq!(ely.bg, Hsla::from(dark.background));
+        let p = ThemePalette::dracula();
+        let ely = p.ely_palette();
+        assert_eq!(ely.accent, Hsla::from(p.brand));
+        assert_eq!(ely.on_accent, Hsla::from(p.inverse));
+        assert_eq!(ely.bg, Hsla::from(p.background));
     }
 }

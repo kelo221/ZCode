@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-pub(crate) const UPLOAD_ERROR: &str = "Image upload failed; Retry or Cancel to keep editing";
+pub(crate) const UPLOAD_ERROR: &str = "Attachment upload failed; Retry or Cancel to keep editing";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum UploadStep {
@@ -24,11 +24,17 @@ pub(crate) enum UploadState {
 #[derive(Clone)]
 pub(crate) struct UploadReceipt {
     pub workspace: String,
+    /// Empty for a new-task draft (only possible with `desktop_stage`).
     pub session: String,
     pub connection: String,
     pub process: u64,
     pub navigation: u64,
     pub replacement: u64,
+    /// Phone build: upload to the desktop's `gcode/stage/*` endpoint
+    /// (`remote::staging`), which answers with a desktop file path. A path on
+    /// the phone means nothing to the agent, and the CLI's own upload needs a
+    /// session, which a new-task draft does not have yet.
+    pub desktop_stage: bool,
 }
 
 pub(crate) struct PreparedImage {
@@ -36,25 +42,28 @@ pub(crate) struct PreparedImage {
     pub checksum: String,
 }
 
-/// What a clipboard upload carries: an image, or long pasted text.
+/// What an upload carries: a clipboard image, long pasted text, or a file
+/// picked on the phone.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum UploadKind {
     Image(gpui::ImageFormat),
     PastedText { file_name: String, lines: usize },
+    File { file_name: String, mime: String },
 }
 
 impl UploadKind {
     pub(crate) fn file_name(&self) -> String {
         match self {
             Self::Image(format) => format!("clipboard.{}", format.extension()),
-            Self::PastedText { file_name, .. } => file_name.clone(),
+            Self::PastedText { file_name, .. } | Self::File { file_name, .. } => file_name.clone(),
         }
     }
 
-    pub(crate) fn mime(&self) -> &'static str {
+    pub(crate) fn mime(&self) -> &str {
         match self {
             Self::Image(format) => format.mime_type(),
             Self::PastedText { .. } => crate::composer::pasted_text::PASTED_TEXT_MIME,
+            Self::File { mime, .. } => mime,
         }
     }
 }
@@ -142,9 +151,12 @@ impl ImageUpload {
             }
             UploadStep::Commit => {
                 let result: CommitResult = serde_json::from_value(value).map_err(|_| ())?;
-                valid_artifact_ref(&result.reference)
-                    .then_some(Some(result.reference))
-                    .ok_or(())
+                let valid = if self.receipt.desktop_stage {
+                    crate::backend::attachment_file::valid_staged_path(&result.reference)
+                } else {
+                    valid_artifact_ref(&result.reference)
+                };
+                valid.then_some(Some(result.reference)).ok_or(())
             }
         }
     }
@@ -177,7 +189,7 @@ impl AppState {
     pub(crate) fn upload_receipt_current(&self, receipt: &UploadReceipt, cx: &App) -> bool {
         !self.is_read_only_view()
             && self.composer_intent == crate::conversation::msg_actions::ComposerIntent::Send
-            && self.active.as_deref() == Some(receipt.session.as_str())
+            && self.active.as_deref().unwrap_or("") == receipt.session
             && self.active_ws_key().as_deref() == Some(receipt.workspace.as_str())
             && self.navigation_generation == receipt.navigation
             && self.composer.read(cx).replacement_generation == receipt.replacement
@@ -300,15 +312,19 @@ impl AppState {
 
     /// Where a clipboard paste goes: `Some(Some(receipt))` uploads to the
     /// active session, `Some(None)` is a new-task draft (local temp file),
-    /// `None` drops it (no workspace, or the chat is not connected).
-    fn paste_target(
+    /// `None` drops it (no workspace, or the chat is not connected). The phone
+    /// always uploads, to the desktop's staging endpoint.
+    pub(super) fn paste_target(
         &mut self,
         replacement: u64,
         not_connected: &str,
         cx: &mut Context<Self>,
     ) -> Option<Option<UploadReceipt>> {
-        let Some(session) = self.active.clone() else {
-            return Some(None);
+        let desktop_stage = self.phone_client.enabled;
+        let session = match self.active.clone() {
+            Some(session) => session,
+            None if desktop_stage => String::new(),
+            None => return Some(None),
         };
         let workspace = self.active_ws_key()?;
         let Some(ws) = self
@@ -326,6 +342,7 @@ impl AppState {
             process: ws.generation,
             navigation: self.navigation_generation,
             replacement,
+            desktop_stage,
         }))
     }
 

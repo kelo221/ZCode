@@ -1,18 +1,37 @@
 //! Draft (empty conversation) greeting from Desktop `ConversationDraftEmptyState`:
-//! a time-of-day line over the outlined ZCode logo, centred above the composer.
+//! the GCode mark over a time-of-day line, centred above the composer.
 
-use crate::shared::app_assets::EMPTY_LOGO;
-use crate::shared::theme::{SUBTLEST, TEXT};
+use crate::shared::app_assets::GCODE_MARK_SVG;
+use crate::shared::theme::TEXT;
 use crate::shared::theme_colors::color as rgb;
-use gpui::{AnyElement, div, prelude::*, px};
+use gpui::{AnyElement, App, RenderImage, div, prelude::*, px};
+use std::cell::RefCell;
+use std::sync::Arc;
 
-/// Shown wherever the app identifies itself: this port is a community
-/// project, not a ZCode product.
-pub(crate) fn unofficial_notice() -> &'static str {
-    crate::shared::i18n::label(
-        "Unofficial community GPUI client — not an official ZCode product.",
-        "非官方社区 GPUI 客户端，并非 ZCode 官方产品。",
-    )
+/// Last rasterised mark, keyed by (size, scale factor) bits.
+type MarkCache = Option<((u32, u32), Arc<RenderImage>)>;
+
+/// The mark rasterised at exactly `size` logical px × `scale_factor`. `img()` with
+/// an SVG path rasterises at the intrinsic size and stretches it, which shows
+/// pixels on scaled displays.
+fn mark_image(size: f32, scale_factor: f32, cx: &App) -> Option<Arc<RenderImage>> {
+    thread_local! {
+        static CACHE: RefCell<MarkCache> = const { RefCell::new(None) };
+    }
+    let key = (size.to_bits(), scale_factor.to_bits());
+    CACHE.with(|cache| {
+        if let Some((cached, image)) = cache.borrow().as_ref()
+            && *cached == key
+        {
+            return Some(image.clone());
+        }
+        let image = cx
+            .svg_renderer()
+            .render_single_frame(GCODE_MARK_SVG, scale_factor * size / 64.)
+            .ok()?;
+        *cache.borrow_mut() = Some((key, image.clone()));
+        Some(image)
+    })
 }
 
 /// Desktop's hour buckets (`getChatEmptyGreetingMessageId`).
@@ -43,33 +62,18 @@ fn local_hour() -> u32 {
 
 /// Greeting block for a conversation column `column` px wide. Desktop shrinks
 /// the 30px line to fit; narrow columns step down to 24px.
-pub(crate) fn draft_greeting(column: f32) -> AnyElement {
-    let logo_width = column.min(400.);
+pub(crate) fn draft_greeting(column: f32, scale_factor: f32, cx: &App) -> AnyElement {
+    let mark = if column >= 520. { 64. } else { 48. };
     div()
-        .relative()
         .w_full()
         .mb_10()
         .flex()
         .flex_col()
         .items_center()
         .justify_center()
-        .child(
-            div()
-                .absolute()
-                .top(px(-logo_width * 0.4 - 20.))
-                .left(px((column - logo_width) / 2.))
-                .opacity(0.5)
-                // Desktop masks the outline to transparent by 70% of its height.
-                .h(px(logo_width * 0.8 * 0.6))
-                .overflow_hidden()
-                .child(
-                    gpui::svg()
-                        .path(EMPTY_LOGO)
-                        .w(px(logo_width))
-                        .h(px(logo_width * 0.8))
-                        .text_color(rgb(SUBTLEST)),
-                ),
-        )
+        .when_some(mark_image(mark, scale_factor, cx), |el, image| {
+            el.child(gpui::img(image).size(px(mark)).mb_5())
+        })
         .child(
             div()
                 .w_full()
@@ -80,13 +84,6 @@ pub(crate) fn draft_greeting(column: f32) -> AnyElement {
                 .line_height(gpui::relative(1.2))
                 .text_color(rgb(TEXT))
                 .child(crate::shared::i18n::t(greeting_key(local_hour())).to_string()),
-        )
-        .child(
-            div()
-                .pt_2()
-                .text_size(px(12.))
-                .text_color(rgb(SUBTLEST))
-                .child(unofficial_notice()),
         )
         .into_any_element()
 }

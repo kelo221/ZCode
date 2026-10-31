@@ -1,6 +1,7 @@
 package dev.zcode.gpui.mobile
 
 import android.content.Context
+import android.os.Bundle
 import android.text.InputType
 import android.text.TextUtils
 import android.util.Log
@@ -11,6 +12,7 @@ import android.view.inputmethod.CompletionInfo
 import android.view.inputmethod.CorrectionInfo
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputContentInfo
 import android.view.inputmethod.SurroundingText
 import android.view.inputmethod.TextAttribute
 
@@ -76,12 +78,14 @@ class ImeHostView(context: Context, private val mirror: ImeMirror) : View(contex
         }
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or
             EditorInfo.IME_FLAG_NO_FULLSCREEN or EditorInfo.IME_ACTION_NONE
+        // Lets Gboard's clipboard and image keyboards insert images.
+        if (mode == 1) outAttrs.contentMimeTypes = arrayOf("image/*")
         outAttrs.initialSelStart = mirror.selStart
         outAttrs.initialSelEnd = mirror.selEnd
         return Connection(this, mirror)
     }
 
-    private class Connection(view: View, private val mirror: ImeMirror) :
+    private class Connection(private val view: View, private val mirror: ImeMirror) :
         BaseInputConnection(view, false) {
 
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
@@ -150,6 +154,21 @@ class ImeHostView(context: Context, private val mirror: ImeMirror) : View(contex
             NativeBridge.nativeImeSendKeyEvent(
                 0, event.action, event.keyCode, event.metaState, event.repeatCount
             )
+            return true
+        }
+
+        // A keyboard-inserted image becomes a composer attachment, like a picked file.
+        override fun commitContent(info: InputContentInfo, flags: Int, opts: Bundle?): Boolean {
+            val grant = flags and InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION != 0
+            if (grant) {
+                runCatching { info.requestPermission() }.onFailure {
+                    Log.w(TAG, "commitContent permission failed: $it")
+                    return false
+                }
+            }
+            PickedFiles.deliver(view.context, listOf(info.contentUri)) {
+                if (grant) info.releasePermission()
+            }
             return true
         }
 

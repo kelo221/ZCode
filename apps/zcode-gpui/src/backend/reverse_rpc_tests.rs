@@ -174,7 +174,7 @@ fn test_automation_and_offpeak_fail_fast() {
             val["error"]["message"]
                 .as_str()
                 .unwrap()
-                .contains("ZCode desktop"),
+                .contains("GCode desktop"),
             "{method}"
         );
     }
@@ -221,7 +221,7 @@ fn test_bot_channel_and_topic_resources_fail_fast() {
             val["error"]["message"]
                 .as_str()
                 .unwrap()
-                .contains("ZCode desktop"),
+                .contains("GCode desktop"),
             "{method}"
         );
     }

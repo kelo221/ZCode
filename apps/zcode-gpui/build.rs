@@ -44,7 +44,20 @@ fn fallback_from_cache(cache_path: &Path, dest_path: &Path) {
     fs::write(dest_path, output).expect("failed to write i18n_data.rs");
 }
 
+/// Embeds the GCode icon as resource id 1, the id gpui's Windows window class loads.
+fn embed_windows_icon() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    println!("cargo:rerun-if-changed=assets/brand/gcode.rc");
+    println!("cargo:rerun-if-changed=assets/brand/gcode.ico");
+    embed_resource::compile("assets/brand/gcode.rc", embed_resource::NONE)
+        .manifest_optional()
+        .expect("failed to embed the GCode icon resource");
+}
+
 fn main() {
+    embed_windows_icon();
     println!("cargo:rerun-if-changed=../../packages/ui/src/i18n/locales/en-US.ts");
     println!("cargo:rerun-if-changed=../../packages/ui/src/i18n/locales/zh-CN.ts");
     println!("cargo:rerun-if-changed=../../package.json");

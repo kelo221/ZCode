@@ -46,8 +46,8 @@ pub(crate) fn status_text(status: &VoiceStatus) -> String {
         )
         .into(),
         VoiceStatus::Missing => label(
-            "Voice engine not found: build apps/zcode-voice or place zcode-voice next to ZCode",
-            "未找到语音引擎：请构建 apps/zcode-voice，或将 zcode-voice 放在 ZCode 旁边",
+            "Voice engine not found: build apps/zcode-voice or place zcode-voice next to GCode",
+            "未找到语音引擎：请构建 apps/zcode-voice，或将 zcode-voice 放在 GCode 旁边",
         )
         .into(),
         VoiceStatus::Loading => label("Loading voice model…", "正在加载语音模型…").into(),
@@ -203,10 +203,10 @@ impl RootView {
                     ControlWidth::Default,
                 ),
                 settings_row(
-                    label("Only when ZCode isn't focused", "仅在 ZCode 未聚焦时"),
+                    label("Only when GCode isn't focused", "仅在 GCode 未聚焦时"),
                     Some(label(
-                        "Stay silent while you are looking at the ZCode window.",
-                        "当你正在查看 ZCode 窗口时保持安静。",
+                        "Stay silent while you are looking at the GCode window.",
+                        "当你正在查看 GCode 窗口时保持安静。",
                     ).into()),
                     div().child(unfocused),
                     ControlWidth::Default,

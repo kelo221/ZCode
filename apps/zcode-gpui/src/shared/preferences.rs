@@ -1,6 +1,5 @@
 use crate::shared::i18n::LocalePreference;
 use crate::shared::settings::AppSettings;
-use crate::shared::theme::ThemeMode;
 use gpui::{App, AppContext, Context, Entity, Global};
 use std::collections::{HashMap, VecDeque};
 
@@ -73,7 +72,6 @@ fn forget_project(settings: &mut AppSettings, key: &str) {
 #[derive(Clone, Debug)]
 pub(crate) enum PreferenceChange {
     Locale(LocalePreference),
-    Theme(ThemeMode),
     FontSize(f32),
     MemoryEnabled(bool),
     Voice(crate::shared::voice_settings::VoiceSettings),
@@ -101,7 +99,6 @@ impl PreferenceChange {
                 settings.locale_preference = Some(pref.as_str().into());
                 settings.locale = Some(pref.resolve().as_str().into());
             }
-            Self::Theme(mode) => settings.theme_preference = Some(mode.as_str().into()),
             Self::FontSize(size) => settings.ui_font_size = Some(*size),
             Self::MemoryEnabled(enabled) => settings.memory_enabled = Some(*enabled),
             Self::Voice(voice) => settings.gpui_voice = Some(voice.clone()),
@@ -312,15 +309,7 @@ impl Preferences {
 
     pub(super) fn apply_snapshot(settings: &AppSettings, cx: &mut App) {
         crate::shared::i18n::apply_locale(settings.language_preference().resolve(), cx);
-        let mode = ThemeMode::parse(
-            settings
-                .theme_preference
-                .as_deref()
-                .or(settings.theme.as_deref())
-                .unwrap_or("system"),
-        );
-        crate::shared::theme::set_theme_mode(mode);
-        crate::shared::theme::apply_appearance(cx.window_appearance(), cx);
+        crate::shared::theme::apply_theme(cx);
         crate::shared::theme::set_ui_font_size(settings.ui_font_size.unwrap_or(14.0));
         ely_gpui_component::theme::Theme::update(cx, |theme| {
             theme.font_scale = crate::shared::theme::font_size_base() / 14.0;

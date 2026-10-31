@@ -17,6 +17,7 @@ fn upload() -> ImageUpload {
             process: 0,
             navigation: 0,
             replacement: 0,
+            desktop_stage: false,
         },
         bytes: Arc::new(vec![1]),
         kind: UploadKind::Image(ImageFormat::Png),
