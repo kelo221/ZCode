@@ -21,14 +21,47 @@ Mirrors `packages/ui/src/settings/model-provider-section` (desktop):
   (`providerTemplates`, localized name) plus "Custom provider".
 - Text fields save on Enter or blur; the API key is masked with a show/hide
   toggle. Only changed leaves are written (desktop `ProviderDraftSave.ts`).
-- "Add model" takes a model ID and saves it with the recommended config
-  (`useRecommendedConfig: true`); an unknown model then shows its config issues.
+- "+ Add model" opens the add-model dialog (see below); an unknown model saved
+  with the recommended config then shows its config issues in the list.
 - Delete provider asks for confirmation inline.
 - Test sends `provider/testModelConnectivity` for that model.
 
+### Add-model dialog
+
+Mirrors desktop `ProviderModelMetadataDialog` in `mode="add"`
+(`ProviderCardSections.tsx`, `ProviderModelMetadata.ts`,
+`ProviderModelDraftState.ts`, `useProviderModelDraft.ts`).
+
+- Fields: "Smart configuration" switch (default on); Model ID (mono);
+  context window; max output tokens (digits only, disabled until the ID is
+  non-empty); collapsible "Advanced settings": input types (Text always on,
+  Image / Video / PDF toggles), capabilities (structured output, native web
+  search, mid-conversation system messages), ordered reasoning levels
+  (add / remove), reasoning parameter mapping and max-output parameter mapping
+  (option-map expressions, multi-line mono inputs).
+- Smart mode: ~1.2 s after the ID stops changing (or on ID blur) the dialog
+  sends `providerSettings/resolveModelConfig { providerId, modelId }`; the
+  response's `inheritedConfig` fills placeholders and the values of controls
+  the user has not touched. Only the response to the latest request is used.
+  Saving in smart mode without a resolution for the current ID resolves first,
+  then saves.
+- Switching smart → manual fills empty context window / max output / mapping
+  inputs from the current baseline; manual → smart resets the draft to the
+  recommended defaults (keeps the ID).
+- Save validates exactly like desktop `resolveProviderModelDraftCommit`
+  (ID required and not already in the provider; positive integers; Text input
+  required; reasoning levels non-empty, trimmed and unique; a reasoning map must
+  be typed or inherited) and shows the error inline. The map expressions are
+  compiled by the agent; a compile error comes back as the save error.
+- Output: smart mode sends a sparse overlay (only explicit overrides), manual
+  mode the materialized editable leaves (desktop `extractManualModelConfig`).
+  A typed max-output mapping is an explicit `optionSpecs.maxOutputTokens.map`
+  override in both modes (GPUI addition; desktop has no field for it).
+- Enter in a single-line field saves, Escape / Cancel closes. The dialog closes
+  only when the agent accepted the mutation; an agent error stays in the dialog.
+
 Not in scope (still desktop-only): Z.ai / BigModel account sign-in, coding-plan
-status/quota/purchase panels, and the per-model metadata dialog (its sparse
-override rules live in the React package and are not duplicated here).
+status/quota/purchase panels, and editing an existing model's metadata.
 
 ## Ownership and protocol
 
@@ -41,7 +74,12 @@ agent CLI through two methods:
 - `providerSettings/mutate { operation }` → `{ view, providerId? }` where
   `operation.type` is `createProvider`, `updateProvider`, `deleteProvider`,
   `reorderProviders`, `addModel`, `deleteModel`, `setModelEnabled`,
-  `reorderModels`.
+  `reorderModels`. `addModel` takes optional `config` (model config object,
+  `modelConfigDataSchema`) and `useRecommendedConfig` (default `true`).
+- `providerSettings/resolveModelConfig { providerId, modelId, personalConfig? }`
+  → `{ inheritedConfig, effectiveConfig, issues }` (read-only; wraps
+  `ProviderSettingsFacade.resolveModelConfig`, a `personalConfig` previews that
+  draft overlay). Not serialized with mutations.
 
 `view` is the facade's `ProviderSettingsView` (revision, templates, order,
 providers with `effectiveConfig`, `personalConfig`, models, issues). It

@@ -1,13 +1,13 @@
 //! Model settings: the provider's model list (desktop `ProviderModelList`) —
-//! add by id, test connectivity, reorder, enable and delete custom models.
+//! add through the add-model dialog, test connectivity, reorder, enable and
+//! delete custom models.
 
 use crate::app::root::RootView;
-use crate::app::settings_provider_form::Field;
 use crate::provider_settings::{Model, Provider, TestStatus, compact_tokens, moved};
 use crate::shared::i18n::label;
 use crate::shared::theme::{MONO_FONT, active_theme, font_size_sm, font_size_xs, ui_size};
 use ely_gpui_component::buttons::{Button, ButtonVariant, IconButton};
-use ely_gpui_component::forms::{Input, Switch};
+use ely_gpui_component::forms::Switch;
 use ely_gpui_component::primitives::IconName;
 use ely_gpui_component::theme::ControlSize;
 use gpui::{AnyElement, Context, IntoElement, div, prelude::*, px};
@@ -88,35 +88,34 @@ impl RootView {
                 label("Models", "模型"),
                 provider.models.len()
             ));
-        let Some(form) = self.settings.provider_form.as_ref() else {
-            return title.into_any_element();
-        };
-        let adder = div()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(div().w(px(260.)).child(Input::new(&form.new_model)))
-            .child(
-                Button::new("provider-model-add", label("Add", "添加"))
-                    .icon(IconName::Plus)
-                    .size(ControlSize::Md)
-                    .variant(ButtonVariant::Outline)
-                    .disabled(busy)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.commit_provider_field(Field::NewModel, cx)
-                    })),
-            );
-        #[cfg(test)]
-        let adder = crate::app::test_support::track_children(
-            adder,
-            vec!["provider-model-input".into(), "provider-model-add".into()],
+        // 旧的行内输入在空/重复 ID 时点击“添加”静默无反应；改为与 Desktop 一致的新增模型弹窗，
+        // 校验错误与 agent 错误都在弹窗内展示。
+        let provider_id = provider.id.clone();
+        let adder = div().child(
+            Button::new("provider-model-add", label("Add model", "添加模型"))
+                .icon(IconName::Plus)
+                .size(ControlSize::Md)
+                .variant(ButtonVariant::Secondary)
+                .disabled(busy)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.open_add_model_dialog(&provider_id, window, cx)
+                })),
         );
+        #[cfg(test)]
+        let adder =
+            crate::app::test_support::track_children(adder, vec!["provider-model-add".into()]);
+        let dialog = self
+            .add_model_dialog()
+            .is_some_and(|d| d.provider == provider.id)
+            .then(|| self.render_add_model_dialog(cx))
+            .flatten();
         div()
             .flex()
             .items_center()
             .gap_3()
             .child(title)
             .child(adder)
+            .children(dialog)
             .into_any_element()
     }
 

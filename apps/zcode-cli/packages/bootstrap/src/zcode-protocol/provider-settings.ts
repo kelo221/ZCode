@@ -1,5 +1,6 @@
 import {
   isApiKeyAccess,
+  type ModelConfigObject,
   type ProviderConfigObject,
   type ProviderSettingsFacade,
   type ProviderSettingsProviderView,
@@ -8,7 +9,9 @@ import {
 import {
   zcodeProviderSettingsMutateParamsSchema,
   zcodeProviderSettingsReadParamsSchema,
+  zcodeProviderSettingsResolveModelConfigParamsSchema,
   type ZCodeProviderSettingsMutateResult,
+  type ZCodeProviderSettingsResolveModelConfigResult,
   type ZCodeProviderSettingsOperation,
   type ZCodeProviderSettingsReadResult,
 } from "@zcode/shared";
@@ -64,9 +67,17 @@ export async function mutateProviderSettings(
     case "reorderProviders":
       return { view: toWire(await facade.reorderPersonalProviders(operation.providerIds)) };
     case "addModel":
-      // 与 Desktop 新增模型一致：未填写元数据时走推荐配置，未知模型由 issues 提示补全。
+      // 与 Desktop 新增模型一致：未填写元数据时走推荐配置，未知模型由 issues 提示补全；
+      // 弹窗提交的 config/useRecommendedConfig 原样交给 Facade，不在协议层重算 Overlay。
       return {
-        view: toWire(await facade.addPersonalModel(operation.providerId, operation.modelId, {}, true)),
+        view: toWire(
+          await facade.addPersonalModel(
+            operation.providerId,
+            operation.modelId,
+            (operation.config ?? {}) as ModelConfigObject,
+            operation.useRecommendedConfig ?? true,
+          ),
+        ),
       };
     case "deleteModel": {
       const provider = requireProvider(facade.getView(), operation.providerId);
@@ -92,6 +103,30 @@ export async function mutateProviderSettings(
         view: toWire(await facade.reorderPersonalModels(operation.providerId, operation.modelIds)),
       };
   }
+}
+
+export async function resolveProviderModelConfig(
+  context: ZCodeProtocolAgentServerContext,
+  rawParams: unknown,
+): Promise<ZCodeProviderSettingsResolveModelConfigResult> {
+  const params = parseParams(zcodeProviderSettingsResolveModelConfigParamsSchema, rawParams);
+  const facade = requireFacade(context);
+  requireProvider(facade.getView(), params.providerId);
+  const resolution = facade.resolveModelConfig(
+    params.personalConfig === undefined
+      ? { providerId: params.providerId, modelId: params.modelId }
+      : {
+          providerId: params.providerId,
+          originalModelId: params.modelId,
+          modelId: params.modelId,
+          personalConfig: params.personalConfig as ModelConfigObject,
+        },
+  );
+  return {
+    inheritedConfig: resolution.inheritedConfig as ZCodeProviderSettingsResolveModelConfigResult["inheritedConfig"],
+    effectiveConfig: resolution.effectiveConfig as ZCodeProviderSettingsResolveModelConfigResult["effectiveConfig"],
+    issues: [...resolution.issues],
+  };
 }
 
 /**

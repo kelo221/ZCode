@@ -104,6 +104,10 @@ mod settings_phone;
 mod settings_provider_add;
 mod settings_provider_card;
 pub(crate) mod settings_provider_form;
+pub(crate) mod settings_provider_model_dialog;
+#[cfg(test)]
+mod settings_provider_model_dialog_tests;
+mod settings_provider_model_dialog_view;
 mod settings_provider_models;
 #[cfg(test)]
 mod settings_provider_tests;

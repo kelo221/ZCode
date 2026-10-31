@@ -5,6 +5,8 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
+pub(crate) mod model_draft;
+mod model_draft_commit;
 pub(crate) mod requests;
 
 const CUSTOM_GROUP: &str = "standard-personal";
@@ -18,7 +20,14 @@ pub(crate) const API_FORMATS: [&str; 3] = [
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Request {
     Read,
-    Mutate,
+    /// `tag` marks a mutation whose outcome a dialog waits for (`added`).
+    Mutate {
+        tag: Option<u64>,
+    },
+    /// `providerSettings/resolveModelConfig` for the add-model dialog.
+    Resolve {
+        tag: u64,
+    },
     Test {
         provider: String,
         model: String,
@@ -42,7 +51,13 @@ pub(crate) struct ProviderSettingsState {
     pub busy: bool,
     /// Field commits made while a mutation is in flight (e.g. blur of one field
     /// right after another); sent in order so no edit is lost.
-    pub queued: std::collections::VecDeque<Value>,
+    pub queued: std::collections::VecDeque<(Value, Option<u64>)>,
+    /// Source of `Request` tags for dialog-owned requests.
+    pub next_tag: u64,
+    /// Latest settled `resolveModelConfig`: (tag, inheritedConfig or error).
+    pub resolved: Option<(u64, Result<Value, String>)>,
+    /// Latest settled tagged mutation: (tag, success or error message).
+    pub added: Option<(u64, Result<(), String>)>,
     /// Agent predates `providerSettings/*` (-32601): fall back to the catalog list.
     pub unavailable: bool,
     pub error: Option<String>,

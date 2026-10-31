@@ -44,15 +44,3 @@ fn preset_and_account_providers_never_send_read_only_fields() {
     );
     assert_eq!(field_update(account, Field::ApiKey, "k"), None);
 }
-
-#[test]
-fn new_models_are_trimmed_and_deduplicated() {
-    let view = providers();
-    let custom = view.provider("c1").unwrap();
-    assert_eq!(field_update(custom, Field::NewModel, " m1 "), None);
-    assert_eq!(field_update(custom, Field::NewModel, ""), None);
-    assert_eq!(
-        field_update(custom, Field::NewModel, " m2 "),
-        Some(json!({ "type": "addModel", "providerId": "c1", "modelId": "m2" }))
-    );
-}

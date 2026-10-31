@@ -159,3 +159,64 @@ fn requests_without_a_started_agent_report_instead_of_hanging(cx: &mut TestAppCo
         assert!(s.provider_settings.error.is_some());
     });
 }
+
+#[gpui::test]
+fn tagged_mutation_reports_to_its_dialog_not_the_page(cx: &mut TestAppContext) {
+    let state = cx.new(AppState::for_test);
+    state.update(cx, |s, cx| {
+        let (key, rx) = connect(s);
+        s.provider_settings.view = crate::provider_settings::ProviderView::from_value(&view());
+        let operation = json!({ "type": "addModel", "providerId": "c1", "modelId": "m9" });
+        let tag = s.mutate_provider_settings_tagged(operation.clone(), cx);
+        let sent = next(&rx);
+        assert_eq!(sent["params"]["operation"], operation);
+        let error = json!({ "code": -32602, "message": "bad map" });
+        s.handle_response(&key, sent["id"].as_u64().unwrap(), None, Some(error), cx);
+        assert_eq!(
+            s.provider_settings.added,
+            Some((tag, Err("bad map".into())))
+        );
+        assert!(s.provider_settings.error.is_none());
+
+        let again = s.mutate_provider_settings_tagged(operation, cx);
+        assert_ne!(again, tag);
+        let sent = next(&rx);
+        let result = Some(json!({ "view": view() }));
+        s.handle_response(&key, sent["id"].as_u64().unwrap(), result, None, cx);
+        assert_eq!(s.provider_settings.added, Some((again, Ok(()))));
+    });
+}
+
+#[gpui::test]
+fn resolve_model_config_settles_under_its_tag(cx: &mut TestAppContext) {
+    let state = cx.new(AppState::for_test);
+    state.update(cx, |s, cx| {
+        let tag = s.resolve_provider_model_config("c1", "m", cx);
+        assert!(matches!(s.provider_settings.resolved, Some((t, Err(_))) if t == tag));
+        assert!(
+            s.provider_settings.error.is_none(),
+            "preview failure stays in the dialog"
+        );
+
+        let (key, rx) = connect(s);
+        s.mutate_provider_settings(
+            json!({ "type": "deleteModel", "providerId": "c1", "modelId": "m1" }),
+            cx,
+        );
+        let mutation = next(&rx);
+        // 预览不与变更串行：变更在途时也立即发送。
+        let tag = s.resolve_provider_model_config("c1", "glm", cx);
+        let sent = next(&rx);
+        assert_eq!(sent["method"], "providerSettings/resolveModelConfig");
+        assert_eq!(
+            sent["params"],
+            json!({ "providerId": "c1", "modelId": "glm" })
+        );
+        let inherited = json!({ "properties": { "contextWindow": 1000 } });
+        let result = json!({ "inheritedConfig": inherited, "effectiveConfig": {}, "issues": [] });
+        s.handle_response(&key, sent["id"].as_u64().unwrap(), Some(result), None, cx);
+        assert_eq!(s.provider_settings.resolved, Some((tag, Ok(inherited))));
+        assert!(s.provider_settings.busy, "the mutation is still in flight");
+        let _ = mutation;
+    });
+}

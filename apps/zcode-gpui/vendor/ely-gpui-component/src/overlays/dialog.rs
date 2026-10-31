@@ -88,7 +88,7 @@ impl Dialog {
     }
 
     /// Where focus goes when it opens.
-    pub(crate) fn focus_first(mut self, handle: FocusHandle) -> Self {
+    pub fn focus_first(mut self, handle: FocusHandle) -> Self {
         self.first = Some(handle);
         self
     }

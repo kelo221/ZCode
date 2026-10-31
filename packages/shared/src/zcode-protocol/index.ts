@@ -36,7 +36,7 @@ import { accountProviderUnavailableReasonSchema } from "../account-provider-stat
 import { bashOutputDisplaySchema } from "../bash-output-display.js";
 import { zcodeAutomationBotDeliveryTargetSchema } from "../bots.js";
 import { executionOutputPreviewSchema } from "../execution-output-preview.js";
-import { completeModelPropertiesDataSchema } from "../model-config.js";
+import { completeModelPropertiesDataSchema, modelConfigDataSchema } from "../model-config.js";
 import { modelExecutionSchema } from "../model-execution.js";
 export type { ModelExecutionSelectionFallback } from "../model-execution.js";
 export * from "../off-peak-execution.js";
@@ -2652,7 +2652,14 @@ export const zcodeProviderSettingsOperationSchema = z.discriminatedUnion("type",
     .object({ type: z.literal("reorderProviders"), providerIds: z.array(providerIdString) })
     .strict(),
   z
-    .object({ type: z.literal("addModel"), providerId: providerIdString, modelId: modelIdString })
+    .object({
+      type: z.literal("addModel"),
+      providerId: providerIdString,
+      modelId: modelIdString,
+      // 与 Desktop 新增模型弹窗同一语义：推荐模式下为稀疏 Overlay，固定模式下为物化配置。
+      config: modelConfigDataSchema.optional(),
+      useRecommendedConfig: z.boolean().optional(),
+    })
     .strict(),
   z
     .object({
@@ -2683,6 +2690,27 @@ export const zcodeProviderSettingsMutateParamsSchema = z
 export const zcodeProviderSettingsMutateResultSchema = z
   .object({ view: zcodeProviderSettingsViewSchema, providerId: z.string().optional() })
   .strict();
+// 新增/编辑模型弹窗的推荐基线预览：包装 Facade.resolveModelConfig，只读不写。
+export const zcodeProviderSettingsResolveModelConfigParamsSchema = z
+  .object({
+    providerId: providerIdString,
+    modelId: modelIdString,
+    personalConfig: modelConfigDataSchema.optional(),
+  })
+  .strict();
+export const zcodeProviderSettingsResolveModelConfigResultSchema = z
+  .object({
+    inheritedConfig: modelConfigDataSchema,
+    effectiveConfig: modelConfigDataSchema,
+    issues: z.array(z.unknown()),
+  })
+  .strict();
+export type ZCodeProviderSettingsResolveModelConfigParams = z.infer<
+  typeof zcodeProviderSettingsResolveModelConfigParamsSchema
+>;
+export type ZCodeProviderSettingsResolveModelConfigResult = z.infer<
+  typeof zcodeProviderSettingsResolveModelConfigResultSchema
+>;
 export type ZCodeProviderSettingsOperation = z.infer<typeof zcodeProviderSettingsOperationSchema>;
 export type ZCodeProviderSettingsReadResult = z.infer<typeof zcodeProviderSettingsReadResultSchema>;
 export type ZCodeProviderSettingsMutateResult = z.infer<
@@ -4311,6 +4339,7 @@ export const zcodeProtocolMethods = {
   // GPUI 专属 Provider 设置读写（Electron 走 Services Host 的同一 Facade）。
   providerSettingsRead: "providerSettings/read",
   providerSettingsMutate: "providerSettings/mutate",
+  providerSettingsResolveModelConfig: "providerSettings/resolveModelConfig",
   workspaceUpdateInteractionPreferences: "workspace/updateInteractionPreferences",
   workspaceUpdateModelIoPreferences: "workspace/updateModelIoPreferences",
   // GPUI 专属 system prompt 覆盖（Electron 不调用）。
