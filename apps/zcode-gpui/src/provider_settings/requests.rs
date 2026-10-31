@@ -47,17 +47,70 @@ impl AppState {
 
     /// One mutation at a time; later ones wait in `queued`.
     pub(crate) fn mutate_provider_settings(&mut self, operation: Value, cx: &mut Context<Self>) {
+        self.send_mutation(operation, None, cx);
+    }
+
+    /// A mutation whose outcome lands in `provider_settings.added` under the
+    /// returned tag instead of the page error (the add-model dialog shows it).
+    pub(crate) fn mutate_provider_settings_tagged(
+        &mut self,
+        operation: Value,
+        cx: &mut Context<Self>,
+    ) -> u64 {
+        let tag = self.next_provider_settings_tag();
+        self.send_mutation(operation, Some(tag), cx);
+        tag
+    }
+
+    fn next_provider_settings_tag(&mut self) -> u64 {
+        self.provider_settings.next_tag += 1;
+        self.provider_settings.next_tag
+    }
+
+    fn send_mutation(&mut self, operation: Value, tag: Option<u64>, cx: &mut Context<Self>) {
         if self.provider_settings.busy {
-            self.provider_settings.queued.push_back(operation);
+            self.provider_settings.queued.push_back((operation, tag));
             return;
         }
         self.provider_settings.error = None;
         self.provider_settings.busy = self.send_provider_settings(
-            Request::Mutate,
+            Request::Mutate { tag },
             "providerSettings/mutate",
             json!({ "operation": operation }),
         );
+        if !self.provider_settings.busy
+            && let Some(tag) = tag
+        {
+            let message = self.provider_settings.error.take();
+            let message = message.unwrap_or_else(|| no_agent().into());
+            self.provider_settings.added = Some((tag, Err(message)));
+        }
         cx.notify();
+    }
+
+    /// Read-only recommended-config preview; not serialized with mutations.
+    /// Returns the tag its outcome lands under in `provider_settings.resolved`.
+    pub(crate) fn resolve_provider_model_config(
+        &mut self,
+        provider: &str,
+        model: &str,
+        cx: &mut Context<Self>,
+    ) -> u64 {
+        let tag = self.next_provider_settings_tag();
+        let params = json!({ "providerId": provider, "modelId": model });
+        let previous = self.provider_settings.error.clone();
+        if !self.send_provider_settings(
+            Request::Resolve { tag },
+            "providerSettings/resolveModelConfig",
+            params,
+        ) {
+            // 预览失败只属于弹窗；不能把“无智能体”写成整页错误。
+            let message = std::mem::replace(&mut self.provider_settings.error, previous);
+            let message = message.unwrap_or_else(|| no_agent().into());
+            self.provider_settings.resolved = Some((tag, Err(message)));
+        }
+        cx.notify();
+        tag
     }
 
     pub(crate) fn test_provider_model(
@@ -151,8 +204,24 @@ impl AppState {
                     .tests
                     .insert((provider, model), status);
             }
-            Request::Read | Request::Mutate => {
+            Request::Resolve { tag } => {
+                let outcome = match (message, result) {
+                    (Some(message), _) => Err(message),
+                    (None, Some(result)) => result
+                        .get("inheritedConfig")
+                        .filter(|config| config.is_object())
+                        .cloned()
+                        .ok_or_else(|| "invalid model config response".to_owned()),
+                    (None, None) => Err("invalid model config response".into()),
+                };
+                self.provider_settings.resolved = Some((tag, outcome));
+            }
+            Request::Read | Request::Mutate { .. } => {
                 let read = request == Request::Read;
+                let tag = match request {
+                    Request::Mutate { tag } => tag,
+                    _ => None,
+                };
                 let state = &mut self.provider_settings;
                 if read {
                     state.loading = false;
@@ -162,12 +231,23 @@ impl AppState {
                 if read && code == Some(METHOD_NOT_FOUND) {
                     state.unavailable = true;
                 } else if let Some(message) = message {
-                    state.error = Some(message);
+                    // 带 tag 的变更由弹窗展示错误并保留输入，不写整页错误。
+                    match tag {
+                        Some(tag) => state.added = Some((tag, Err(message))),
+                        None => state.error = Some(message),
+                    }
                 } else if let Some(result) = result {
                     self.apply_provider_settings_result(ws_key, read, result);
+                    if let Some(tag) = tag {
+                        let outcome = match self.provider_settings.error.take() {
+                            Some(message) => Err(message),
+                            None => Ok(()),
+                        };
+                        self.provider_settings.added = Some((tag, outcome));
+                    }
                 }
-                if !read && let Some(next) = self.provider_settings.queued.pop_front() {
-                    self.mutate_provider_settings(next, cx);
+                if !read && let Some((next, tag)) = self.provider_settings.queued.pop_front() {
+                    self.send_mutation(next, tag, cx);
                 }
             }
         }

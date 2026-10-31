@@ -7,6 +7,7 @@ import { NodeProviderRegistryRuntime } from "@zcode/provider-node";
 import {
   mutateProviderSettings,
   readProviderSettings,
+  resolveProviderModelConfig,
 } from "../src/zcode-protocol/provider-settings.js";
 import type { ZCodeProtocolAgentServerContext } from "../src/zcode-protocol/server-types.js";
 
@@ -91,6 +92,73 @@ describe("providerSettings protocol over the real provider runtime", () => {
         (item) => item.providerId === providerId,
       ),
     ).toBe(false);
+  });
+
+  it("adds a model with dialog config and resolves its recommended baseline", async () => {
+    const { context, personalFilePath } = await setup();
+    const { providerId } = await mutateProviderSettings(context, {
+      operation: { type: "createProvider", providerName: "Dialog Gateway" },
+    });
+    const resolved = await resolveProviderModelConfig(context, {
+      providerId: providerId!,
+      modelId: "custom-unknown",
+    });
+    expect(resolved).toHaveProperty("inheritedConfig");
+    expect(resolved).toHaveProperty("effectiveConfig");
+    expect(Array.isArray(resolved.issues)).toBe(true);
+
+    const config = {
+      properties: {
+        contextWindow: 64000,
+        inputFormat: { supportsImage: true },
+      },
+      optionSpecs: { maxOutputTokens: { max: 8000 } },
+    };
+    const added = await mutateProviderSettings(context, {
+      operation: {
+        type: "addModel",
+        providerId: providerId!,
+        modelId: "custom-unknown",
+        config,
+        useRecommendedConfig: true,
+      },
+    });
+    const model = (added.view.providers as Array<Record<string, any>>)
+      .find((item) => item.providerId === providerId)!
+      .models.find((item: { modelId: string }) => item.modelId === "custom-unknown");
+    expect(model.effectiveConfig.properties.contextWindow).toBe(64000);
+    expect(model.effectiveConfig.properties.inputFormat.supportsImage).toBe(true);
+    expect(model.effectiveConfig.optionSpecs.maxOutputTokens.max).toBe(8000);
+    expect(await readFile(personalFilePath, "utf8")).toContain("64000");
+
+    const preview = await resolveProviderModelConfig(context, {
+      providerId: providerId!,
+      modelId: "custom-unknown",
+      personalConfig: { properties: { contextWindow: 32000 } },
+    });
+    expect(
+      (preview.effectiveConfig.properties as { contextWindow?: number }).contextWindow,
+    ).toBe(32000);
+  });
+
+  it("rejects invalid addModel config and unknown providers on resolve", async () => {
+    const { context } = await setup();
+    const { providerId } = await mutateProviderSettings(context, {
+      operation: { type: "createProvider", providerName: "Strict Gateway" },
+    });
+    await expect(
+      mutateProviderSettings(context, {
+        operation: {
+          type: "addModel",
+          providerId: providerId!,
+          modelId: "m",
+          config: { properties: { contextWindow: -1 } },
+        },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      resolveProviderModelConfig(context, { providerId: "missing", modelId: "m" }),
+    ).rejects.toThrow("Unknown provider");
   });
 
   it("refuses to delete a preset provider", async () => {
