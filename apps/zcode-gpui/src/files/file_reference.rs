@@ -46,20 +46,15 @@ impl RootView {
                     });
                     return;
                 };
-                view.open_located_file(found, target.line, root.as_deref(), cx);
+                view.open_located_file(found, target.line, cx);
             })
             .ok();
         })
         .detach();
     }
 
-    fn open_located_file(
-        &mut self,
-        path: PathBuf,
-        line: Option<u32>,
-        root: Option<&Path>,
-        cx: &mut Context<Self>,
-    ) {
+    // 用户要求点击文件链接用系统默认程序打开，而不是右侧 Files 预览面板。
+    fn open_located_file(&mut self, path: PathBuf, line: Option<u32>, cx: &mut Context<Self>) {
         let state = self.state.clone();
         let report = move |error: std::io::Error, cx: &mut gpui::App| {
             state.update(cx, |s, cx| {
@@ -68,15 +63,9 @@ impl RootView {
             });
         };
         use crate::shared::os::file_launcher::{open_in_editor_at, open_with_system_default};
-        match (line, root) {
-            (Some(line), _) => open_in_editor_at(path, line, cx, report),
-            (None, Some(root)) if path.starts_with(root) => {
-                self.dock_open = true;
-                self.dock_tab = crate::app::dock::DockTab::Files;
-                self.on_dock_tab(crate::app::dock::DockTab::Files, cx);
-                self.select_file(path, cx);
-            }
-            (None, _) => open_with_system_default(path, cx, report),
+        match line {
+            Some(line) => open_in_editor_at(path, line, cx, report),
+            None => open_with_system_default(path, cx, report),
         }
     }
 }

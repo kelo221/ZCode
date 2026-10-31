@@ -5,6 +5,7 @@
 //! Spec: PARITY.md M2 "Streaming Markdown renderer".
 
 pub(crate) mod code;
+pub(crate) mod file_exists;
 pub(crate) mod file_ref;
 mod images;
 pub(crate) mod inline;

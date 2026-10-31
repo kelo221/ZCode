@@ -63,6 +63,7 @@ impl crate::app::root::RootView {
                 created_at,
             } => {
                 let streaming = state == "streaming";
+                crate::shared::markdown::file_exists::set_root(self.active_workspace_path(cx));
                 let can_retry = *can_retry && !streaming && row_actions;
                 let text = crate::transcript::tagged_text::remaining_items_as_markdown(text);
                 let text = text.as_ref();

@@ -164,9 +164,12 @@ pub(crate) fn render_inlines(
                 let mut code_st = st.clone();
                 code_st.code = true;
                 // Inside a Markdown link the link's own target wins.
+                // 只有确实存在的文件才渲染成链接：`ExplosionUtils.Explode` 这类符号名
+                // 形似“文件名.扩展名”，原先被当成链接，点击后只报 File not found。
                 let file_ref = (!st.link)
                     .then(|| super::file_ref::code_file_ref(cd))
-                    .flatten();
+                    .flatten()
+                    .filter(|r| super::file_exists::file_exists(&r.path) != Some(false));
                 code_st.link |= file_ref.is_some();
                 let start = inline.text.len();
                 push_run(&mut inline, cd.len(), &code_st);

@@ -66,15 +66,19 @@ limits below take precedence over the retained historical milestone requirements
 - **What gets linked.** Inline code in assistant Markdown becomes a link when it is a single token
   that looks like a file path: it contains `/` or `\`, or ends in a short extension (`PLAN.md`,
   `src/a.rs:42`, `C:\x\y.ts`, `~/notes.md`), with an optional `:line[:col]` or `#L12` suffix.
-  Commands, flags, globs, URLs and version numbers are not linked. Markdown links without a URL
+  Commands, flags, globs, URLs and version numbers are not linked. Since 2026-10-31 such inline
+  code is linked only when the file exists, by the same resolution rule as a click below, so a
+  symbol like `ExplosionUtils.Explode` stays plain code. Results are cached (found 60 s, missing
+  5 s); a bare name stays linked until the workspace `@` index has been built. Markdown links without a URL
   scheme (relative, absolute, `file://`) use the same path. Desktop links neither, so this is a
   GPUI extension.
 - **Resolution, at click time.** Paths resolve against the active workspace. `..` cannot escape it
   for relative paths. A bare name that is not at the workspace root is looked up by file name in
   the workspace and opens only if exactly one file matches.
-- **What a click does.** A workspace file opens in the Files pane preview. A file with a line
-  number opens in the external editor at that line (`code -g`). A file outside the workspace opens
-  with the system default app. A missing file shows a notice and opens nothing.
+- **What a click does.** A file opens with the system default app (since 2026-10-31; it used to
+  open workspace files in the Files pane preview). A file with a line number opens in the external
+  editor at that line (`code -g`, falling back to the default app). A missing file shows a notice
+  and opens nothing.
 
 ## Answering agent questions in the card (2026-10-21)
 

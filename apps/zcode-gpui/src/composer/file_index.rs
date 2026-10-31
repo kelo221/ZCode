@@ -105,7 +105,7 @@ pub(crate) fn pending(root: &Path) -> bool {
 
 #[path = "file_index_named.rs"]
 mod named;
-pub(crate) use named::files_named;
+pub(crate) use named::{count_named_if_indexed, files_named};
 
 /// Build synchronously (tests).
 #[cfg(test)]
