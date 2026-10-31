@@ -7,19 +7,34 @@ use crate::shared::markdown::file_ref::{is_bare_name, parse_target, resolve_path
 use gpui::{AppContext, Context};
 use std::path::{Path, PathBuf};
 
-/// Existing file for `path`; a bare name missing at the workspace root is
-/// looked up by name and used only when exactly one file matches. Blocking.
+/// Existing file or folder for `path`; a bare name missing at the workspace
+/// root is looked up by name and used only when exactly one file matches.
+/// Blocking.
 pub(crate) fn locate(root: Option<&Path>, home: Option<&Path>, path: &str) -> Option<PathBuf> {
-    if let Some(candidate) = resolve_path(root, home, path)
-        && candidate.is_file()
+    let candidate = resolve_path(root, home, path);
+    if let Some(candidate) = &candidate
+        && (candidate.is_file() || candidate.is_dir())
     {
-        return Some(candidate);
+        return Some(candidate.clone());
     }
-    let root = root.filter(|_| is_bare_name(path))?;
-    match crate::composer::file_index::files_named(root, path).as_slice() {
-        [only] => Some(root.join(only)),
-        _ => None,
+    if let Some(root) = root.filter(|_| is_bare_name(path)) {
+        return match crate::composer::file_index::files_named(root, path).as_slice() {
+            [only] => Some(root.join(only)),
+            _ => None,
+        };
     }
+    // Agent 常在文件夹生成之前就给出链接（如预览输出目录）：打开最近的已存在上级目录，
+    // 而不是报 File not found。缺失的“文件”（有扩展名）仍报错，避免拼错路径时误开根目录。
+    let candidate = candidate.filter(|c| looks_like_folder(path, c))?;
+    candidate
+        .ancestors()
+        .skip(1)
+        .find(|a| a.is_dir())
+        .map(Path::to_path_buf)
+}
+
+fn looks_like_folder(raw: &str, candidate: &Path) -> bool {
+    raw.trim_end().ends_with(['/', '\\']) || candidate.extension().is_none()
 }
 
 impl RootView {
@@ -63,7 +78,8 @@ impl RootView {
             });
         };
         use crate::shared::os::file_launcher::{open_in_editor_at, open_with_system_default};
-        match line {
+        // Folders open in the system file manager (Explorer / Finder / xdg-open).
+        match line.filter(|_| !path.is_dir()) {
             Some(line) => open_in_editor_at(path, line, cx, report),
             None => open_with_system_default(path, cx, report),
         }

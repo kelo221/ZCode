@@ -38,10 +38,31 @@ fn missing_ambiguous_and_escaping_references_are_not_found() {
     );
     assert_eq!(locate(Some(&root), None, "Missing.cs"), None);
     assert_eq!(locate(Some(&root), None, "../outside.md"), None);
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn folders_open_and_missing_folders_fall_back_to_nearest_existing_parent() {
+    let root = workspace();
     assert_eq!(
         locate(Some(&root), None, "tmp/plan"),
+        Some(root.join("tmp/plan"))
+    );
+    let absolute = root.join("tmp/plan").display().to_string();
+    assert_eq!(locate(None, None, &absolute), Some(root.join("tmp/plan")));
+    assert_eq!(
+        locate(Some(&root), None, "tmp/plan/session11/sound-ab"),
+        Some(root.join("tmp/plan")),
+        "folder not created yet"
+    );
+    assert_eq!(
+        locate(Some(&root), None, "tmp/plan/later/"),
+        Some(root.join("tmp/plan"))
+    );
+    assert_eq!(
+        locate(Some(&root), None, "tmp/plan/later/out.wav"),
         None,
-        "a folder is not a file"
+        "a missing file still reports not found"
     );
     std::fs::remove_dir_all(&root).ok();
 }

@@ -60,10 +60,11 @@ pub(crate) fn file_exists(path: &str) -> Option<bool> {
     })
 }
 
-/// Same rule as the click-time lookup (`files::file_reference::locate`): the
-/// resolved path is a file, or a bare name matches exactly one workspace file.
+/// Stricter than the click-time lookup (`files::file_reference::locate`): the
+/// resolved path is an existing file or folder, or a bare name matches exactly
+/// one workspace file. Missing folders are never linked from inline code.
 fn check(root: &Path, home: Option<&Path>, path: &str) -> Option<bool> {
-    if resolve_path(Some(root), home, path).is_some_and(|p| p.is_file()) {
+    if resolve_path(Some(root), home, path).is_some_and(|p| p.exists()) {
         return Some(true);
     }
     if !is_bare_name(path) {

@@ -18,9 +18,10 @@ fn paths_are_checked_against_the_workspace() {
     std::fs::create_dir_all(root.join("src/dir")).unwrap();
     assert_eq!(
         file_exists("src/dir"),
-        Some(false),
-        "a folder is not a file"
+        Some(true),
+        "existing folders open in the file manager"
     );
+    assert_eq!(file_exists("src/not-yet"), Some(false));
     set_root(None);
     assert_eq!(file_exists("src/missing.rs"), None, "no workspace: unknown");
     std::fs::remove_dir_all(&root).ok();
