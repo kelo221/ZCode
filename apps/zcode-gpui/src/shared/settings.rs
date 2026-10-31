@@ -9,49 +9,7 @@ use std::path::PathBuf;
 
 pub(crate) use crate::shared::last_composer_model::LastComposerModel;
 
-#[derive(Debug)]
-pub enum SettingsError {
-    DesktopRunning,
-    Invalid(String),
-    /// The existing file does not parse; writing would replace it wholesale.
-    Unreadable,
-    Io(std::io::Error),
-    Json(serde_json::Error),
-}
-
-impl std::fmt::Display for SettingsError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::DesktopRunning => {
-                write!(
-                    f,
-                    "Cannot modify settings while ZCode desktop is running. Please change this in ZCode desktop."
-                )
-            }
-            Self::Unreadable => write!(
-                f,
-                "setting.json could not be parsed; not overwriting it. Fix it in ZCode desktop."
-            ),
-            Self::Invalid(e) => write!(f, "Invalid preference: {e}"),
-            Self::Io(e) => write!(f, "IO error: {e}"),
-            Self::Json(e) => write!(f, "JSON error: {e}"),
-        }
-    }
-}
-
-impl std::error::Error for SettingsError {}
-
-impl From<std::io::Error> for SettingsError {
-    fn from(e: std::io::Error) -> Self {
-        Self::Io(e)
-    }
-}
-
-impl From<serde_json::Error> for SettingsError {
-    fn from(e: serde_json::Error) -> Self {
-        Self::Json(e)
-    }
-}
+pub use crate::shared::settings_error::SettingsError;
 
 /// Typed view of the desktop's `setting.json`. Unset fields are omitted on
 /// write (never `null`), and unmodeled keys round-trip through `extra`.
@@ -148,6 +106,13 @@ pub struct AppSettings {
         rename = "gpuiLastComposerModel"
     )]
     pub gpui_last_composer_model: Option<LastComposerModel>,
+    /// GPUI-only per-model background auto-compaction; absent entries mean off.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "gpuiAutoCompact"
+    )]
+    pub gpui_auto_compact: Option<crate::shared::auto_compact_settings::AutoCompactMap>,
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -230,6 +195,12 @@ struct GpuiOnlySettings {
         rename = "gpuiLastComposerModel"
     )]
     last_composer_model: Option<LastComposerModel>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "gpuiAutoCompact"
+    )]
+    auto_compact: Option<crate::shared::auto_compact_settings::AutoCompactMap>,
 }
 
 impl GpuiOnlySettings {
@@ -241,6 +212,7 @@ impl GpuiOnlySettings {
             code_search: settings.gpui_code_search.take(),
             lsp_diagnostics: settings.gpui_lsp_diagnostics.take(),
             last_composer_model: settings.gpui_last_composer_model.take(),
+            auto_compact: settings.gpui_auto_compact.take(),
         }
     }
 
@@ -260,6 +232,9 @@ impl GpuiOnlySettings {
         }
         if self.last_composer_model.is_some() {
             settings.gpui_last_composer_model = self.last_composer_model;
+        }
+        if self.auto_compact.is_some() {
+            settings.gpui_auto_compact = self.auto_compact;
         }
     }
 

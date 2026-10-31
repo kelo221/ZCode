@@ -81,6 +81,11 @@ pub(crate) enum PreferenceChange {
     CodeSearch(bool),
     LspDiagnostics(bool),
     LastComposerModel(crate::shared::settings::LastComposerModel),
+    /// One model's background auto-compaction entry, keyed `provider/model`.
+    AutoCompact(
+        String,
+        crate::shared::auto_compact_settings::AutoCompactEntry,
+    ),
     /// `auto` | `local` | `off` (shared `toolSearchMode`).
     ToolSearchMode(String),
     Shortcut(String, Option<Vec<String>>),
@@ -106,6 +111,7 @@ impl PreferenceChange {
             Self::LastComposerModel(choice) => {
                 settings.gpui_last_composer_model = Some(choice.clone())
             }
+            Self::AutoCompact(key, entry) => settings.set_auto_compact(key, *entry),
             Self::ToolSearchMode(mode) => settings.tool_search_mode = Some(mode.clone()),
             Self::Shortcut(id, bindings) => {
                 let overrides = settings.shortcut_bindings.get_or_insert_with(HashMap::new);
@@ -133,6 +139,13 @@ impl PreferenceChange {
                 Err("Interface font size must be between 12 and 20".into())
             }
             Self::Voice(voice) => voice.validate(),
+            Self::AutoCompact(key, _)
+                if key
+                    .split_once('/')
+                    .is_none_or(|(p, m)| p.is_empty() || m.is_empty()) =>
+            {
+                Err(format!("Auto-compact needs a provider/model key: {key}"))
+            }
             Self::ToolSearchMode(mode)
                 if !crate::shared::tool_search_setting::TOOL_SEARCH_MODES
                     .contains(&mode.as_str()) =>

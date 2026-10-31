@@ -2,6 +2,7 @@
 //! metadata, plan, queue, pending interactions), the user actions on it and
 //! the interaction cards.
 
+pub(crate) mod auto_compact;
 pub(crate) mod background_controls;
 pub(crate) mod config_apply;
 pub(crate) mod context_usage;

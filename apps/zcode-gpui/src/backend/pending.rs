@@ -19,6 +19,9 @@ pub(crate) enum Pending {
     Stop,
     /// Session-scoped command whose ack is checked (see backend/session_cmds.rs).
     Command(CommandCtx),
+    /// Background auto-compaction of a session (app/auto_compact.rs); its
+    /// failures go to the log, not the error banner.
+    AutoCompact(String),
     /// `v4/conversation/resync` recovery; the ack is a subscribe ack and
     /// may carry a new subscription id / log epoch (review finding 1).
     Resync(String),

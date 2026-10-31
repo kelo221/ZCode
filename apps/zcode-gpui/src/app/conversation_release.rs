@@ -80,9 +80,11 @@ impl AppState {
     }
 }
 
-/// Work the user would lose sight of if the mirror stopped updating.
-fn has_live_work(c: &ConversationState) -> bool {
+/// Work the user would lose sight of if the mirror stopped updating. An
+/// auto-compaction in flight counts: it needs the subscription to finish.
+pub(crate) fn has_live_work(c: &ConversationState) -> bool {
     c.phase_running()
+        || c.auto_compact.is_some()
         || !c.pending_interactions.is_empty()
         || c.queue.as_ref().is_some_and(|q| !q.items.is_empty())
         || crate::app::activity::ActivityCounts::from_conversation(c).total() > 0

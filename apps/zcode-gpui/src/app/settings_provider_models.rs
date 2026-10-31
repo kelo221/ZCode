@@ -233,6 +233,8 @@ impl RootView {
                     })),
             );
         }
+        actions =
+            actions.children(self.auto_compact_model_control(&provider.id, &model.id, &slug, cx));
         let (pid, mid) = key;
         let weak = cx.entity().downgrade();
         actions = actions.child(

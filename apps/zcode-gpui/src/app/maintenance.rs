@@ -16,6 +16,7 @@ impl AppState {
                 let alive = this
                     .update(cx, |state, cx| {
                         state.release_idle_conversations(std::time::Instant::now());
+                        state.run_auto_compaction(std::time::Instant::now(), cx);
                         state.reap_idle_agents();
                         state.maintain_profiles(cx);
                         state.flush_project_activity(cx);
@@ -93,6 +94,7 @@ impl AppState {
                 || s.has_background_work
                 || self.conversations.get(&s.session_id).is_some_and(|c| {
                     c.phase_running()
+                        || c.auto_compact.is_some()
                         || !c.pending_interactions.is_empty()
                         || crate::app::activity::ActivityCounts::from_conversation(c).total() > 0
                 })

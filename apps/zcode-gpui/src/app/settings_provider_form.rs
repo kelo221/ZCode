@@ -27,6 +27,7 @@ pub(crate) struct ProviderForm {
     pub new_model: Entity<TextInput>,
     pub new_provider: Entity<TextInput>,
     pub show_key: bool,
+    pub(crate) auto_compact: crate::app::settings_auto_compact::MinutesInputs,
 }
 
 impl ProviderForm {
@@ -119,6 +120,7 @@ impl RootView {
                 new_model: make_input(Field::NewModel, window, cx),
                 new_provider: make_input(Field::NewProvider, window, cx),
                 show_key: false,
+                auto_compact: Default::default(),
             };
             self.settings.provider_form = Some(form);
         }
