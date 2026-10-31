@@ -67,8 +67,7 @@ impl RootView {
                 .into_any_element()
             }))
             .children((!effective.thought_levels.is_empty()).then(|| {
-                let indicator = self.thought_indicator(&effective, cx);
-                let trigger = div().flex().items_center().child(indicator).child(
+                let trigger = div().flex().items_center().child(
                     DropdownMenu::new(
                         "thought-menu",
                         effective.thought_display(),
