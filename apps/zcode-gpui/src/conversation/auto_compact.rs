@@ -4,13 +4,14 @@
 
 use crate::conversation::model::ConversationState;
 use crate::shared::auto_compact_settings::AutoCompactEntry;
+use serde_json::Value;
 use std::time::{Duration, Instant};
 
 /// Below this the next turn is cheap anyway; compacting would only lose detail.
 pub(crate) const TOKEN_FLOOR: f64 = 20_000.;
 
 /// One auto-compaction in flight for a conversation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AutoCompactFlight {
     /// Waiting for the agent and the conversation subscription (which
     /// cold-resumes the session in the CLI). Each step is tried once.
@@ -18,16 +19,25 @@ pub(crate) enum AutoCompactFlight {
         spawn_requested: bool,
         subscribe_sent: bool,
     },
-    /// `compact` written; waiting for its ack.
-    Sent,
-    /// Accepted at `since`; `seen_work` once `control.activeWorks` listed it.
-    Running { seen_work: bool, since: Instant },
+    /// `compact` written with `command_id`; waiting for its ack.
+    Sent { command_id: String },
+    /// Accepted; ends when the compact marker row carrying `command_id` as
+    /// `sourceCommandId` reaches a terminal status.
+    Running { command_id: String },
+}
+
+impl AutoCompactFlight {
+    fn command_id(&self) -> Option<&str> {
+        match self {
+            Self::Sent { command_id } | Self::Running { command_id } => Some(command_id),
+            Self::Resuming { .. } => None,
+        }
+    }
 }
 
 impl ConversationState {
-    /// Called on every `control` update with the new phase and whether a
-    /// compaction is among its active works.
-    pub(crate) fn note_control(&mut self, active: bool, compact_work: bool, now: Instant) {
+    /// Called on every `control` update with whether the phase is active.
+    pub(crate) fn note_control(&mut self, active: bool, now: Instant) {
         if active {
             self.idle_since = None;
             match self.auto_compact {
@@ -42,33 +52,44 @@ impl ConversationState {
         } else {
             self.idle_since.get_or_insert(now);
         }
-        match self.auto_compact {
-            Some(AutoCompactFlight::Sent | AutoCompactFlight::Running { .. }) if compact_work => {
-                let since = match self.auto_compact {
-                    Some(AutoCompactFlight::Running { since, .. }) => since,
-                    _ => now,
-                };
-                self.auto_compact = Some(AutoCompactFlight::Running {
-                    seen_work: true,
-                    since,
-                });
-            }
-            Some(AutoCompactFlight::Running {
-                seen_work: true, ..
-            }) if !compact_work => self.auto_compact = None,
-            _ => {}
-        }
     }
 
     /// The compact ack: accepted moves `Sent` on; anything else ends the flight.
-    pub(crate) fn note_auto_compact_ack(&mut self, accepted: bool, now: Instant) {
+    pub(crate) fn note_auto_compact_ack(&mut self, accepted: bool) {
         if !accepted {
             self.auto_compact = None;
-        } else if self.auto_compact == Some(AutoCompactFlight::Sent) {
+        } else if let Some(AutoCompactFlight::Sent { command_id }) = &self.auto_compact {
             self.auto_compact = Some(AutoCompactFlight::Running {
-                seen_work: false,
-                since: now,
+                command_id: command_id.clone(),
             });
+        }
+    }
+
+    /// A row from a delta or snapshot. The CLI guarantees every accepted
+    /// manual compact ends in one terminal compact marker tagged with its
+    /// command id (core `settleManualCompactTimeline`), so that row is the
+    /// completion signal; it may arrive before the ack.
+    pub(crate) fn note_compact_marker(&mut self, row: &Value) {
+        if row.get("kind").and_then(Value::as_str) != Some("timelineMarker")
+            || row.pointer("/marker/type").and_then(Value::as_str) != Some("compact")
+        {
+            return;
+        }
+        let status = row
+            .pointer("/marker/status")
+            .and_then(Value::as_str)
+            .unwrap_or("running");
+        if status == "running" {
+            return;
+        }
+        let ours = self
+            .auto_compact
+            .as_ref()
+            .and_then(AutoCompactFlight::command_id)
+            .is_some_and(|id| row.get("sourceCommandId").and_then(Value::as_str) == Some(id));
+        if ours {
+            self.auto_compact = None;
+            self.auto_compact_outcome = Some(status.to_string());
         }
     }
 

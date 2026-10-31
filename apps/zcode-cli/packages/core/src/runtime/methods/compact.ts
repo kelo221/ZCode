@@ -5,7 +5,9 @@ import {
   CoreErrorType,
   DEFAULT_COMPACT_CONTEXT_WINDOW,
   SessionEventType,
+  createMessageId,
   createModelUsageSummaryFromEvents,
+  createPartId,
   runWithContextAsync,
   traceContextToLogContext,
   estimateMessageTokens,
@@ -27,7 +29,11 @@ import {
   appendTurnOutcomeEvent,
   buildRuntimeProviderRequestMessages,
 } from "../helpers/index.js";
-import type { TurnResult, RunModelTextRequestOptions } from "../types.js";
+import type {
+  CompactTimelineContext,
+  TurnResult,
+  RunModelTextRequestOptions,
+} from "../types.js";
 import type { Model } from "../deps.js";
 import type { ProviderContextUsageSnapshot } from "../types.js";
 import type { AgentRuntimeInternal } from "../internal.js";
@@ -41,6 +47,58 @@ import type {
 } from "./turn-loop-state.js";
 import { recordTurnUsageFact } from "./usage-observability.js";
 import { findLatestCommittedAssistantUsage } from "./turn-model-step-usage.js";
+
+/**
+ * 手动 compact 失败时保证恰好一个终态 lifecycle 事件（按 sourceCommandId 关联）。
+ * 原因：started 之后、重试循环 try 之前（MCP 初始化、工具暴露）抛错，或 started 之前
+ * （会话持久化、选择、Stop）抛错时，都不会写 CompactFailed；客户端只能用超时猜测结束。
+ * 已有终态时不重复写；已有 started 时复用同一 operation，让 running marker 收口。
+ */
+async function settleManualCompactTimeline(
+  runtime: AgentRuntimeInternal,
+  options: {
+    abortSignal?: AbortSignal;
+    error: unknown;
+    events: SessionEvent[];
+    inputId?: string;
+    startedAt: number;
+    traceContext: TraceContext;
+  },
+): Promise<void> {
+  const settled = options.events.some(
+    (event) =>
+      event.type === SessionEventType.CompactCompleted ||
+      event.type === SessionEventType.CompactFailed,
+  );
+  if (settled) return;
+  const started = [...options.events]
+    .reverse()
+    .find((event) => event.type === SessionEventType.CompactStarted)?.payload as
+    | Partial<CompactTimelineContext>
+    | undefined;
+  const timeline: CompactTimelineContext = {
+    operationId: started?.operationId ?? `cmp_${crypto.randomUUID()}`,
+    messageId: started?.messageId ?? createMessageId(),
+    partId: started?.partId ?? createPartId(),
+    trigger: started?.trigger ?? CompactTrigger.Manual,
+    phase: started?.phase ?? CompactPhase.StandaloneTurn,
+    compactReason: started?.compactReason ?? CompactReason.UserRequested,
+    ...((started?.sourceCommandId ?? options.inputId)
+      ? { sourceCommandId: started?.sourceCommandId ?? options.inputId }
+      : {}),
+    startedAt: started?.startedAt ?? options.startedAt,
+    ...(started?.preCompactTokenCount !== undefined
+      ? { preCompactTokenCount: started.preCompactTokenCount }
+      : {}),
+  };
+  await runtime.finishCompactTimelineFailure({
+    abortSignal: options.abortSignal,
+    error: options.error,
+    events: options.events,
+    timeline,
+    traceContext: options.traceContext,
+  });
+}
 
 export async function executeManualCompact(
   this: AgentRuntimeInternal,
@@ -152,6 +210,14 @@ export async function executeManualCompact(
         this.queueAutoDrain = false;
         this.queueExternalDrainActive = false;
       }
+      await settleManualCompactTimeline(this, {
+        abortSignal,
+        error,
+        events,
+        inputId,
+        startedAt,
+        traceContext: turnTraceContext,
+      });
       await appendTurnOutcomeEvent(this, {
         coreError,
         events,

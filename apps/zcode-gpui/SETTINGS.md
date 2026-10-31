@@ -385,9 +385,13 @@ old, `auto_compacted` is false, `usage.contextWindow.usedTokens` ≥ 20 000, it 
 conversations GPUI has mirrored in this run are considered: a session never opened since GPUI
 started has no `idle_since`.
 
-Manual compaction does not change the phase: the CLI adds an `activeWorks` entry of kind
-`compact` and removes it when done (`product-projection.ts` `onCompactLifecycle`), so the
-compaction itself never counts as new activity.
+Manual compaction does not change the phase, so the compaction itself never counts as new
+activity. Its completion signal is the compact `timelineMarker` row: the CLI tags it with
+`sourceCommandId` = the `commandId` of our `compact` envelope (`product-projection.ts`
+`onCompactLifecycle`), and every accepted manual compact ends in exactly one terminal status
+(`success`, `noop`, `failed`, `cancelled`). Core `executeManualCompact` guarantees this through
+`settleManualCompactTimeline`, which writes `CompactFailed` when setup throws before or right
+after `CompactStarted` (2026-10-31). GPUI has no timeout for a running compaction.
 
 ```text
 maintenance tick (AppState)
@@ -395,21 +399,24 @@ maintenance tick (AppState)
        ├─ agent not running → ensure_spawned (once; agent gone again → give up, warn)
        ├─ agent ready, not subscribed → v4/conversation/subscribe (cold resume in CLI gateway)
        │     subscribe failed (no pending, still unsubscribed) → give up, warn
-       └─ subscribed → v4/command compact (Pending::AutoCompact) → Sent
-CLI ack ok → Running{seen=false} | ack error/rejected → auto_compact = None, warn
-control.activeWorks has compact → Running{seen=true}; then without it → None (done)
-Running{seen=false} still without compact work on a later tick → None (CLI never started it)
+       └─ subscribed → v4/command compact {commandId} (Pending::AutoCompact) → Sent{commandId}
+CLI ack ok → Running{commandId} | ack error/rejected → auto_compact = None, warn
+compact marker row (delta or resync snapshot) with sourceCommandId == commandId and a terminal
+  status → auto_compact = None; the next tick logs "finished (<status>)" (may precede the ack)
+Sent and the pending ack vanished (agent connection lost) → give up, warn
+Running and the conversation unsubscribed (agent exited) → give up, warn
 release sweep / reaper: auto_compact.is_some() counts as live work, so neither drops it mid-flight
 ```
 
-The compact is sent with `send_command` (`compact`, empty payload, no CAS) and never retried; a
+The compact is sent as a `compact` envelope (empty payload, no CAS) and never retried; a
 failure is written to the GPUI log and waits for new activity. Failures don't raise the error
 banner because the user didn't ask for this compaction.
 
 Acceptance tests: idle-state transitions (phase idle → `idle_since`, active → cleared and
 `auto_compacted` reset, active during an in-flight compaction keeps the flag); eligibility (disabled,
 below minutes, below the token floor, already compacted, running, live work); the in-flight steps
-(ack, compact work seen and gone); the setting round-trips through `gpui_settings.json` with
+(ack; only our terminal marker ends the flight, also before the ack or from a snapshot; no
+timeout across many ticks); core: setup failures settle with one `CompactFailed`; the setting round-trips through `gpui_settings.json` with
 clamping. Live behaviour against a real CLI is a manual check.
 
 ## Voice (desktop only)

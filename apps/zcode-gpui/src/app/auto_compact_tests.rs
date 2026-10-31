@@ -76,7 +76,7 @@ fn harness(enabled: bool, subscribed: bool) -> Harness {
         };
         c.config.provider = "p".into();
         c.config.model = "m".into();
-        c.note_control(false, false, t0);
+        c.note_control(false, t0);
         s.conversations.insert(SID.into(), c);
     });
     Harness { state, app, rx, t0 }
@@ -97,8 +97,9 @@ impl Harness {
     }
 
     fn flight(&mut self) -> Option<AutoCompactFlight> {
-        self.app
-            .update_entity(&self.state, |s, _| s.conversations[SID].auto_compact)
+        self.app.update_entity(&self.state, |s, _| {
+            s.conversations[SID].auto_compact.clone()
+        })
     }
 }
 
@@ -119,7 +120,11 @@ fn an_idle_subscribed_conversation_is_compacted_once() {
     let lines = h.sent();
     assert_eq!(compacts(&lines), 1);
     assert_eq!(lines[0]["params"]["sessionId"], SID);
-    assert_eq!(h.flight(), Some(AutoCompactFlight::Sent));
+    let command_id = lines[0]["params"]["commandId"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(h.flight(), Some(AutoCompactFlight::Sent { command_id }));
     h.tick(51);
     assert_eq!(compacts(&h.sent()), 0, "no second send while in flight");
 }
@@ -192,26 +197,38 @@ fn a_rejected_ack_is_logged_not_bannered_and_ends_the_flight() {
 }
 
 #[test]
-fn an_accepted_ack_runs_until_the_compact_work_ends() {
+fn an_accepted_ack_runs_until_its_terminal_marker_however_long_it_takes() {
     let _guard = RUNTIME_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut h = harness(true, true);
     h.tick(50);
-    let id = h.sent()[0]["id"].as_u64().unwrap();
+    let line = h.sent().remove(0);
+    let id = line["id"].as_u64().unwrap();
+    let command_id = line["params"]["commandId"].as_str().unwrap().to_string();
     h.app.update_entity(&h.state, |s, cx| {
         let key = s.workspaces[0].key.clone();
         s.handle_response(&key, id, Some(json!({ "status": "accepted" })), None, cx);
     });
-    assert!(matches!(
-        h.flight(),
-        Some(AutoCompactFlight::Running {
-            seen_work: false,
-            ..
-        })
-    ));
+    let running = Some(AutoCompactFlight::Running {
+        command_id: command_id.clone(),
+    });
+    assert_eq!(h.flight(), running);
+    // No timeout: a slow compaction stays in flight across many ticks.
+    h.tick(90);
+    assert_eq!(h.flight(), running);
     h.app.update_entity(&h.state, |s, _| {
-        let c = s.conversations.get_mut(SID).unwrap();
-        c.apply_control(&json!({ "phase": "idle", "activeWorks": [{ "kind": "compact" }] }));
-        c.apply_control(&json!({ "phase": "idle", "activeWorks": [] }));
+        s.conversations.get_mut(SID).unwrap().apply_deltas(&[json!({
+            "op": "row.upserted",
+            "row": {
+                "rowId": 40,
+                "kind": "timelineMarker",
+                "sourceCommandId": command_id,
+                "marker": { "type": "compact", "origin": "manual", "status": "success" },
+            },
+        })]);
     });
     assert_eq!(h.flight(), None);
+    h.tick(91);
+    h.app.update_entity(&h.state, |s, _| {
+        assert!(s.log.iter().any(|l| l.contains("finished (success)")));
+    });
 }

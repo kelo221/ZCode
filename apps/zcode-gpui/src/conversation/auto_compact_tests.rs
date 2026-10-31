@@ -25,7 +25,7 @@ fn idle(t0: Instant) -> ConversationState {
         context_window: window(80_000.),
         ..Default::default()
     };
-    c.note_control(false, false, t0);
+    c.note_control(false, t0);
     c
 }
 
@@ -37,12 +37,12 @@ fn later(t0: Instant, minutes: u64) -> Instant {
 fn leaving_the_active_phase_starts_the_idle_clock_once() {
     let t0 = Instant::now();
     let mut c = ConversationState::default();
-    c.note_control(true, false, t0);
+    c.note_control(true, t0);
     assert_eq!(c.idle_since, None);
-    c.note_control(false, false, t0);
+    c.note_control(false, t0);
     assert_eq!(c.idle_since, Some(t0));
     // Later idle updates keep the first idle instant.
-    c.note_control(false, false, later(t0, 1));
+    c.note_control(false, later(t0, 1));
     assert_eq!(c.idle_since, Some(t0));
 }
 
@@ -51,7 +51,7 @@ fn a_new_run_clears_idle_and_the_compacted_flag() {
     let t0 = Instant::now();
     let mut c = idle(t0);
     c.auto_compacted = true;
-    c.note_control(true, false, later(t0, 1));
+    c.note_control(true, later(t0, 1));
     assert_eq!(c.idle_since, None);
     assert!(!c.auto_compacted);
 }
@@ -101,8 +101,8 @@ fn not_due_twice_in_one_idle_stretch() {
     c.auto_compact = None; // finished
     assert!(!c.auto_compact_due(ON, later(t0, 120)));
     // New activity re-arms it.
-    c.note_control(true, false, later(t0, 121));
-    c.note_control(false, false, later(t0, 122));
+    c.note_control(true, later(t0, 121));
+    c.note_control(false, later(t0, 122));
     assert!(c.auto_compact_due(ON, later(t0, 172)));
 }
 
@@ -111,7 +111,7 @@ fn not_due_while_running_or_with_live_work() {
     let t0 = Instant::now();
     let mut c = idle(t0);
     c.phase = "running".into();
-    c.note_control(true, false, later(t0, 60));
+    c.note_control(true, later(t0, 60));
     assert!(!c.auto_compact_due(ON, later(t0, 60)));
 
     let mut c = idle(t0);
@@ -122,33 +122,66 @@ fn not_due_while_running_or_with_live_work() {
     assert!(!c.auto_compact_due(ON, later(t0, 60)));
 }
 
+fn sent(id: &str) -> Option<AutoCompactFlight> {
+    Some(AutoCompactFlight::Sent {
+        command_id: id.into(),
+    })
+}
+
+fn running(id: &str) -> Option<AutoCompactFlight> {
+    Some(AutoCompactFlight::Running {
+        command_id: id.into(),
+    })
+}
+
+fn marker(command_id: &str, status: &str) -> serde_json::Value {
+    json!({
+        "rowId": 9,
+        "kind": "timelineMarker",
+        "sourceCommandId": command_id,
+        "marker": { "type": "compact", "origin": "manual", "status": status },
+    })
+}
+
 #[test]
-fn the_compaction_itself_is_not_new_activity() {
+fn only_our_terminal_marker_ends_the_flight() {
     let t0 = Instant::now();
     let mut c = idle(t0);
     c.begin_auto_compact();
-    c.auto_compact = Some(AutoCompactFlight::Sent);
-    // The CLI may report the work before the ack arrives.
-    c.note_control(false, true, later(t0, 50));
-    assert!(matches!(
-        c.auto_compact,
-        Some(AutoCompactFlight::Running {
-            seen_work: true,
-            ..
-        })
-    ));
-    c.note_auto_compact_ack(true, later(t0, 50));
-    assert!(matches!(
-        c.auto_compact,
-        Some(AutoCompactFlight::Running {
-            seen_work: true,
-            ..
-        })
-    ));
-    c.note_control(false, false, later(t0, 51));
+    c.auto_compact = running("cmd-1");
+    c.note_compact_marker(&marker("cmd-1", "running"));
+    assert_eq!(c.auto_compact, running("cmd-1"), "running is not terminal");
+    c.note_compact_marker(&marker("someone-else", "success"));
+    assert_eq!(c.auto_compact, running("cmd-1"), "another command's marker");
+    c.note_compact_marker(&marker("cmd-1", "noop"));
     assert_eq!(c.auto_compact, None);
+    assert_eq!(c.auto_compact_outcome.as_deref(), Some("noop"));
     assert!(c.auto_compacted);
     assert!(!c.auto_compact_due(ON, later(t0, 200)));
+}
+
+#[test]
+fn a_marker_before_the_ack_ends_the_flight_and_the_late_ack_is_ignored() {
+    let t0 = Instant::now();
+    let mut c = idle(t0);
+    c.begin_auto_compact();
+    c.auto_compact = sent("cmd-2");
+    c.apply_deltas(&[json!({ "op": "row.appended", "row": marker("cmd-2", "failed") })]);
+    assert_eq!(c.auto_compact, None);
+    assert_eq!(c.auto_compact_outcome.as_deref(), Some("failed"));
+    c.note_auto_compact_ack(true);
+    assert_eq!(c.auto_compact, None);
+}
+
+#[test]
+fn a_resync_snapshot_carrying_the_marker_ends_the_flight() {
+    let t0 = Instant::now();
+    let mut c = idle(t0);
+    c.begin_auto_compact();
+    c.auto_compact = running("cmd-3");
+    c.apply_snapshot(&json!({ "rows": { "window": [marker("cmd-3", "success")] } }));
+    assert_eq!(c.auto_compact, None);
+    assert_eq!(c.auto_compact_outcome.as_deref(), Some("success"));
 }
 
 #[test]
@@ -156,17 +189,11 @@ fn ack_moves_sent_to_running_and_rejection_ends_the_flight() {
     let t0 = Instant::now();
     let mut c = idle(t0);
     c.begin_auto_compact();
-    c.auto_compact = Some(AutoCompactFlight::Sent);
-    c.note_auto_compact_ack(true, t0);
-    assert_eq!(
-        c.auto_compact,
-        Some(AutoCompactFlight::Running {
-            seen_work: false,
-            since: t0
-        })
-    );
-    c.auto_compact = Some(AutoCompactFlight::Sent);
-    c.note_auto_compact_ack(false, t0);
+    c.auto_compact = sent("cmd-4");
+    c.note_auto_compact_ack(true);
+    assert_eq!(c.auto_compact, running("cmd-4"));
+    c.auto_compact = sent("cmd-4");
+    c.note_auto_compact_ack(false);
     assert_eq!(c.auto_compact, None);
     assert!(c.auto_compacted, "no retry until new activity");
 }
@@ -176,7 +203,7 @@ fn a_run_starting_while_resuming_cancels_the_compaction() {
     let t0 = Instant::now();
     let mut c = idle(t0);
     c.begin_auto_compact();
-    c.note_control(true, false, later(t0, 51));
+    c.note_control(true, later(t0, 51));
     assert_eq!(c.auto_compact, None);
     assert!(!c.auto_compacted);
 }

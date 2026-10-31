@@ -1590,6 +1590,81 @@ describe("AgentRuntime manual compact", () => {
     );
   });
 
+  describe("manual compact always settles its command", () => {
+    function createSettleRuntime(name: string) {
+      const sessionId = createSessionId(name);
+      const eventStore = createTestSessionEventStore();
+      const runtime = createTestAgentRuntime(
+        sessionId,
+        {
+          systemPrompt: "You are a compact settle test agent.",
+          workingDirectory: `/tmp/zcode-${name}`,
+        },
+        {
+          eventStore,
+          modelFactory: createTestModelFactory(
+            withStreamTextFromGenerateText({
+              async generateText() {
+                return {
+                  finishReason: "stop",
+                  text: "normal response",
+                  usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+                };
+              },
+            }) as never,
+          ),
+        },
+      );
+      return { eventStore, runtime, sessionId };
+    }
+
+    it("fails the started operation when setup throws before the retry loop", async () => {
+      const { eventStore, runtime, sessionId } = createSettleRuntime("runtime-compact-settle-setup");
+      await runtime.executeTurn("first settle setup");
+      await runtime.executeTurn("second settle setup");
+      (runtime as unknown as { initializeMcp: () => Promise<void> }).initializeMcp = async () => {
+        throw new Error("mcp init exploded");
+      };
+
+      await expect(
+        runtime.executeTurn("/compact", undefined, { inputId: "cmd-settle-setup" }),
+      ).rejects.toBeDefined();
+
+      const events = await eventStore.getEvents(sessionId);
+      const started = events.filter((event) => event.type === SessionEventType.CompactStarted);
+      const failed = events.filter((event) => event.type === SessionEventType.CompactFailed);
+      expect(started).toHaveLength(1);
+      expect(failed).toHaveLength(1);
+      const failedPayload = failed[0]!.payload as CompactTimelinePayload;
+      expect(failedPayload.operationId).toBe(
+        (started[0]!.payload as CompactTimelinePayload).operationId,
+      );
+      expect(failedPayload.sourceCommandId).toBe("cmd-settle-setup");
+      expect(failedPayload.status).toBe(CompactTimelineStatus.Failed);
+    });
+
+    it("emits a failed lifecycle when the compact throws before starting", async () => {
+      const { eventStore, runtime, sessionId } = createSettleRuntime("runtime-compact-settle-early");
+      await runtime.executeTurn("first early setup");
+      (
+        runtime as unknown as { compactActiveConversation: () => Promise<never> }
+      ).compactActiveConversation = async () => {
+        throw new Error("selection exploded");
+      };
+
+      await expect(
+        runtime.executeTurn("/compact", undefined, { inputId: "cmd-settle-early" }),
+      ).rejects.toBeDefined();
+
+      const events = await eventStore.getEvents(sessionId);
+      const failed = events.filter((event) => event.type === SessionEventType.CompactFailed);
+      expect(failed).toHaveLength(1);
+      expect((failed[0]!.payload as CompactTimelinePayload).sourceCommandId).toBe(
+        "cmd-settle-early",
+      );
+    });
+  });
+
   it("persists a compact boundary that resume uses instead of stale pre-compact history", async () => {
     const sessionId = createSessionId("runtime-compact-resume");
     const store = createRecordingSessionStore();

@@ -85,6 +85,8 @@ pub struct ConversationState {
     /// Auto-compacted during this idle stretch; cleared when a new run starts.
     pub(crate) auto_compacted: bool,
     pub(crate) auto_compact: Option<crate::conversation::auto_compact::AutoCompactFlight>,
+    /// Terminal marker status of the last auto-compaction; the maintenance tick logs and clears it.
+    pub(crate) auto_compact_outcome: Option<String>,
 }
 
 /// V4 `sessionPhaseSchema` phases during which a turn is live.
@@ -195,6 +197,7 @@ impl ConversationState {
                 self.rows.clear();
                 for r in window {
                     let id = r.get("rowId").and_then(Value::as_u64).unwrap_or(0);
+                    self.note_compact_marker(r);
                     self.rows.insert(id, Row::from_value(r));
                 }
             }
@@ -238,6 +241,7 @@ impl ConversationState {
                         if appended {
                             self.first_row_id.get_or_insert(id);
                         }
+                        self.note_compact_marker(r);
                         self.rows.insert(id, Row::from_value(r));
                     }
                 }

@@ -2,24 +2,33 @@
 //! auto-compaction"): the maintenance tick starts a compaction for idle
 //! conversations whose model has it enabled, resumes the session first when
 //! the release sweep or the reaper dropped it, and settles the compact ack.
+//! Completion is the terminal compact marker row tagged with the command id
+//! (`conversation/auto_compact.rs` `note_compact_marker`); there is no timeout.
 
 use crate::app::store::AppState;
 use crate::backend::workspace::Pending;
 use crate::conversation::auto_compact::AutoCompactFlight;
 use gpui::Context;
 use serde_json::{Value, json};
-use std::time::Instant;
-
-/// A `Running` flight whose compaction never showed up in `activeWorks`
-/// ends after this long. The CLI lists it right after the ack; this only
-/// stops a lost lifecycle event from pinning the subscription forever.
-const UNSEEN_RUNNING_LIMIT: std::time::Duration = crate::app::conversation_release::KEEP_WARM;
 
 impl AppState {
     /// One maintenance pass: drive every flight one step, then start new ones.
-    pub(crate) fn run_auto_compaction(&mut self, now: Instant, cx: &mut Context<Self>) {
+    pub(crate) fn run_auto_compaction(&mut self, now: std::time::Instant, cx: &mut Context<Self>) {
         let mut flying = Vec::new();
         let mut due = Vec::new();
+        let mut settled = Vec::new();
+        for (sid, c) in self.conversations.iter_mut() {
+            if let Some(outcome) = c.auto_compact_outcome.take() {
+                settled.push((sid.clone(), outcome));
+            }
+        }
+        for (sid, outcome) in settled {
+            let line = format!("auto-compact: {sid} finished ({outcome})");
+            self.push_log(match outcome.as_str() {
+                "failed" | "cancelled" => format!("warn: {line}"),
+                _ => line,
+            });
+        }
         for (sid, c) in &self.conversations {
             // Subagent children are compacted by their own runtime.
             if self.child_owner.contains_key(sid) {
@@ -41,7 +50,7 @@ impl AppState {
             }
         }
         for sid in flying {
-            self.advance_auto_compact(&sid, now, cx);
+            self.advance_auto_compact(&sid, cx);
         }
         for sid in due {
             if self.session_workspace(&sid).is_none() {
@@ -51,7 +60,7 @@ impl AppState {
                 c.begin_auto_compact();
             }
             self.push_log(format!("auto-compact: starting for idle session {sid}"));
-            self.advance_auto_compact(&sid, now, cx);
+            self.advance_auto_compact(&sid, cx);
         }
     }
 
@@ -67,14 +76,14 @@ impl AppState {
             .map(|ws| ws.key.clone())
     }
 
-    fn advance_auto_compact(&mut self, sid: &str, now: Instant, cx: &mut Context<Self>) {
+    fn advance_auto_compact(&mut self, sid: &str, cx: &mut Context<Self>) {
         let Some(ws_key) = self.session_workspace(sid) else {
             return self.give_up_auto_compact(sid, "session has no workspace");
         };
         let Some(c) = self.conversations.get(sid) else {
             return;
         };
-        let (flight, subscribed) = (c.auto_compact, c.subscribed);
+        let (flight, subscribed) = (c.auto_compact.clone(), c.subscribed);
         let Some(ws) = self.ws(&ws_key) else {
             return;
         };
@@ -118,23 +127,14 @@ impl AppState {
                 // CLI gateway (resumePersistedSession); compact needs it resident.
                 self.subscribe_conversation(&ws_key, sid);
             }
-            Some(AutoCompactFlight::Sent) if !acking => {
+            Some(AutoCompactFlight::Sent { .. }) if !acking => {
                 self.give_up_auto_compact(sid, "agent connection lost before the ack");
             }
-            Some(AutoCompactFlight::Sent) => {}
+            Some(AutoCompactFlight::Sent { .. }) => {}
+            // The marker can only arrive over the subscription; without it
+            // (agent exited, conversation dropped) the outcome is unknowable.
             Some(AutoCompactFlight::Running { .. }) if !subscribed => {
                 self.give_up_auto_compact(sid, "conversation unsubscribed mid-compaction");
-            }
-            Some(AutoCompactFlight::Running {
-                seen_work: false,
-                since,
-            }) if now.saturating_duration_since(since) >= UNSEEN_RUNNING_LIMIT => {
-                if let Some(c) = self.conversations.get_mut(sid) {
-                    c.auto_compact = None;
-                }
-                self.push_log(format!(
-                    "auto-compact: {sid} accepted but never reported running; releasing"
-                ));
             }
             Some(AutoCompactFlight::Running { .. }) => {}
         }
@@ -150,17 +150,23 @@ impl AppState {
     }
 
     fn send_auto_compact(&mut self, ws_key: &str, sid: &str) {
+        let command_id = crate::backend::launcher::new_command_id();
         if let Some(c) = self.conversations.get_mut(sid) {
-            c.auto_compact = Some(AutoCompactFlight::Sent);
+            c.auto_compact = Some(AutoCompactFlight::Sent {
+                command_id: command_id.clone(),
+            });
         }
-        let sent = self.send_command(
-            ws_key,
-            Some(sid.to_string()),
+        let params = crate::backend::session_cmds::command_params(
+            &self.client_id,
+            Some(sid),
             "compact",
             json!({}),
             None,
-            Pending::AutoCompact(sid.to_string()),
+            None,
+            command_id,
+            crate::backend::launcher::now_ms(),
         );
+        let sent = self.send_envelope(ws_key, params, Pending::AutoCompact(sid.to_string()));
         if !sent {
             self.give_up_auto_compact(sid, "compact command could not be written");
         } else {
@@ -197,7 +203,7 @@ impl AppState {
         let accepted =
             error.is_none() && crate::backend::submission::ack_succeeded(result.as_ref());
         if let Some(c) = self.conversations.get_mut(&sid) {
-            c.note_auto_compact_ack(accepted, Instant::now());
+            c.note_auto_compact_ack(accepted);
         }
         if !accepted {
             let field = |v: &Option<Value>, k: &str| {
