@@ -161,6 +161,11 @@ export interface ExploreSubagentPortOptions {
   getAllowedTools?: (profile: AgentProfile) => readonly string[];
   inactivityTimeoutMs?: number;
   autoBackgroundMs?: number;
+  /**
+   * subagent 内派发的孙 agent：后台请求按前台执行、不能被转后台。父 subagent 结束后没有
+   * 会话接收 `<task-notification>`，后台孙 agent 的结果会丢失。
+   */
+  foregroundOnly?: boolean;
   /** 缺席时 `isolation: "worktree"` 在启动前明确报错，不在父 checkout 中运行。 */
   worktreeIsolation?: WorktreeIsolationPort;
   logger?: Logger;
@@ -174,7 +179,7 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
   // 父 turn，而 run() 里 race 胜出后的 detachParent 要晚几个 microtask，child 会被一起取消。
   const foregroundParentDetachers = new Map<string, () => void>();
   const detachForegroundAndRequestBackground = (taskId: string): boolean => {
-    if (borrowedForegroundAgentIds.has(taskId)) return false;
+    if (options.foregroundOnly || borrowedForegroundAgentIds.has(taskId)) return false;
     const task = registry.get(taskId);
     if (!task || task.isBackgrounded || isTerminalRuntimeTask(task)) return false;
     foregroundParentDetachers.get(taskId)?.();
@@ -194,7 +199,8 @@ export function createExploreSubagentPort(options: ExploreSubagentPortOptions): 
       const { profile, request } = resolveAgentProfileForRequest(getProfiles(), rawRequest);
       const executionRequest = toSubagentExecutionRequest(request);
       const backgroundRequested =
-        rawRequest.runInBackground === true || profile.background === true;
+        !options.foregroundOnly &&
+        (rawRequest.runInBackground === true || profile.background === true);
       if (backgroundRequested) {
         if (launchOptions?.modelOverride?.background === "deny") {
           // 单次执行的模型与动态鉴权不能脱离父 loop 生命周期进入后台。

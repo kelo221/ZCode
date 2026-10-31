@@ -55,7 +55,10 @@ function registerRuntimeBuiltInTools(runtime: AgentRuntimeInternal, deps: AgentR
     bashTimeoutPolicy: runtime.config.bashTimeoutPolicy,
     includeSkill: Boolean(runtime.skillPort),
     includeAgent: Boolean(runtime.subagentPort),
-    includeSendMessage: runtime.subagentPort?.sendMessage !== undefined,
+    // subagent 的孙 agent 只在前台运行，SendMessage/ListAgents 对它没有意义。
+    includeSendMessage:
+      runtime.config.taskType !== "subagent_child" &&
+      runtime.subagentPort?.sendMessage !== undefined,
     includeRespondToCoordinator:
       runtime.config.taskType === "subagent_child" && Boolean(deps.coordinatorResponsePort),
     // submit_result 只在注入了 workflowSubmitPort 的 workflow actor 会话注册。以端口存在为门，

@@ -43,7 +43,10 @@ import {
   extractRequiredMcpServerNames,
   matchesRequiredMcpServer,
 } from "../../subagent/mcp-config.js";
-import { mirrorSubagentToolEvent } from "../../subagent/tool-event-mirror.js";
+import {
+  isMirroredSubagentToolEvent,
+  mirrorSubagentToolEvent,
+} from "../../subagent/tool-event-mirror.js";
 import { isBuiltInExploreAgentProfile } from "../../subagent/profile.js";
 import {
   buildSubagentChildDisallowRules,
@@ -76,11 +79,13 @@ export function createDefaultSubagentPort(
   if (this.config.subagents?.enabled === false) {
     return undefined;
   }
+  const nested = this.config.taskType === "subagent_child";
 
   return createExploreSubagentPort({
     logger: this.logger,
     inactivityTimeoutMs: this.config.subagents?.inactivityTimeoutMs,
-    autoBackgroundMs: this.config.subagents?.autoBackgroundMs,
+    autoBackgroundMs: nested ? undefined : this.config.subagents?.autoBackgroundMs,
+    foregroundOnly: nested,
     outputRootDir: this.config.subagents?.outputRootDir,
     getAgentDefinitions: this.getAgentDefinitions,
     builtInModelSelectionOverrides: this.config.subagents?.builtInModelSelectionOverrides,
@@ -359,9 +364,13 @@ export function createDefaultSubagentPort(
             toolDisallowlist: this.config.toolDisallowlist,
             embeddedSearchBackend: this.config.embeddedSearchBackend,
             nativeSearchEnhancementsEnabled: this.config.nativeSearchEnhancementsEnabled,
+            // 非 Explore 的 subagent 可以派发前台 Explore（见 getAgentDefinitions 与 runner
+            // foregroundOnly）；Explore 自己不再派发，深度固定两层。
             subagents: {
               backgroundBashMaxMs: this.config.subagents?.backgroundBashMaxMs,
-              enabled: false,
+              enabled: !builtInExplore && this.config.taskType !== "subagent_child",
+              inactivityTimeoutMs: this.config.subagents?.inactivityTimeoutMs,
+              outputRootDir: this.config.subagents?.outputRootDir,
             },
             mcp: childMcpAccess.config,
           },
@@ -410,6 +419,12 @@ export function createDefaultSubagentPort(
             memoryRoot: persistentMemory?.rootDir,
             mcpPort: childMcpAccess.port,
             skillPort: childSkillPort,
+            // 子 runtime 的 Agent 列表与 launch 解析都只看到内置 Explore（只读、不再派发）。
+            getAgentDefinitions: () => ({
+              activeAgents: this.getAgentDefinitions().activeAgents.filter(
+                isBuiltInExploreAgentProfile,
+              ),
+            }),
             artifactStore: deps.artifactStore,
             appVersion: this.appVersion,
             eventSink: {
@@ -424,6 +439,12 @@ export function createDefaultSubagentPort(
                   ...request.traceContext,
                   sessionId: request.sessionId,
                 });
+                // 孙 agent 的原始事件（sessionId 是孙会话）和 child 镜像出的孙工具活动只属于
+                // child transcript；再镜像会让主会话 timeline 出现孙 agent 的工具调用。
+                // 权限交互的镜像不带 source，仍逐层上送到主会话。
+                if (event.sessionId !== request.sessionId || isMirroredSubagentToolEvent(event)) {
+                  return;
+                }
                 const mirroredEvent = mirrorSubagentToolEvent(event, {
                   agentId: request.agentId,
                   agentType: request.agentType,
@@ -660,9 +681,12 @@ function resolveSubagentToolAllowlist(
         .map((tool) => tool.name),
       ...parentAllowedMcpToolNames,
     ];
+    // 非 Explore child 保留 Agent（只能派发前台 Explore）；Explore 与孙 agent 不再派发。
+    const mayDispatch =
+      !isBuiltInExploreAgentProfile(request.profile) && this.config.taskType !== "subagent_child";
     return appendCoordinatorResponseTool(
       [...new Set(availableToolNames)]
-        .filter((toolName) => !isSubagentDispatchToolName(toolName))
+        .filter((toolName) => mayDispatch || !isSubagentDispatchToolName(toolName))
         .filter((toolName) => filterSubagentChildToolNames([toolName], disallowedRules).length > 0),
       disallowedRules,
     );

@@ -38,6 +38,10 @@ import {
   type TestModelExecutionObservation,
 } from "./test-runtime-model.js";
 
+// 非 Explore 的 child 现在也有 Agent（可派发前台 Explore）；child 一定带 RespondToCoordinator。
+const isParentToolSet = (names: readonly string[]) =>
+  names.includes("Agent") && !names.includes("RespondToCoordinator");
+
 const exploreAgentPrompt = `You are GCode Explore, a file search and codebase research specialist for GCode CLI. You excel at thoroughly navigating and exploring codebases.
 
 === CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
@@ -500,7 +504,7 @@ describe("Explore subagent", () => {
           properties: { supportsNativeWebSearch: true },
           async generateText(request: any, observation) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               parentCallCount++;
               if (parentCallCount === 1) {
@@ -722,7 +726,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any, observation) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               parentCallCount++;
               if (parentCallCount === 1) {
@@ -825,7 +829,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               if (parentCallCount === 1) {
                 return {
@@ -917,7 +921,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (!toolNames.includes("Agent")) {
+            if (!isParentToolSet(toolNames)) {
               throw new Error("Ambiguous subagent_type must not launch a child agent");
             }
 
@@ -989,7 +993,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (!toolNames.includes("Agent")) {
+            if (!isParentToolSet(toolNames)) {
               throw new Error("Punctuation mismatch must not launch a child agent");
             }
 
@@ -1087,7 +1091,7 @@ describe("Explore subagent", () => {
           modelFactory: createTestModelFactory({
             async generateText(request: any) {
               const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-              if (toolNames.includes("Agent")) {
+              if (isParentToolSet(toolNames)) {
                 parentCallCount++;
                 if (parentCallCount === 1) {
                   return {
@@ -1214,7 +1218,7 @@ describe("Explore subagent", () => {
               abortSignal: request.abortSignal,
             });
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               if (parentCallCount === 1) {
                 return {
@@ -1318,7 +1322,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any, observation) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               parentCallCount++;
               if (parentCallCount === 1) {
@@ -1436,7 +1440,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -1550,7 +1554,7 @@ describe("Explore subagent", () => {
           modelFactory: createTestModelFactory({
             async generateText(request: any) {
               const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-              if (toolNames.includes("Agent")) {
+              if (isParentToolSet(toolNames)) {
                 parentCalls += 1;
                 return parentCalls === 1
                   ? {
@@ -1680,7 +1684,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -1838,7 +1842,7 @@ describe("Explore subagent", () => {
           modelFactory: createTestModelFactory({
             async generateText(request: any) {
               const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-              if (toolNames.includes("Agent")) {
+              if (isParentToolSet(toolNames)) {
                 parentRequests.push(request);
                 if (parentRequests.length === 1) {
                   return {
@@ -1924,7 +1928,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -1974,8 +1978,142 @@ describe("Explore subagent", () => {
     expect(childToolNames).toContain("Bash");
     expect(childToolNames).not.toContain("EnterPlanMode");
     expect(childToolNames).not.toContain("ExitPlanMode");
-    expect(childToolNames).not.toContain("Agent");
-    expect(childToolNames).not.toContain("Task");
+    // 非 Explore child 可以派发前台 Explore，但没有后台协作工具。
+    expect(childToolNames).toContain("Agent");
+    expect(childToolNames).not.toContain("SendMessage");
+    expect(childToolNames).not.toContain("ListAgents");
+  });
+
+  it("lets a non-Explore subagent run a foreground Explore that cannot dispatch further", async () => {
+    const sessionId = createSessionId("runtime-nested-explore");
+    const eventStore = createTestSessionEventStore();
+    const parentRequests: any[] = [];
+    const childRequests: any[] = [];
+    const grandchildRequests: any[] = [];
+    const liveEvents: any[] = [];
+
+    const runtime = createTestAgentRuntime(
+      sessionId,
+      {
+        mode: "build",
+        workingDirectory: "/workspace/project",
+        subagents: {
+          profiles: [
+            {
+              name: "wildcard-reviewer",
+              description: "Use every safe inherited tool.",
+              source: "project",
+              systemPrompt: "Review with inherited tools.",
+              tools: ["*"],
+            },
+          ],
+        },
+      },
+      {
+        eventStore,
+        modelFactory: createTestModelFactory({
+          async generateText(request: any) {
+            const toolNames: string[] = (request.tools ?? []).map((tool: any) => tool.name);
+            const usage = { inputTokens: 1, outputTokens: 1, totalTokens: 2 };
+            if (isParentToolSet(toolNames)) {
+              parentRequests.push(request);
+              return parentRequests.length === 1
+                ? {
+                    finishReason: "tool-calls",
+                    providerMetadata: undefined,
+                    text: "",
+                    toolCalls: [
+                      {
+                        id: "call_parent_agent",
+                        name: "Agent",
+                        input: {
+                          description: "review",
+                          prompt: "Review and explore.",
+                          subagent_type: "wildcard-reviewer",
+                        },
+                      },
+                    ],
+                    usage,
+                  }
+                : { finishReason: "stop", providerMetadata: undefined, text: "parent done", usage };
+            }
+            if (toolNames.includes("Agent")) {
+              childRequests.push(request);
+              return childRequests.length === 1
+                ? {
+                    finishReason: "tool-calls",
+                    providerMetadata: undefined,
+                    text: "",
+                    toolCalls: [
+                      {
+                        id: "call_child_agent",
+                        name: "Agent",
+                        input: {
+                          description: "explore",
+                          prompt: "Find the file.",
+                          subagent_type: "Explore",
+                          run_in_background: true,
+                        },
+                      },
+                    ],
+                    usage,
+                  }
+                : { finishReason: "stop", providerMetadata: undefined, text: "child done", usage };
+            }
+            grandchildRequests.push(request);
+            return grandchildRequests.length === 1
+              ? {
+                  finishReason: "tool-calls",
+                  providerMetadata: undefined,
+                  text: "",
+                  toolCalls: [
+                    {
+                      id: "call_grandchild_read",
+                      name: "Read",
+                      input: { file_path: "/workspace/project/missing.txt" },
+                    },
+                  ],
+                  usage,
+                }
+              : {
+                  finishReason: "stop",
+                  providerMetadata: undefined,
+                  text: "grandchild found it",
+                  usage,
+                };
+          },
+        } as never),
+      },
+    );
+
+    const unsubscribe = runtime.subscribeEvents({
+      onSessionEvent: (event) => {
+        liveEvents.push(event);
+      },
+    });
+    let result;
+    try {
+      result = await runtime.executeTurn("Review with a nested explorer");
+    } finally {
+      unsubscribe();
+    }
+
+    expect(result.response).toBe("parent done");
+    expect(grandchildRequests.length).toBe(2);
+    const grandchildTools = grandchildRequests[0].tools.map((tool: any) => tool.name);
+    expect(grandchildTools).not.toContain("Agent");
+    // run_in_background 被忽略：child 的第二次请求已拿到孙 agent 的最终答复。
+    const childFollowUp = JSON.stringify(childRequests[1].messages);
+    expect(childFollowUp).toContain("grandchild found it");
+    // child 只能看到内置 Explore。
+    const childListing = JSON.stringify(childRequests[0].messages);
+    expect(childListing).toContain("- Explore");
+    expect(childListing).not.toContain("- wildcard-reviewer");
+    // 孙 agent 的工具活动不进主会话 timeline。
+    const parentReadEvents = liveEvents.filter(
+      (event) => event.sessionId === sessionId && event.payload?.toolName === "Read",
+    );
+    expect(parentReadEvents).toHaveLength(0);
   });
 
   it("removes plan-mode tools from explicit custom subagent tool lists", async () => {
@@ -2006,7 +2144,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -2131,7 +2269,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               if (parentCallCount === 1) {
                 return {
@@ -2227,7 +2365,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -2353,7 +2491,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -2459,7 +2597,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -2544,7 +2682,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -2664,7 +2802,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 expect(toolNames).toContain(
@@ -2811,7 +2949,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -2903,7 +3041,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -2982,7 +3120,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -3131,7 +3269,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -3253,7 +3391,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -3381,7 +3519,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentRequests.push(request);
               if (parentRequests.length === 1) {
                 return {
@@ -3515,7 +3653,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any, observation) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               if (parentCallCount === 1) {
                 return {
@@ -3594,7 +3732,7 @@ describe("Explore subagent", () => {
           properties: { supportsNativeWebSearch: true },
           async generateText(request: any, observation) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               if (parentCallCount === 1) {
                 return {
@@ -3704,7 +3842,7 @@ describe("Explore subagent", () => {
           properties: { contextWindow: 128_000 },
           async generateText(request: any, observation) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               if (parentCallCount <= 2) {
                 return {
@@ -4677,7 +4815,7 @@ describe("Explore subagent", () => {
           createTestModelFactory({
             async generateText(request: any) {
               const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-              if (toolNames.includes("Agent")) {
+              if (isParentToolSet(toolNames)) {
                 parentRequests.push(request);
                 parentCallCount++;
                 if (parentCallCount === 1) {
@@ -4763,7 +4901,7 @@ describe("Explore subagent", () => {
           async *streamText(request: any) {
             streamRequests.push(request);
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               if (parentCallCount === 1) {
                 yield {
@@ -4849,7 +4987,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any, observation) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               if (parentCallCount === 1) {
                 return {
@@ -4925,7 +5063,7 @@ describe("Explore subagent", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               parentRequests.push(request);
               if (parentCallCount === 1) {

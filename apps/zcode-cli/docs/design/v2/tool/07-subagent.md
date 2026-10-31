@@ -165,7 +165,8 @@ AGENTS.md；Explore、显式关闭注入的 custom agent 以及父 snapshot 没�
 - MCP tools 对所有 agents 可用。
 - `ExitPlanMode` 只在 plan-mode agent 中特殊允许。
 - `TaskOutput`、`ExitPlanMode`、`EnterPlanMode`、`AskUserQuestion`、`TaskStop` 等默认禁止给 subagent。
-- 禁止 subagent 再调用 `Agent`，避免递归。
+- ZCode Fork（2026-10-31）：非 Explore 的 subagent 可以调用 `Agent`，但只能派发内置 Explore，且只能前台运行（`run_in_background` 与自动转后台都不生效），这样孙 agent 不会活得比它的父 subagent 久。内置 Explore 自己没有 `Agent`，所以深度固定为两层，不会递归。子 runtime 的 agent 列表只含 Explore；孙 agent 的工具活动只出现在父 subagent 的 transcript，不再镜像到主会话 timeline（权限交互仍逐层镜像到主会话）。
+  - 仅当 profile 继承工具（`tools` 为空或 `*`），或显式列出 `Agent`/`Task` 时才有该工具。
 - 自定义 agent 继承同一批 disallowed tools。
 - async agent 只能使用后台 agent 允许工具集，包括 read/search/web fetch/shell/edit/write/notebook/skill/tool search/worktree enter-exit 等。
 - in-process teammate 有额外允许的 task tools 和 `SendMessage`，用于 team 协作。

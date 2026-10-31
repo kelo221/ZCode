@@ -15,6 +15,10 @@ import { MemoryFileSystem } from "./memory-test-utils.js";
 import { createTestSessionEventStore } from "./test-event-store.js";
 import { createTestModelFactory } from "./test-runtime-model.js";
 
+// 非 Explore 的 child 现在也有 Agent（可派发前台 Explore）；child 一定带 RespondToCoordinator。
+const isParentToolSet = (names: readonly string[]) =>
+  names.includes("Agent") && !names.includes("RespondToCoordinator");
+
 describe("subagent tool event projection", () => {
   it("mirrors child blocking interactions into the parent live projection", async () => {
     const sessionId = createSessionId("runtime-subagent-interaction-events");
@@ -52,7 +56,7 @@ describe("subagent tool event projection", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               if (parentCallCount === 1) {
                 return {
@@ -204,7 +208,7 @@ describe("subagent tool event projection", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               if (parentCallCount === 1) {
                 return {
@@ -358,7 +362,7 @@ describe("subagent tool event projection", () => {
         modelFactory: createTestModelFactory({
           async generateText(request: any) {
             const toolNames = (request.tools ?? []).map((tool: any) => tool.name);
-            if (toolNames.includes("Agent")) {
+            if (isParentToolSet(toolNames)) {
               parentCallCount++;
               if (parentCallCount === 1) {
                 return {

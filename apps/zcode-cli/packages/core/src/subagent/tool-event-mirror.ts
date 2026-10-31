@@ -35,6 +35,11 @@ interface SubagentToolEventMirrorContext extends SubagentInteractionOriginContex
   toolNameByChildToolCallId?: Map<string, string>;
 }
 
+/** 已经是某个 subagent 镜像出的工具活动（权限交互镜像不算）。 */
+export function isMirroredSubagentToolEvent(event: SessionEvent): boolean {
+  return asRecord(event.payload).source === SUBAGENT_EVENT_SOURCE;
+}
+
 export function mirrorSubagentToolEvent(
   event: SessionEvent,
   context: SubagentToolEventMirrorContext,
